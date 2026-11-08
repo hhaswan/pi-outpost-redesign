@@ -178,7 +178,7 @@ function RenameField({ initial, onCommit, onCancel }: { initial: string; onCommi
       }}
       placeholder="Session name (empty to clear)"
       aria-label="Session name"
-      className="w-full rounded-md border border-zinc-400 bg-transparent px-2 py-1 text-sm outline-none placeholder:text-zinc-400 dark:border-zinc-600 dark:placeholder:text-zinc-600"
+      className="w-full rounded-full border border-zinc-400 bg-transparent px-2 py-1 text-sm outline-none placeholder:text-zinc-400 dark:border-zinc-600 dark:placeholder:text-zinc-600"
     />
   );
 }
@@ -451,7 +451,7 @@ function SessionMenu({
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search sessions"
               aria-label="Search sessions"
-              className="w-full rounded-md border border-zinc-300 bg-transparent px-2 py-1 text-sm outline-none placeholder:text-zinc-400 focus:border-zinc-500 dark:border-zinc-700 dark:placeholder:text-zinc-600 dark:focus:border-zinc-500"
+              className="w-full rounded-full border border-zinc-300 bg-transparent px-2 py-1 text-sm outline-none placeholder:text-zinc-400 focus:border-zinc-500 dark:border-zinc-700 dark:placeholder:text-zinc-600 dark:focus:border-zinc-500"
             />
             <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
               Searches names and everything said in a session · ✎ to rename

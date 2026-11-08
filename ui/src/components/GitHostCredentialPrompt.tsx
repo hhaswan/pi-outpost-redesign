@@ -39,7 +39,7 @@ export function GitHostCredentialPrompt({
 
   if (auth.scheme === "ssh") {
     return (
-      <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+      <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
         <p className="font-medium">{host} refused SSH authentication</p>
         <p className="mt-1">pi-outpost does not keep SSH keys. Give the server a key or an agent for this host, or use the repository's HTTPS address. <a href={GIT_CREDENTIALS_DOCS} target="_blank" rel="noreferrer" className="underline">How to configure Git credentials</a></p>
       </div>
@@ -48,7 +48,7 @@ export function GitHostCredentialPrompt({
 
   if (locked) {
     return (
-      <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+      <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
         <p className="font-medium">{host} requires authentication</p>
         <p className="mt-1">Credentials are locked on this server: ask whoever runs it to configure them. <a href={GIT_CREDENTIALS_DOCS} target="_blank" rel="noreferrer" className="underline">How to configure Git credentials</a></p>
       </div>
@@ -60,7 +60,7 @@ export function GitHostCredentialPrompt({
   return (
     <form
       aria-label={`Credentials for ${host}`}
-      className="space-y-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-950 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100"
+      className="space-y-3 rounded-2xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-950 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100"
       onSubmit={(event) => {
         event.preventDefault();
         if (saving || !username.trim() || !secret) return;
@@ -73,11 +73,11 @@ export function GitHostCredentialPrompt({
         <p className="mt-1 text-sky-900/80 dark:text-sky-100/70">Enter a user name and a password or access token for this host. They are kept on the server, used for every repository on {host}, and never shown again.</p>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
-        <label className="block"><span className="font-medium">User name</span><input aria-label="Git user name" autoComplete="off" value={username} onChange={(event) => setUsername(event.target.value)} className="mt-1 w-full rounded-md border bg-white px-2 py-1.5 text-sm text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100" /></label>
-        <label className="block"><span className="font-medium">Password or token</span><input aria-label="Git password or token" type="password" autoComplete="new-password" value={secret} onChange={(event) => setSecret(event.target.value)} className="mt-1 w-full rounded-md border bg-white px-2 py-1.5 text-sm text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100" /></label>
+        <label className="block"><span className="font-medium">User name</span><input aria-label="Git user name" autoComplete="off" value={username} onChange={(event) => setUsername(event.target.value)} className="mt-1 w-full rounded-full border bg-white px-2 py-1.5 text-sm text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100" /></label>
+        <label className="block"><span className="font-medium">Password or token</span><input aria-label="Git password or token" type="password" autoComplete="new-password" value={secret} onChange={(event) => setSecret(event.target.value)} className="mt-1 w-full rounded-full border bg-white px-2 py-1.5 text-sm text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100" /></label>
       </div>
       {failure ? <p role="alert" className="text-red-700 dark:text-red-400">{failure}</p> : null}
-      <button type="submit" disabled={saving || !username.trim() || !secret} className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900">{saving ? "Saving…" : "Save and retry"}</button>
+      <button type="submit" disabled={saving || !username.trim() || !secret} className="rounded-full bg-zinc-900 px-3 py-1.5 font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 hover:opacity-80 transition-opacity">{saving ? "Saving…" : "Save and retry"}</button>
     </form>
   );
 }
@@ -115,7 +115,7 @@ export function GitHostList({
                   type="button"
                   disabled={busy && pending?.host === entry.host}
                   aria-label={`Remove the credential for ${hostLabel(entry.host)}`}
-                  className="shrink-0 rounded border px-2 py-1 text-[11px] disabled:opacity-50"
+                  className="shrink-0 rounded-full border px-2 py-1 text-[11px] disabled:opacity-50 hover:opacity-80 transition-opacity"
                   onClick={() => setPending({ host: entry.host, requestId: onRemove(entry.host) })}
                 >
                   {busy && pending?.host === entry.host ? "Removing…" : "Remove"}
