@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { randomId } from "./util/randomId";
-import type { McpManagementOperation, McpManagementReply } from "@pi-outpost/shared";
+import type { CliBridgeOperation, CliBridgeReply, McpManagementOperation, McpManagementReply } from "@pi-outpost/shared";
 import type { LoginEvent, LoginPrompt, OutpostChanges, OutpostUpdateNotice, PiPackageInfo, SandboxGrantDecision, SandboxGrantState, SessionSnapshot } from "@pi-outpost/shared";
 type PiPackageScope = PiPackageInfo["scope"];
 import type { ProjectAppearance, StructuredConformance } from "@pi-outpost/shared/structured-exchange/profile";
@@ -330,6 +330,7 @@ export interface OlderHistory {
 }
 
 export interface AgentState {
+  cliBridge: (CliBridgeReply & { loading: boolean }) | null;
   mcpManagement: (McpManagementReply & { loading: boolean }) | null;
   connected: boolean;
   /**
@@ -550,6 +551,7 @@ export interface LoginFlowState {
 }
 
 const initialState: AgentState = {
+  cliBridge: null,
   mcpManagement: null,
   login: null,
   connected: false,
@@ -648,6 +650,7 @@ type Action =
   | { type: "auth_retrying" }
   | { type: "server"; message: ServerMessage }
   | { type: "set_mcp_manager_open"; open: boolean }
+  | { type: "cli_bridge_started"; requestId: string }
   | { type: "mcp_management_started"; requestId: string }
   | { type: "login_started"; flowId: string; provider: string; method: "oauth" | "api_key" }
   | { type: "login_answered" }
@@ -783,6 +786,7 @@ function applySnapshot(state: AgentState, message: ServerMessage & { sessionId: 
       ? { piPackageLookup: null, piPackageChange: null, piPackageUpdate: null, mcpManagement: null, mcpManagerOpen: false }
       : {}),
     serverRestarting: false,
+    cliBridge: null,
     mcpManagement: null,
     mcpManagerOpen: false,
     restartNeeded: message.restartNeeded ?? [],
@@ -916,6 +920,7 @@ function followMoves(state: AgentState, moves: readonly [from: string, to: strin
 
 function reduce(state: AgentState, action: Action): AgentState {
   if (action.type === "set_mcp_manager_open") return { ...state, mcpManagerOpen: action.open };
+  if (action.type === "cli_bridge_started") return { ...state, cliBridge: { ...state.cliBridge, requestId: action.requestId, loading: true, error: undefined, submitted: undefined } };
   if (action.type === "mcp_management_started") return { ...state, mcpManagement: { ...state.mcpManagement, requestId: action.requestId, loading: true, error: undefined, message: undefined } };
   if (action.type === "connected") return { ...state, connected: true, authRequired: false };
   if (action.type === "workspace_switching") return { ...state, switching: true };
@@ -952,6 +957,7 @@ function reduce(state: AgentState, action: Action): AgentState {
         : state.openFile;
     const outcome = state.outcome?.status === "loading" ? { ...state.outcome, status: "error" as const, message: "Connection lost while loading Outcome." } : state.outcome;
     return { ...state, connected: false, switching: false, openFile, outcome,
+      cliBridge: null,
       mcpManagement: state.mcpManagement ? { ...state.mcpManagement, loading: false, error: state.mcpManagement.loading ? "Connection lost; refresh MCP status after reconnecting" : state.mcpManagement.error } : null };
   }
   // Fetched independently of the WS "hello" so it renders before the session is ready
@@ -1364,6 +1370,9 @@ function reduce(state: AgentState, action: Action): AgentState {
     }
     case "workspace_error":
       return { ...state, switching: false, errors: [...state.errors, message.message] };
+    case "cli_bridge_result":
+      if (state.cliBridge?.requestId !== message.requestId) return state;
+      return { ...state, cliBridge: { ...state.cliBridge, ...message, loading: false } };
     case "mcp_management_result":
       if (state.mcpManagement?.requestId !== message.requestId) return state;
       return { ...state, mcpManagement: { ...state.mcpManagement, ...message, loading: false, reloadRequired: message.reloadRequired ?? state.mcpManagement.reloadRequired } };
@@ -2901,6 +2910,12 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
     },
     setMcpManagerOpen: (open: boolean) => {
       dispatch({ type: "set_mcp_manager_open", open });
+    },
+    manageCliBridge: (operation: CliBridgeOperation) => {
+      if (!state.connected || (state.cliBridge?.loading && operation.action !== "list")) return;
+      const requestId = `cli-bridge:${randomId()}`;
+      dispatch({ type: "cli_bridge_started", requestId });
+      sendMessage({ type: "cli_bridge", requestId, operation });
     },
     manageMcp: (operation: McpManagementOperation) => {
       if (!state.connected) return;

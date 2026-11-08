@@ -93,6 +93,20 @@ describe("ActivityStrip", () => {
     expect(screen.queryByLabelText("Other project activity")).toBeNull();
   });
 
+  it("AmbiguousChildLifecycle: uncertainty never claims that background work finished", () => {
+    const workspace = { ...base.workspace!, activity: "working" as const, backgroundAgents: { running: 0, queued: 0, known: false } };
+    const { rerender } = render(<ActivityStrip state={{ ...base, workspace }} />);
+    expect(status()).toContain("Working");
+    expect(status()).toContain("Background agent activity uncertain");
+    expect(status()).not.toContain("Idle");
+    expect(status()).not.toContain("0 running");
+    expect(status()).not.toMatch(/all.*(done|finished|complete)/i);
+    rerender(<ActivityStrip state={{ ...base, workspace, connected: false }} />);
+    expect(status()).toContain("Disconnected · activity unknown");
+    expect(status()).not.toContain("Working");
+    expect(screen.queryByText(/Background agent/)).toBeNull();
+  });
+
   it("Context falls back to side-session label then session identity", () => {
     const { rerender } = render(<ActivityStrip state={{ ...base, sessionName: null, workspace: { ...base.workspace!, label: "Side review" } }} />);
     expect(status()).toContain("Side review");

@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { RenderedHtml } from "./RenderedHtml";
+import { ViewerErrorBoundary } from "./ViewerErrorBoundary";
 import { noopDispatch } from "../presentations/actions";
 import { RawBody } from "../presentations/builtin";
 import { selectPresentation } from "../presentations/registry";
@@ -101,12 +102,16 @@ export function ToolCard({ item, dispatch = noopDispatch }: { item: ToolItem; di
       )}
       {showCollapsed && Collapsed !== undefined && (
         <div className="border-t border-zinc-200 px-2 py-1 dark:border-zinc-800">
-          <Collapsed item={item} dispatch={dispatch} />
+          <ViewerErrorBoundary key={`${item.toolCallId}:${presentation.id}:collapsed`} fallback={<RawBody item={item} />}>
+            <Collapsed item={item} dispatch={dispatch} />
+          </ViewerErrorBoundary>
         </div>
       )}
       {open && (
         <div className="border-t border-zinc-200 px-2 py-1 dark:border-zinc-800">
-          <presentation.Expanded item={item} dispatch={dispatch} />
+          <ViewerErrorBoundary key={`${item.toolCallId}:${presentation.id}:expanded`} fallback={<RawBody item={item} />}>
+            <presentation.Expanded item={item} dispatch={dispatch} />
+          </ViewerErrorBoundary>
           {presentation.showsRawReveal === true && (
             <div className="mt-2">
               <button

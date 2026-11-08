@@ -1,3 +1,4 @@
+export type { CliBridgeOperation, CliBridgeReply, CliBridgeSnapshot, CliBridgeSummary } from "./cliBridge.ts";
 /**
  * Wire protocol between server and web UI — single source of truth.
  * Lean events: SDK events are transformed server-side to keep frames small
@@ -734,6 +735,8 @@ export type WorkspaceActivity =
  * hears about every project's activity, and about only its own project's content.
  */
 export interface WorkspaceInfo {
+  /** Observed top-level detached Agent lifecycle; not an OS-wide process count. */
+  backgroundAgents?: { running: number; queued: number; known: boolean };
   /** Resolved project directory. For a side session, the directory of its project. */
   root: string;
   /**
@@ -1202,6 +1205,7 @@ export type LoginPrompt =
 export type { McpConfigScope, McpConfigDocument, McpLiveServer, McpManagementOperation, McpManagementData, McpManagementReply } from "./mcpManagement.ts";
 
 export type ServerMessage =
+  | ({ type: "cli_bridge_result" } & import("./cliBridge.ts").CliBridgeReply)
   | ({ type: "mcp_management_result" } & import("./mcpManagement.ts").McpManagementReply)
   | ({ type: "hello" } & SessionSnapshot)
   | ({ type: "session_replaced" } & SessionSnapshot)
@@ -1671,6 +1675,7 @@ export type ClientMessage =
   | { type: "switch_session"; path: string }
   | { type: "delete_session"; path: string }
   | { type: "list_sessions" }
+  | { type: "cli_bridge"; requestId: string; operation: import("./cliBridge.ts").CliBridgeOperation }
   | { type: "mcp_management"; requestId: string; operation: import("./mcpManagement.ts").McpManagementOperation }
   /** Set a session's display name (any saved session, live or not). Empty name clears it. */
   | { type: "rename_session"; path: string; name: string }

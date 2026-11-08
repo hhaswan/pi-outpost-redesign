@@ -146,14 +146,7 @@ invocation, reusing the existing shared diff primitives.
 
 ### Requirement: StructuredExchangePresentationsUseTheRegistry
 
-The presentation registry SHALL select a structured-exchange presentation only for a completed tool
-output whose envelope has passed schema and semantic validation. A renderer SHALL receive validated
-data, never an arbitrary parsed object.
-
-Selection SHALL participate in the existing ordered registry and its raw-output fallback. A validated
-envelope is data the producer declared about itself, so it SHALL outrank every presentation that
-infers a shape from the output, and SHALL NOT outrank a presentation an installed extension supplies
-for its own tool.
+The ordered registry SHALL select a structured-exchange presentation only for completed output that passes schema and semantic validation. Renderers SHALL receive validated data. A validated envelope SHALL outrank inferred output shapes but not an installed extension's rendering for its own tool. Normal raw-output fallback SHALL remain available.
 
 #### Scenario: ValidEnvelopeSelectsItsPresentation
 - **WHEN** a completed tool output carries a valid supported envelope
@@ -204,7 +197,7 @@ calls and result SHALL remain accessible in its expanded body.
 
 ### Requirement: Compact operator-controlled process disclosure
 
-Consecutive tool calls, reasoning-only turns and subagent notifications SHALL appear in one compact process group, collapsed by default. The group SHALL preserve ordering, original details, tool filters and session analysis navigation. Raw subagent notification XML SHALL require an additional explicit disclosure and SHALL NOT be rendered as a large chat message by default. Assistant answer text and errors SHALL remain outside the process group. Session changes SHALL reset disclosure state.
+Consecutive tools, reasoning-only turns and subagent notices SHALL form one initially collapsed group. Ordering, details, filters and analysis navigation SHALL remain intact. Raw notification XML SHALL need its own disclosure. Answers and errors SHALL stay outside the group. Session changes SHALL reset disclosure state.
 
 #### Scenario: CompactProcessGroup
 - **GIVEN** consecutive thinking blocks and tool calls

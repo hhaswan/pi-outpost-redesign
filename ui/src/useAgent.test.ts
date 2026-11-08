@@ -4285,3 +4285,37 @@ describe("MCP manager request lifecycle", () => {
     expect(result.current.state.mcpManagerOpen).toBe(false);
   });
 });
+
+describe("CLI bridge transport", () => {
+  it("keeps owner replies request-scoped and drops them on workspace replacement or disconnect", async () => {
+    const result = await connected();
+    act(() => result.current.manageCliBridge({ action: "list" }));
+    const first = lastRequestId();
+    act(() => mockWs!.receive({ type: "cli_bridge_result", requestId: first, sessions: [] }));
+    expect(result.current.state.cliBridge?.loading).toBe(false);
+    act(() => result.current.manageCliBridge({ action: "read", id: "owner" }));
+    const second = lastRequestId();
+    act(() => mockWs!.receive({ type: "cli_bridge_result", requestId: first, error: "stale error" }));
+    expect(result.current.state.cliBridge?.requestId).toBe(second);
+    expect(result.current.state.cliBridge?.loading).toBe(true);
+    act(() => mockWs!.disconnect(1006));
+    expect(result.current.state.cliBridge).toBeNull();
+    act(() => result.current.manageCliBridge({ action: "list" }));
+    expect(lastRequestId()).toBe(second);
+  });
+});
+
+it("CLI panel reopening supersedes an earlier read without replaying a submission", async () => {
+  const result = await connected();
+  act(() => result.current.manageCliBridge({ action: "read", id: "owner" }));
+  const previous = lastRequestId();
+  act(() => result.current.manageCliBridge({ action: "list" }));
+  const latest = lastRequestId();
+  expect(latest).not.toBe(previous);
+  act(() => mockWs!.receive({ type: "cli_bridge_result", requestId: previous, error: "old owner" }));
+  expect(result.current.state.cliBridge?.requestId).toBe(latest);
+  expect(result.current.state.cliBridge?.loading).toBe(true);
+  act(() => mockWs!.receive({ type: "cli_bridge_result", requestId: latest, sessions: [] }));
+  expect(result.current.state.cliBridge?.sessions).toEqual([]);
+  expect(result.current.state.cliBridge?.error).toBeUndefined();
+});

@@ -7,6 +7,8 @@
  * The agent has bash/edit/write tools: never weaken either check.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
+import { createSubagentActivityExtension, getSubagentActivity } from "./subagentActivity.ts";
+import { manageCliBridge, isCliSessionClaimed } from "./cliBridge.ts";
 import { manageMcp } from "./mcpManagement.ts";
 import fs from "node:fs/promises";
 import rateLimit from "@fastify/rate-limit";
@@ -1583,6 +1585,7 @@ const makeCreateRuntime =
       ...(config.systemPrompt !== undefined ? { systemPrompt: config.systemPrompt } : {}),
       ...(appendSystemPrompt.length > 0 ? { appendSystemPrompt } : {}),
       extensionFactories: [
+        createSubagentActivityExtension(sessionManager.getSessionId(), () => announceWorkspaceActivity()),
         ...extraFactories,
         // pi-outpost's own, like its tools, so not dropped under noExtensions (which keeps
         // out extension code found on disk). Replaceable: a `btw` the user installs wins.
@@ -2564,6 +2567,7 @@ function workspaceInfo(target: Workspace): WorkspaceInfo {
     // predates side sessions shows, and what tells two entries on one root apart.
     ...(target.isSide ? { sideOf: target.root, label: sideLabel(target), name: `${project} · ${sideLabel(target)}` } : { name: project }),
     activity,
+    ...(target.started && target.agent.kind === "embedded" ? { backgroundAgents: getSubagentActivity(target.agent.snapshot().sessionId) } : {}),
     ...(workspaceActivityNeedsAttention(activity) ? { needsAttention: true } : {}),
   };
 }
@@ -5005,6 +5009,10 @@ async function deleteSession(workspace: Workspace, socket: WebSocket, path: stri
     send(socket, { type: "error", message: "Unknown session" });
     return;
   }
+  if (await isCliSessionClaimed(path)) {
+    send(socket, { type: "error", message: "This session is claimed by a terminal bridge. Continue through Terminal sessions; do not open another writer." });
+    return;
+  }
   await fs.unlink(path);
   await deleteWorkPlan(path);
   invalidateSessionScan(workspace);
@@ -5014,6 +5022,10 @@ async function deleteSession(workspace: Workspace, socket: WebSocket, path: stri
 async function switchSession(workspace: Workspace, socket: WebSocket, path: string): Promise<void> {
   if (!(await isKnownSessionPath(workspace, path))) {
     send(socket, { type: "error", message: "Unknown session" });
+    return;
+  }
+  if (await isCliSessionClaimed(path)) {
+    send(socket, { type: "error", message: "This session is claimed by a terminal bridge. Continue through Terminal sessions; do not open another writer." });
     return;
   }
   // Two runtimes appending to one file would interleave two conversations in it.
@@ -5126,6 +5138,10 @@ async function broadcastSessions(workspace: Workspace): Promise<void> {
 async function renameSession(workspace: Workspace, socket: WebSocket, path: string, rawName: string): Promise<void> {
   if (!(await isKnownSessionPath(workspace, path))) {
     send(socket, { type: "error", message: "Unknown session" });
+    return;
+  }
+  if (await isCliSessionClaimed(path)) {
+    send(socket, { type: "error", message: "This session is claimed by a terminal bridge. Continue through Terminal sessions; do not open another writer." });
     return;
   }
   const name = sanitizeName(rawName);
@@ -6703,6 +6719,7 @@ async function handleSearchContent(workspace: Workspace, socket: WebSocket, quer
  * file tree, its files, git, the terminal — and the way out of it. Everything else waits.
  */
 const SERVED_WHILE_STARTING = new Set<ClientMessage["type"]>([
+  "cli_bridge",
   "list_directory",
   "read_file",
   "write_file",
@@ -6801,6 +6818,18 @@ function handleClientMessage(socket: WebSocket, raw: string): void {
     return;
   }
   switch (message.type) {
+    case "cli_bridge": {
+      if (typeof message.requestId !== "string" || message.requestId.length > 128) return;
+      const requestId = message.requestId;
+      if (Buffer.byteLength(raw) > 20 * 1024) {
+        send(socket, { type: "cli_bridge_result", requestId, error: "Terminal bridge request is too large" });
+        return;
+      }
+      void manageCliBridge(message.operation, { enabled: workspace.settings.sandbox === undefined && !config.extensionLock && !config.workspaceLock })
+        .then((result) => { if (clients.get(socket) === workspace) send(socket, { type: "cli_bridge_result", requestId, ...result }); })
+        .catch(() => { if (clients.get(socket) === workspace) send(socket, { type: "cli_bridge_result", requestId, error: "Terminal bridge request failed; owner state is unknown" }); });
+      return;
+    }
     case "mcp_management": {
       if (typeof message.requestId !== "string" || message.requestId.length > 128) return;
       const requestId = message.requestId;

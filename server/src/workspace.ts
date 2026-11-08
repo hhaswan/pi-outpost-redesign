@@ -1,3 +1,4 @@
+import { hasActiveOrUncertainSubagents } from "./subagentActivity.ts";
 /**
  * A workspace: one project the server holds open, and everything rooted at it.
  *
@@ -405,7 +406,9 @@ export class Workspace {
    * so "unused" can never be allowed to mean "unwatched".
    */
   isBusy(): boolean {
-    return this._runtime?.snapshot().isStreaming ?? false;
+    const snapshot = this._runtime?.snapshot();
+    if (!snapshot) return false;
+    return snapshot.isStreaming || hasActiveOrUncertainSubagents(snapshot.sessionId);
   }
 
   /**

@@ -914,9 +914,16 @@ that activity is unknown rather than claiming the agent has stopped. Other activ
 server-managed workspaces appear by name and can be selected from the strip.
 Historical error text is labeled **Last error**; it is not proof of a current failure.
 
-These states cover runtimes managed by this server. They do not discover unrelated
-Pi CLI processes or establish the liveness of detached extension subagents. A
-saved transcript or completed notification is not live activity telemetry.
+These states cover runtimes managed by this server. Embedded sessions also show
+observed top-level detached Agent counts from their own lifecycle event bus.
+Ambiguous event histories are labeled uncertain and prevent automatic retirement;
+they do not prove that every nested or workflow-owned agent has stopped. A saved
+transcript or completed notification is not live activity telemetry.
+
+Use **Terminal sessions** for separately running CLI processes that have loaded
+the [opt-in CLI bridge](cli-session-bridge.md). Observation does not create another
+agent. Input requires confirmation in that terminal and remains disabled when
+the owner is busy, unreachable, or has not granted permission.
 
 The standalone browser remembers the last acknowledged workspace for each server.
 After reconnecting or reopening the app, it selects that still-open workspace,

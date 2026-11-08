@@ -252,6 +252,17 @@ for (const file of ["providerStackHook.mjs", "providerStackRewrite.mjs"]) {
   await cp(resolve(REPO_ROOT, "server/src", file), resolve(OUT_DIR, file));
 }
 
+console.log("[build] bundling the opt-in CLI session bridge …");
+await esbuild.build({
+  entryPoints: [resolve(REPO_ROOT, "extensions/cli-session-bridge.ts")],
+  outfile: resolve(OUT_DIR, "extensions/cli-session-bridge.mjs"),
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node22",
+});
+await cp(resolve(REPO_ROOT, "docs/cli-session-bridge.md"), resolve(OUT_DIR, "extensions/README.md"));
+
 console.log("[build] copying skills …");
 await cp(resolve(REPO_ROOT, "skills"), resolve(OUT_DIR, "skills"), { recursive: true });
 

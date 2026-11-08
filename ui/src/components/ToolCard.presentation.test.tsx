@@ -112,6 +112,83 @@ describe("ToolCard output is inert", () => {
   });
 });
 
+describe("ToolCard scenario provenance", () => {
+  it("A code-search tool completes: preserves the search input and complete original output", () => {
+    const output = "src/a.ts:1:needle\nsrc/b.ts:2:needle\ntrailing diagnostic";
+    const { container } = render(<ToolCard item={tool({ toolName: "grep", args: { pattern: "needle" }, output })} />);
+    expect(cardRoot(container)).toHaveTextContent("needle");
+    fireEvent.click(cardRoot(container).querySelector("button")!);
+    expect(screen.getByText("2 matches in 2 files")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("raw output"));
+    expect(container.querySelector("pre")?.textContent).toBe(output);
+  });
+
+  it("A tool matches no specialized entry: preserves every character of an unknown result", () => {
+    const output = "first line\n  spaces <unknown> & symbols\nlast line\n";
+    const { container } = render(<ToolCard item={tool({ toolName: "unknown_tool", output })} />);
+    fireEvent.click(cardRoot(container).querySelector("button")!);
+    expect(container.querySelector("pre")?.textContent).toBe(output);
+    expect(screen.queryByText("raw output")).not.toBeInTheDocument();
+  });
+
+  it("A structured summary becomes available: upgrades raw and keeps exact original output reachable", () => {
+    const item = tool({ toolName: "custom", running: true });
+    const { container, rerender } = render(<ToolCard item={item} />);
+    const output = JSON.stringify({ __pi_render: { text: "Recognized summary" }, extra: "original provenance" });
+    rerender(<ToolCard item={{ ...item, running: false, output }} />);
+    expect(screen.getByText("Recognized summary")).toBeInTheDocument();
+    expect(cardRoot(container).querySelector("button")).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(cardRoot(container).querySelector("button")!);
+    expect(container.querySelector("pre")?.textContent).toBe(output);
+  });
+
+  it("An extension rendering arrives with the output: replaces a live specialized view without closing details", () => {
+    const item = tool({ args: { command: "git diff" }, running: true });
+    const { container, rerender } = render(<ToolCard item={item} />);
+    fireEvent.click(cardRoot(container).querySelector("button")!);
+    expect(screen.getByText("running…")).toBeInTheDocument();
+    rerender(<ToolCard item={{ ...item, running: false, output: "original diff", outputHtml: "<b>Extension result</b>" }} />);
+    expect(cardRoot(container).querySelector("button")).toHaveAttribute("aria-expanded", "true");
+    expect(container.querySelector("b")?.textContent).toBe("Extension result");
+    expect(screen.queryByText("running…")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("raw output"));
+    expect(container.querySelector("pre")?.textContent).toBe("original diff");
+  });
+
+  it("A user inspects a summarized Git diff: identifies the command and reveals its complete output", () => {
+    const output = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n";
+    const { container } = render(<ToolCard item={tool({ args: { command: "git diff -- a.ts" }, output })} />);
+    expect(cardRoot(container)).toHaveTextContent("bash");
+    expect(cardRoot(container)).toHaveTextContent("git diff -- a.ts");
+    fireEvent.click(cardRoot(container).querySelector("button")!);
+    expect(screen.getByText("a.ts")).toBeInTheDocument();
+    expect(screen.getByText("+1")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("raw output"));
+    const rawReveal = screen.getByText("hide raw output").parentElement!;
+    expect(rawReveal.querySelector("pre")?.textContent).toBe(output);
+  });
+
+  it("ACodemodeCardStartsCompact: stays folded through updates and starts folded again after reload", () => {
+    const item = tool({ toolName: "codemode", running: true, args: { code: "tools.read()" }, callHtml: "<b>script details</b>", outputHtml: "<b>running call</b>" });
+    const { container, rerender, unmount } = render(<ToolCard item={item} />);
+    const done = { ...item, running: false, outputHtml: "<b>completed call</b>" };
+    rerender(<ToolCard item={done} />);
+    expect(cardRoot(container).querySelector("button")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("script details")).not.toBeInTheDocument();
+    expect(screen.queryByText("completed call")).not.toBeInTheDocument();
+    fireEvent.click(cardRoot(container).querySelector("button")!);
+    expect(screen.getByText("completed call")).toBeInTheDocument();
+    unmount();
+    const restored = render(<ToolCard item={done} />);
+    expect(cardRoot(restored.container).querySelector("button")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("script details")).not.toBeInTheDocument();
+    expect(screen.queryByText("completed call")).not.toBeInTheDocument();
+    fireEvent.click(cardRoot(restored.container).querySelector("button")!);
+    expect(screen.getByText("script details")).toBeInTheDocument();
+    expect(screen.getByText("completed call")).toBeInTheDocument();
+  });
+});
+
 describe("ToolCard presentation stability", () => {
   it("does not swap renderer when the output of a running call lands", () => {
     const running = tool({ args: { command: "git diff" }, running: true });
@@ -126,4 +203,14 @@ describe("ToolCard presentation stability", () => {
     expect(container.querySelector("pre")?.textContent).toBe("fatal: not a git repository");
     expect(screen.getByText("raw output")).toBeInTheDocument();
   });
+});
+
+it("A presentation names an unknown action: no unknown control is offered or dispatched", () => {
+  const dispatch = vi.fn();
+  const output = JSON.stringify({ actions: [{ kind: "runTool", label: "Execute injected command", command: "never execute" }] });
+  const { container } = render(<ToolCard item={tool({ toolName: "unknown", output })} dispatch={dispatch} />);
+  fireEvent.click(screen.getByRole("button"));
+  expect(container.querySelector("pre")?.textContent).toBe(output);
+  expect(screen.queryByRole("button", { name: "Execute injected command" })).toBeNull();
+  expect(dispatch).not.toHaveBeenCalled();
 });

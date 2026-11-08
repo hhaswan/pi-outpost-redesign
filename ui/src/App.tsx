@@ -1,3 +1,4 @@
+import { CliSessions } from "./components/CliSessions";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { ActivityStrip } from "./components/ActivityStrip";
@@ -121,6 +122,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
     cancelPendingPrompt,
     setMcpManagerOpen,
     manageMcp,
+    manageCliBridge,
     setModel,
     setThinking,
     newSession,
@@ -238,6 +240,8 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
     setPendingUploads([]);
     if (mainRef.current) mainRef.current.scrollTop = 0;
   }, [boundKey]);
+  const [cliSessionsOpen, setCliSessionsOpen] = useState(false);
+  useEffect(() => { setCliSessionsOpen(false); }, [boundKey, state.sessionId]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarMounted, setSidebarMounted] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -1232,6 +1236,9 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
               onClose={() => setAnalysisOpen(false)}
             />
           )}
+          {!embedded && !state.workspaceLocked && <div className="flex justify-end px-3 py-1">
+            <button type="button" onClick={() => setCliSessionsOpen(true)} className="min-h-9 rounded-full border border-zinc-300 px-3 text-xs text-zinc-700 focus-visible:outline-2 focus-visible:outline-blue-500 dark:border-zinc-700 dark:text-zinc-200">Terminal sessions</button>
+          </div>}
           <ActivityStrip state={state} onSwitchWorkspace={!embedded && !state.workspaceLocked ? switchWorkspace : undefined} />
           {/* The drawer overlays the right side; padding keeps the conversation
               beside it rather than behind it, so a jump lands somewhere visible. */}
@@ -1567,6 +1574,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
       </div>
 
       <ExtensionNotifications notifications={state.notifications} onDismiss={dismissNotification} />
+      {cliSessionsOpen && <CliSessions state={state.cliBridge} connected={state.connected} onRequest={manageCliBridge} onClose={() => setCliSessionsOpen(false)} />}
       {state.mcpManagerOpen && <MCPManager key={state.workspace?.root ?? state.sessionId} onClose={() => setMcpManagerOpen(false)}
         state={state.mcpManagement} onRequest={manageMcp} busy={state.isStreaming || state.switching}
         connected={state.connected} onApply={() => { setMcpManagerOpen(false); restartSession(); }} />}

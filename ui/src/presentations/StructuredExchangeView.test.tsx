@@ -95,6 +95,23 @@ describe("registry placement", () => {
     expect(selectPresentation(broken).id).not.toBe("structured-exchange");
   });
 
+  it.each([
+    { schema: S, kind: "graph", data: { nodes: [], edges: [] } },
+    { schema: "unsupported-schema", kind: "graph", data: { nodes: [{ id: "a", label: "A" }], edges: [] } },
+  ])("InvalidEnvelopeUsesTheNormalFallback: invalid or unsupported envelope %# preserves normal selection", (document) => {
+    for (const over of [
+      {},
+      { toolName: "grep", output: "src/a.ts:1:hit" },
+      { toolName: "bash", args: { command: "git diff" } },
+      { outputHtml: "<b>extension</b>" },
+    ]) {
+      const plain = tool(over);
+      const invalid = withStructured(document, over);
+      expect(selectPresentation(invalid).id).toBe(selectPresentation(plain).id);
+      expect(selectPresentation(invalid).id).not.toBe("structured-exchange");
+    }
+  });
+
   it("outranks a presentation that infers its shape from output", () => {
     // A result that also looks like a hit list: declared data beats a guess.
     const both = withStructured(newArtifact, { output: "src/main.ts:12:const x = 1\nsrc/other.ts:3:hello" });

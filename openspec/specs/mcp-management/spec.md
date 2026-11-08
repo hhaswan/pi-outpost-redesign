@@ -22,7 +22,7 @@ The browser SHALL open MCP management for `/mcp`, fetch live server status from 
 
 ### Requirement: Persistent scoped server configuration
 
-The browser SHALL add URL or stdio configuration, edit existing definitions, and remove a selected definition after confirmation. Writes SHALL preserve unrelated configuration, use bounded regular files and atomic replacement, and reject stale revisions. Shared global, global adapter, project shared, and project adapter files SHALL be identified separately. Other imported or extension-owned servers MAY be listed without edit actions when their defining file is outside those supported scopes. Configuration changes SHALL explicitly require an operator-initiated idle-session restart to take effect; saving SHALL NOT restart either the session or service.
+The browser SHALL support add, edit and confirmed removal in separately identified shared-global, global-adapter, project-shared and project-adapter scopes. Writes SHALL preserve unrelated data, use bounded regular files and atomic replacement, and reject stale revisions. Other configuration sources MAY be read-only. Saving SHALL NOT restart a session or service; application SHALL require an explicit idle-session restart.
 
 #### Scenario: SaveEditRemoveMcpConfiguration
 - **WHEN** the operator adds, edits, or confirms removal of a server definition
@@ -35,7 +35,7 @@ The browser SHALL add URL or stdio configuration, edit existing definitions, and
 
 ### Requirement: Management security and lifecycle
 
-MCP mutations SHALL be refused while the session is working or changing, or when sandbox/extension policy locks configuration. Requests SHALL validate scope, name and transport. Credentials and opaque arguments SHALL stay masked in browser responses, and masked values SHALL be retained only from existing fields. A changed transport SHALL NOT silently inherit masked credentials. File symlinks, oversized files and malformed documents SHALL be refused. Replies from superseded requests or replaced workspaces SHALL NOT overwrite the current panel. Disconnection SHALL end loading with a retryable error.
+MCP mutations SHALL reject busy/changing sessions, locked policy, invalid scope/name/transport, symlinks, oversized files and malformed documents. Responses SHALL mask credentials and opaque arguments; retained masks SHALL refer only to existing fields and never transfer credentials to a changed transport. Superseded requests/workspaces SHALL NOT replace current state. Disconnect SHALL end loading with a retryable error.
 
 #### Scenario: McpPolicyAndInputBoundaries
 - **WHEN** a mutation is busy, locked, malformed, oversized, or names an unsupported scope

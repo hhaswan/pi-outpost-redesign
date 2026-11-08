@@ -95,11 +95,18 @@ describe("GitDiffView", () => {
     const dispatch = vi.fn();
     render(<GitDiffView item={tool({ args: { command: "git diff" }, output: DIFF })} dispatch={dispatch} />);
 
-    fireEvent.click(screen.getAllByText("open")[0]);
-    fireEvent.click(screen.getAllByText("history")[0]);
-
-    expect(dispatch).toHaveBeenNthCalledWith(1, { kind: "openFile", path: "src/a.ts" });
-    expect(dispatch).toHaveBeenNthCalledWith(2, { kind: "openFileHistory", path: "src/a.ts" });
+    const openButtons = screen.getAllByText("open");
+    const historyButtons = screen.getAllByText("history");
+    const paths = parseUnifiedDiff(DIFF).map(file => file.path);
+    expect(openButtons).toHaveLength(paths.length);
+    expect(historyButtons).toHaveLength(paths.length);
+    for (const [index, path] of paths.entries()) {
+      fireEvent.click(openButtons[index]);
+      fireEvent.click(historyButtons[index]);
+      expect(dispatch).toHaveBeenNthCalledWith(index * 2 + 1, { kind: "openFile", path });
+      expect(dispatch).toHaveBeenNthCalledWith(index * 2 + 2, { kind: "openFileHistory", path });
+    }
+    expect(dispatch).toHaveBeenCalledTimes(paths.length * 2);
   });
 
   it("falls back to the raw output when the command matched but the output is not a diff", () => {
@@ -199,4 +206,18 @@ describe("CodeSearchView", () => {
     expect(container.querySelector("script")).toBeNull();
     expect(container).toHaveTextContent("<script>alert(1)</script>");
   });
+});
+
+it("A search returns hits across several files: every revealed match opens its own file", () => {
+  const dispatch = vi.fn();
+  const output = [...Array.from({ length: 7 }, (_, i) => `src/a.ts:${i + 1}:match ${i}`), "src/b.ts:9:other match"].join("\n");
+  render(<CodeSearchView item={tool({ toolName: "grep", output })} dispatch={dispatch} />);
+  fireEvent.click(screen.getByRole("button", { name: "+2 more in this file" }));
+  for (let i = 1; i <= 7; i++) {
+    fireEvent.click(screen.getByRole("button", { name: `Open src/a.ts:${i}`, exact: true }));
+    expect(dispatch).toHaveBeenLastCalledWith({ kind: "openFile", path: "src/a.ts" });
+  }
+  fireEvent.click(screen.getByRole("button", { name: "Open src/b.ts:9", exact: true }));
+  expect(dispatch).toHaveBeenLastCalledWith({ kind: "openFile", path: "src/b.ts" });
+  expect(dispatch).toHaveBeenCalledTimes(8);
 });

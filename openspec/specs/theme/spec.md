@@ -15,12 +15,7 @@ Manages the application's theme settings, including light/dark mode toggling and
 
 - **Implementation**: `useTheme::ui/src/theme/useTheme.ts`, `resolveSystemTheme::ui/src/theme/theme.ts`, `loadStoredTheme::ui/src/theme/theme.ts`
 
-The system SHALL resolve and apply the effective light/dark theme from, in priority order: the
-user's stored preference (localStorage), then the configured default (`branding.defaultTheme`,
-which may be "light", "dark", or "system"), falling back to "system". A "system" preference
-follows `prefers-color-scheme` and reacts to OS changes. The resolved theme is applied as a
-`data-theme` attribute on the target root element (document root, or the widget root when
-embedded).
+The system SHALL resolve the stored preference before `branding.defaultTheme`, falling back to System. System SHALL follow OS changes through `prefers-color-scheme`. The resolved light/dark value SHALL set `data-theme` on the document root or embedded widget root.
 
 #### Scenario: UserPrefersDarkMode
 - **GIVEN** User has a stored dark preference
@@ -90,10 +85,6 @@ Dark utility styles SHALL follow the resolved `data-theme` value, rather than in
 - **WHEN** the OS or outer document theme differs or changes
 - **THEN** dark utilities inside the shadow tree follow the host attribute independently
 
-## Technical Notes
-
-- **Dependencies**: localStorage, `window.matchMedia("(prefers-color-scheme: dark)")`, React state/effects
-
 ### Requirement: Rounded responsive conversation controls
 
 Shared header controls SHALL use full rounded corners, retain visible keyboard focus, and offer 44px height on narrow screens while keeping compact desktop sizing. The model/status footer SHALL wrap without horizontal page overflow at 320px and 390px viewport widths. Shell confinement, context and session usage information SHALL remain available rather than being hidden to fit.
@@ -106,3 +97,7 @@ Shared header controls SHALL use full rounded corners, retain visible keyboard f
 #### Scenario: RoundedHeaderAndFocus
 - **WHEN** the header is rendered and navigated by keyboard
 - **THEN** shared controls are pill-shaped with visible focus and mobile controls are at least 44px high.
+
+## Technical Notes
+
+- **Dependencies**: localStorage, `window.matchMedia("(prefers-color-scheme: dark)")`, React state/effects

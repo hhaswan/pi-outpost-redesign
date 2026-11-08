@@ -18,7 +18,7 @@ The client SHALL render a compact activity strip outside the transcript scroll c
 
 ### Requirement: Live state precedence
 
-The strip SHALL derive activity from transport state, lifecycle state, pending dialogs, pending prompts, streaming state, and authoritative workspace activity. Authentication or disconnection SHALL take precedence over switching and startup; switching and startup over waiting; waiting over working; working over ready for review, stopped, or idle. Missing session information without workspace activity SHALL be reported as unknown. During switching the existing context SHALL be identified as last viewed rather than presented as the destination.
+The strip SHALL derive activity from transport, lifecycle, dialogs, prompts, streaming and workspace state. Precedence SHALL be: authentication/disconnection; switching/startup; waiting; working; review-ready/stopped/idle. Missing session and workspace activity SHALL mean unknown. Switching SHALL label the existing context as last viewed, not as the destination.
 
 #### Scenario: Live transitions follow precedence
 - **GIVEN** a connected idle session
@@ -59,3 +59,20 @@ The strip SHALL display other server-managed workspaces that are starting, worki
 - **WHEN** the strip renders the current context
 - **THEN** it uses the side-session label if available, otherwise the session identity
 - **AND** absent session identity is explicitly described as not yet available
+
+### Requirement: ScopedDetachedAgentTelemetry
+
+Embedded runtimes SHALL observe detached top-level Agent lifecycle events on their session-specific bus. Observed running/queued children SHALL keep the workspace working after parent settlement and prevent idle retirement. Reconnect snapshots SHALL retain counts. Ambiguous or malformed evidence SHALL be labeled uncertain. Nested/workflow agents and external OS processes are outside this ledger.
+
+#### Scenario: DetachedChildOutlivesParentTurn
+- **GIVEN** an observed detached Agent is running
+- **WHEN** its parent model turn settles and the browser reconnects
+- **THEN** the workspace remains working and the observed child count remains visible until a terminal child event
+
+#### Scenario: IsolateChildTelemetry
+- **WHEN** two SDK sessions emit child events or an old activation emits after replacement
+- **THEN** each workspace only reports its own current activation's children
+
+#### Scenario: AmbiguousChildLifecycle
+- **WHEN** a late created event, reused ID, or malformed lifecycle event makes the ledger uncertain
+- **THEN** the UI labels uncertainty and does not claim authoritative all-agent completion

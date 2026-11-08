@@ -10,7 +10,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
  * it is the one place that must fail locally.
  */
 export class ViewerErrorBoundary extends Component<
-  { children: ReactNode; label?: string },
+  { children: ReactNode; label?: string; fallback?: ReactNode },
   { failed: boolean }
 > {
   state = { failed: false };
@@ -25,6 +25,7 @@ export class ViewerErrorBoundary extends Component<
 
   render() {
     if (!this.state.failed) return this.props.children;
+    if (this.props.fallback !== undefined) return this.props.fallback;
     return (
       <div className="flex h-full items-center justify-center p-6">
         <p className="max-w-md text-center text-sm text-zinc-600 dark:text-zinc-400">

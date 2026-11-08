@@ -46,6 +46,11 @@ export function ActivityStrip({ state, onSwitchWorkspace }: {
       <div className="mx-auto flex max-w-3xl min-w-0 flex-col gap-1 rounded-xl bg-zinc-100 px-3 py-2 text-xs text-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
         <div role="status" aria-live="polite" aria-atomic="true" className="min-w-0">
           <p className="font-semibold">{activityLabel(state)}</p>
+          {known && state.workspace?.backgroundAgents && (!state.workspace.backgroundAgents.known || state.workspace.backgroundAgents.running + state.workspace.backgroundAgents.queued > 0) && (
+            <p>{state.workspace.backgroundAgents.known
+              ? `Background agents: ${state.workspace.backgroundAgents.running} running · ${state.workspace.backgroundAgents.queued} queued`
+              : "Background agent activity uncertain"}</p>
+          )}
           <p className="break-words text-zinc-600 [overflow-wrap:anywhere] dark:text-zinc-400">
             {state.switching || !known ? "Last viewed: " : ""}{project} · {session}
           </p>

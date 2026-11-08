@@ -376,7 +376,7 @@ the server's own project, and what it held SHALL be dropped.
 
 ### Requirement: RestoreAcknowledgedBrowserWorkspace
 
-The standalone browser SHALL remember the last acknowledged workspace identity per server, without storing credentials or a writable session-file target. Reconnection SHALL select an available remembered workspace through the existing workspace-switch protocol without replaying prompts or starting a replacement runtime. An explicit embedded workspace SHALL take precedence. Existing tabs SHALL retain their own active selection; new or refreshed tabs MAY use the last saved browser selection.
+Standalone browsers SHALL remember acknowledged workspace identity per server, without credentials or session-file targets. Reconnect SHALL select an available remembered workspace through workspace switching, without prompt replay or a replacement runtime. Explicit embedded workspaces SHALL take precedence. Existing tabs SHALL keep their selection; new or refreshed tabs MAY use the last saved selection.
 
 #### Scenario: RestoreLiveWorkspaceAfterReload
 - **GIVEN** a standalone browser previously selected an available workspace or side session

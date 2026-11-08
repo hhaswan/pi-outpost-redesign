@@ -9,6 +9,7 @@ const HITS_PER_FILE = 5;
 export function CodeSearchView({ item, dispatch }: PresentationProps) {
   const groups = parseSearchHits(item.output ?? "");
   const [showAll, setShowAll] = useState(false);
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(() => new Set());
 
   // Not a hit list — an error, a "no matches" note, or a format we do not read.
   if (groups.length === 0) return <RawBody item={item} />;
@@ -32,16 +33,18 @@ export function CodeSearchView({ item, dispatch }: PresentationProps) {
             <span className="shrink-0 text-zinc-400 dark:text-zinc-600">{group.hits.length}</span>
           </button>
           <div className="overflow-x-auto rounded border border-zinc-200 font-mono text-xs dark:border-zinc-800">
-            {group.hits.slice(0, HITS_PER_FILE).map((hit, i) => (
-              <div key={i} className="flex gap-2 px-2">
+            {group.hits.slice(0, expandedFiles.has(group.path) ? undefined : HITS_PER_FILE).map((hit, i) => (
+              <button key={i} type="button" aria-label={`Open ${group.path}:${hit.line}`} onClick={() => dispatch({ kind: "openFile", path: group.path })}
+                className="flex w-full gap-2 px-2 text-left hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-blue-500 dark:hover:bg-zinc-800">
                 <span className="shrink-0 select-none text-zinc-400 dark:text-zinc-600">{hit.line}</span>
                 <span className="whitespace-pre text-zinc-700 dark:text-zinc-300">{hit.text}</span>
-              </div>
+              </button>
             ))}
-            {group.hits.length > HITS_PER_FILE && (
-              <div className="px-2 text-zinc-400 dark:text-zinc-600">
+            {group.hits.length > HITS_PER_FILE && !expandedFiles.has(group.path) && (
+              <button type="button" onClick={() => setExpandedFiles(current => new Set([...current, group.path]))}
+                className="px-2 text-zinc-500 focus-visible:outline-2 focus-visible:outline-blue-500 dark:text-zinc-400">
                 +{group.hits.length - HITS_PER_FILE} more in this file
-              </div>
+              </button>
             )}
           </div>
         </div>
