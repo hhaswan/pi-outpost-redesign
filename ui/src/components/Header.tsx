@@ -538,7 +538,7 @@ function ConversationFilterMenu({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-30 mt-1 w-48 rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          className="absolute right-0 z-30 mt-1 w-48 rounded-2xl border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
         >
           {CONVERSATION_FILTER_KINDS.map((kind) => (
             <button
@@ -661,7 +661,7 @@ function ExtensionStatuses({ statuses, bar }: { statuses: Record<string, string>
       {open && (
         <ul
           aria-label="Extension statuses"
-          className="absolute left-0 top-full z-20 mt-1 w-max max-w-[24rem] rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          className="absolute left-0 top-full z-20 mt-1 w-max max-w-[24rem] rounded-2xl border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
         >
           {entries.map(([key, text]) => (
             <li key={key} className="break-words px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-300">
@@ -705,8 +705,8 @@ function ThemeToggle({ theme, preference = theme, onToggle, onSetTheme }: { them
     >
       {preference === "system" ? "◐" : theme === "dark" ? "☾" : "☀"}
     </button>
-    {open && <div role="menu" aria-label="Theme" className="absolute right-0 top-full z-40 mt-2 min-w-32 rounded-lg border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-      {(["light", "dark", "system"] as const).map(value => <button key={value} role="menuitemradio" aria-checked={preference === value} type="button" className="block w-full rounded px-3 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800" onClick={() => {
+    {open && <div role="menu" aria-label="Theme" className="absolute right-0 top-full z-40 mt-2 min-w-32 rounded-2xl border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+      {(["light", "dark", "system"] as const).map(value => <button key={value} role="menuitemradio" aria-checked={preference === value} type="button" className="block w-full rounded-full px-3 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800 hover:opacity-80 transition-opacity" onClick={() => {
         if (onSetTheme) onSetTheme(value);
         else if (value !== theme) onToggle();
         setOpen(false); trigger.current?.focus();

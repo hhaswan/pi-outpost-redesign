@@ -45,7 +45,7 @@ export function SandboxGrantDialog({ request, onRespond }: SandboxGrantDialogPro
       aria-labelledby={headingId}
       data-testid="sandbox-grant-dialog"
       data-request-id={request.id}
-      className="flex max-h-[40dvh] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900"
+      className="flex max-h-[40dvh] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900"
     >
       <div data-testid="sandbox-grant-details" className="min-h-0 overflow-y-auto overscroll-contain break-words p-4">
         <h2 id={headingId} className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">

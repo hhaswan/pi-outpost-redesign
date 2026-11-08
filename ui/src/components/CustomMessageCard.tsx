@@ -23,7 +23,7 @@ export function CustomMessageCard({ item }: { item: CustomItem }) {
   const showExpand = hasDetails || (hasRendererHtml && Boolean(item.contentHtmlCollapsed));
 
   return (
-    <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm dark:border-violet-900/60 dark:bg-violet-950/30">
+    <div className="rounded-2xl border border-violet-200 bg-violet-50 px-3 py-2 text-sm dark:border-violet-900/60 dark:bg-violet-950/30">
       <div className="flex items-center gap-2">
         <span className="font-mono text-xs font-bold text-violet-700 dark:text-violet-300">[{item.customType}]</span>
         {showExpand && (

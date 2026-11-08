@@ -517,7 +517,7 @@ export function TerminalPanel({
             onClick={addTab}
             type="button"
             title="New Terminal Tab"
-            className="p-1 rounded text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
+            className="p-1 rounded-full hover:opacity-80 transition-opacity text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -560,7 +560,7 @@ export function TerminalPanel({
             onClick={handleClearCurrent}
             type="button"
             title="Clear Terminal Output"
-            className="p-1 rounded hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
+            className="p-1 rounded-full hover:opacity-80 transition-opacity hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
@@ -575,7 +575,7 @@ export function TerminalPanel({
             onClick={() => setIsMaximized((prev) => !prev)}
             type="button"
             title={isMaximized ? "Restore Terminal Panel" : "Maximize Terminal Panel"}
-            className="p-1 rounded hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
+            className="p-1 rounded-full hover:opacity-80 transition-opacity hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
           >
             {isMaximized ? (
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -591,7 +591,7 @@ export function TerminalPanel({
             onClick={onClose}
             type="button"
             title="Minimize Terminal Panel (Ctrl+`)"
-            className="p-1 rounded hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
+            className="p-1 rounded-full hover:opacity-80 transition-opacity hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

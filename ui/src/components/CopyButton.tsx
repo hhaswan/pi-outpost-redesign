@@ -25,7 +25,7 @@ export function CopyButton({ text, className, iconOnly = false }: { text: string
       aria-label={iconOnly ? (copied ? "Copied" : "Copy code") : undefined}
       className={
         className ??
-        "rounded px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+        "rounded-full px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 hover:opacity-80 transition-opacity"
       }
     >
       {iconOnly ? (copied ? "✓" : "⧉") : copied ? "✓ copied" : "⧉ copy"}

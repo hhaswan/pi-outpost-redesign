@@ -141,7 +141,7 @@ export function Sidebar({
             aria-pressed={searching}
             title="Search in files"
             aria-label="Search in files"
-            className={`ml-auto rounded p-0.5 normal-case hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-400 ${
+            className={`ml-auto rounded-full p-0.5 normal-case hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-400 hover:opacity-80 transition-opacity ${
               searching ? "text-zinc-700 dark:text-zinc-300" : ""
             }`}
           >

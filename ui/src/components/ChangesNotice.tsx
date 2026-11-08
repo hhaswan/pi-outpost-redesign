@@ -50,7 +50,7 @@ export function ChangesNotice({ changes }: { changes: OutpostChanges }) {
             type="button"
             aria-expanded={open}
             onClick={() => setOpen(!open)}
-            className="shrink-0 rounded px-1.5 font-medium text-zinc-900 underline-offset-2 hover:underline dark:text-zinc-100"
+            className="shrink-0 rounded-full px-1.5 font-medium text-zinc-900 underline-offset-2 hover:underline dark:text-zinc-100 hover:opacity-80 transition-opacity"
           >
             {open ? "Hide what changed" : "What's changed"}
           </button>
@@ -70,7 +70,7 @@ export function ChangesNotice({ changes }: { changes: OutpostChanges }) {
             }
             setDismissed(changes.to);
           }}
-          className="shrink-0 rounded px-1.5 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          className="shrink-0 rounded-full px-1.5 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 hover:opacity-80 transition-opacity"
         >
           ×
         </button>

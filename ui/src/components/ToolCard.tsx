@@ -40,7 +40,7 @@ export function ToolCard({ item, dispatch = noopDispatch }: { item: ToolItem; di
 
   return (
     <div
-      className={`${open ? "rounded-lg" : "w-max max-w-full rounded-xl"} border text-sm ${
+      className={`${open ? "rounded-2xl" : "w-max max-w-full rounded-2xl"} border text-sm ${
         item.isError
           ? "border-red-300 bg-red-50 dark:border-red-900/60 dark:bg-red-950/20"
           : "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60"

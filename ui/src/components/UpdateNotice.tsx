@@ -34,7 +34,7 @@ export function UpdateNotice({ notice }: { notice: OutpostUpdateNotice }) {
           What's new
         </a>
       </span>
-      <code className="shrink-0 rounded bg-white/70 px-1.5 py-0.5 font-mono dark:bg-sky-900/40">{notice.copy}</code>
+      <code className="shrink-0 rounded-full bg-white/70 px-1.5 py-0.5 font-mono dark:bg-sky-900/40">{notice.copy}</code>
       <CopyButton text={notice.copy} />
       <button
         type="button"
@@ -47,7 +47,7 @@ export function UpdateNotice({ notice }: { notice: OutpostUpdateNotice }) {
           }
           setDismissed(notice.latest);
         }}
-        className="shrink-0 rounded px-1.5 text-sky-700 hover:bg-sky-100 dark:text-sky-300 dark:hover:bg-sky-900/50"
+        className="shrink-0 rounded-full px-1.5 text-sky-700 hover:bg-sky-100 dark:text-sky-300 dark:hover:bg-sky-900/50 hover:opacity-80 transition-opacity"
       >
         ×
       </button>

@@ -138,7 +138,7 @@ type ViewMode = "rendered" | "source" | "split";
 
 /** The toolbar's export buttons, as the Word export draws its own. */
 const TOOLBAR_EXPORT =
-  "shrink-0 rounded px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300";
+  "shrink-0 rounded-full px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 hover:opacity-80 transition-opacity";
 
 function isMarkdown(path: string): boolean {
   return /\.(md|markdown)$/i.test(path);
@@ -772,7 +772,7 @@ export function FileViewer({
                       typeof src === "string" && src !== "" && !/^[a-z][a-z0-9+.-]*:/i.test(src) && !src.startsWith("//")
                         ? rawFileUrl(serverUrl, resolveRelativeHref(file.path, src), token, undefined, workspace)
                         : src;
-                    return <img {...rest} src={resolved} alt={alt ?? ""} loading="lazy" className="max-w-full rounded-lg" />;
+                    return <img {...rest} src={resolved} alt={alt ?? ""} loading="lazy" className="max-w-full rounded-2xl" />;
                   },
                 }}
               >
@@ -950,7 +950,7 @@ export function FileViewer({
                 onClick={() => changeMode(value)}
                 aria-pressed={mode === value}
                 title={title}
-                className={`rounded px-1.5 py-0.5 text-xs ${
+                className={`rounded-full px-1.5 py-0.5 text-xs hover:opacity-80 transition-opacity ${
                   mode === value
                     ? "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
                     : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
@@ -967,7 +967,7 @@ export function FileViewer({
             onClick={toggleGitDiff}
             aria-pressed={showGitDiff}
             title={showGitDiff ? "Show file content" : "Show uncommitted changes (vs HEAD)"}
-            className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${
+            className={`shrink-0 rounded-full px-1.5 py-0.5 text-xs hover:opacity-80 transition-opacity ${
               showGitDiff
                 ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
                 : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
@@ -981,7 +981,7 @@ export function FileViewer({
             type="button"
             onClick={() => onOpenGitHistory(file.path)}
             title="Show this file's history"
-            className="shrink-0 rounded px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+            className="shrink-0 rounded-full px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 hover:opacity-80 transition-opacity"
           >
             ⎇ history
           </button>
@@ -1004,7 +1004,7 @@ export function FileViewer({
             type="button"
             onClick={() => onOpenNative(file.path)}
             title="Open with the application associated with .drawio files — draw.io desktop, where it is installed"
-            className="shrink-0 rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-zinc-100"
+            className="shrink-0 rounded-full border border-zinc-300 px-2 py-0.5 text-xs text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-zinc-100 hover:opacity-80 transition-opacity"
           >
             ↗ open in draw.io
           </button>
@@ -1036,7 +1036,7 @@ export function FileViewer({
           <button
             type="button"
             onClick={startEdit}
-            className="shrink-0 rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
+            className="shrink-0 rounded-full border border-zinc-300 px-2 py-0.5 text-xs text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200 hover:opacity-80 transition-opacity"
           >
             ✎ edit
           </button>
@@ -1052,7 +1052,7 @@ export function FileViewer({
               type="button"
               onClick={() => save()}
               disabled={!dirty || saving || conflict}
-              className="shrink-0 rounded border border-emerald-300 px-2 py-0.5 text-xs text-emerald-700 hover:border-emerald-500 disabled:opacity-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:border-emerald-600"
+              className="shrink-0 rounded-full border border-emerald-300 px-2 py-0.5 text-xs text-emerald-700 hover:border-emerald-500 disabled:opacity-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:border-emerald-600 hover:opacity-80 transition-opacity"
             >
               {saving ? "saving…" : "save"}
             </button>
@@ -1062,7 +1062,7 @@ export function FileViewer({
                 if (dirty && !window.confirm("Discard unsaved changes?")) return;
                 leaveEditor();
               }}
-              className="shrink-0 rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-500 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500"
+              className="shrink-0 rounded-full border border-zinc-300 px-2 py-0.5 text-xs text-zinc-500 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500 hover:opacity-80 transition-opacity"
             >
               {/* A save keeps the editor open, so with nothing unsaved this is leaving, not discarding. */}
               {dirty ? "cancel" : "done"}
@@ -1098,10 +1098,10 @@ export function FileViewer({
       {conflict && edit !== null && (
         <div className="flex items-center gap-3 border-b border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
           <span className="min-w-0 flex-1">File changed on disk since you started editing.</span>
-          <button type="button" onClick={reload} className="shrink-0 rounded border border-amber-400 px-2 py-0.5 text-xs hover:bg-amber-100 dark:border-amber-800 dark:hover:bg-amber-950/60">
+          <button type="button" onClick={reload} className="shrink-0 rounded-full border border-amber-400 px-2 py-0.5 text-xs hover:bg-amber-100 dark:border-amber-800 dark:hover:bg-amber-950/60 hover:opacity-80 transition-opacity">
             reload (discard my edits)
           </button>
-          <button type="button" onClick={() => save(true)} disabled={saving} className="shrink-0 rounded border border-amber-400 px-2 py-0.5 text-xs hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:hover:bg-amber-950/60">
+          <button type="button" onClick={() => save(true)} disabled={saving} className="shrink-0 rounded-full border border-amber-400 px-2 py-0.5 text-xs hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:hover:bg-amber-950/60 hover:opacity-80 transition-opacity">
             overwrite with my version
           </button>
         </div>
@@ -1116,7 +1116,7 @@ export function FileViewer({
         {showGitDiff && edit === null && (
           <div className="p-4">
             {gitDiff?.path === file.path && "error" in gitDiff && (
-              <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+              <div className="rounded-2xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
                 {gitDiff.error}
               </div>
             )}
@@ -1150,7 +1150,7 @@ export function FileViewer({
               src={rawFileUrl(serverUrl, file.path, token, rawRevision, workspace)}
               alt={file.path}
               onLoad={() => onImageLoad?.(file.path)}
-              className="max-h-full max-w-full rounded object-contain"
+              className="max-h-full max-w-full rounded-2xl object-contain"
             />
           </div>
         )}
@@ -1265,7 +1265,7 @@ export function FileViewer({
           // stays readable as text underneath either way.
           <div
             data-testid="file-structured-exchange-invalid"
-            className="mx-4 mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+            className="mx-4 mt-4 rounded-2xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
           >
             <p className="font-medium">This declares a structured-exchange document and does not satisfy the schema.</p>
             <ul className="mt-1 space-y-0.5 text-xs">
@@ -1286,7 +1286,7 @@ export function FileViewer({
           // claimed to meet, and blame a producer who did nothing wrong.
           <div
             data-testid="file-structured-exchange-unsupported"
-            className="mx-4 mt-4 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400"
+            className="mx-4 mt-4 rounded-2xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400"
           >
             This document declares <span className="font-mono">{exchange.schema}</span>, which this version does not
             render. Shown as text.

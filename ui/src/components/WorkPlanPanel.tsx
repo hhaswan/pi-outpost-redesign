@@ -99,9 +99,9 @@ export function WorkPlanPanel({ plan, open, onToggle, onOpenWorkspace, requested
 
   if (!open) return (
     <div className="absolute right-3 top-3 z-20" onMouseEnter={() => setPreviewVisible(true)} onMouseLeave={() => setPreviewVisible(false)} onFocusCapture={() => setPreviewVisible(true)} onBlurCapture={() => setPreviewVisible(false)}>
-      <button type="button" onClick={() => { setPreviewVisible(false); onToggle(); }} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs shadow-sm dark:border-zinc-700 dark:bg-zinc-900" aria-label="Open Work Plan" aria-describedby={previewId}>Plan {done}/{plan.tasks.length}</button>
+      <button type="button" onClick={() => { setPreviewVisible(false); onToggle(); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs shadow-sm dark:border-zinc-700 dark:bg-zinc-900 hover:opacity-80 transition-opacity" aria-label="Open Work Plan" aria-describedby={previewId}>Plan {done}/{plan.tasks.length}</button>
       <div id={previewId} role="tooltip" className={`absolute right-0 top-full w-72 pt-2 ${previewVisible ? "block" : "hidden"}`}>
-        <div className="rounded-md border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"><ul className="space-y-1">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"><ul className="space-y-1">
           {previewTasks.map(({ task, depth }) => <li key={task.id} className="flex min-w-0 items-start gap-1.5 text-xs" style={{ paddingLeft: `${depth * 0.75}rem` }}>
             <span aria-label={STATUS[task.status].label} className={`shrink-0 font-semibold ${STATUS[task.status].className}`}>{task.status === "done" ? "☑" : "☐"}</span>
             <span className={`truncate ${task.status === "done" ? "text-zinc-500 line-through" : "text-zinc-800 dark:text-zinc-200"}`}>{task.title}</span>
@@ -116,7 +116,7 @@ export function WorkPlanPanel({ plan, open, onToggle, onOpenWorkspace, requested
   return (
     <aside aria-label="Work Plan" className="absolute inset-y-0 right-0 z-10 flex w-full flex-col border-l border-zinc-200 bg-white/95 shadow-lg backdrop-blur md:w-[23rem] dark:border-zinc-800 dark:bg-zinc-950/95">
       <header className="border-b border-zinc-200 px-3 py-3 dark:border-zinc-800">
-        <div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Work Plan</div><h2 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{plan.title}</h2></div><button type="button" onClick={onToggle} className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="Close Work Plan">×</button></div>
+        <div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Work Plan</div><h2 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{plan.title}</h2></div><button type="button" onClick={onToggle} className="rounded-full px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:opacity-80 transition-opacity" aria-label="Close Work Plan">×</button></div>
         <div className="mt-2 text-xs text-zinc-500">Progress: {done} / {plan.tasks.length}</div>
         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800" aria-hidden><div className="h-full bg-emerald-500" style={{ width: `${plan.tasks.length === 0 ? 0 : (done / plan.tasks.length) * 100}%` }} /></div>
       </header>

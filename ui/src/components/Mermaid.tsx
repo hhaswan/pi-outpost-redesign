@@ -97,7 +97,7 @@ export function MarkdownPre(props: React.HTMLAttributes<HTMLPreElement>) {
       <CopyButton
         iconOnly
         text={text.replace(/\n$/, "")}
-        className="absolute right-1.5 top-1.5 rounded border border-zinc-300 bg-white/80 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900/80 dark:text-zinc-400 dark:hover:text-zinc-100"
+        className="absolute right-1.5 top-1.5 rounded-full border border-zinc-300 bg-white/80 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900/80 dark:text-zinc-400 dark:hover:text-zinc-100 hover:opacity-80 transition-opacity"
       />
     </div>
   );
@@ -249,7 +249,7 @@ export function Mermaid({ code }: { code: string }) {
     return (
       <div
         ref={blockRef}
-        className="my-2 flex flex-col gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900"
+        className="my-2 flex flex-col gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900"
       >
         <div className={`${DIAGRAM_ACTIONS} order-3`}>
           <button
@@ -346,7 +346,7 @@ export function Mermaid({ code }: { code: string }) {
     );
   }
   return (
-    <pre className="my-2 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+    <pre className="my-2 overflow-x-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
       {code}
       {error && <div className="mt-2 text-red-600 dark:text-red-400">{error}</div>}
     </pre>

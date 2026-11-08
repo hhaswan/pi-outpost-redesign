@@ -82,7 +82,7 @@ function UsageIndicator({
       )}
     </>
   );
-  const base = "flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-xs text-zinc-500 dark:text-zinc-400";
+  const base = "flex items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-xs text-zinc-500 dark:text-zinc-400 hover:opacity-80 transition-opacity";
 
   if (!onToggleAnalysis) {
     return (
@@ -197,7 +197,7 @@ function ThinkingControl({
         title="thinking level"
         aria-haspopup="true"
         aria-expanded={open}
-        className={`flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-xs disabled:opacity-50 ${
+        className={`flex items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-xs disabled:opacity-50 hover:opacity-80 transition-opacity ${
           active
             ? "border-amber-300 text-amber-700 hover:border-amber-400 dark:border-amber-900 dark:text-amber-400 dark:hover:border-amber-700"
             : "border-zinc-300 text-zinc-500 hover:border-zinc-400 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600"
@@ -207,7 +207,7 @@ function ThinkingControl({
         {thinkingLevel}
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 z-20 mb-1 w-48 rounded-lg border border-zinc-200 bg-white p-3 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="absolute bottom-full left-0 z-20 mb-1 w-48 rounded-2xl border border-zinc-200 bg-white p-3 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
           <div className="mb-1 flex items-baseline justify-between text-xs">
             <span className="text-zinc-500 dark:text-zinc-400">thinking</span>
             <span className="font-mono text-zinc-700 dark:text-zinc-200">{thinkingLevel}</span>
@@ -255,7 +255,7 @@ export function ModelBar(props: ModelBarProps) {
           if (choice) props.onSetModel(choice.provider, choice.id);
         }}
         disabled={isStreaming}
-        className="max-w-64 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-xs text-zinc-700 outline-none hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-600"
+        className="max-w-64 rounded-full border border-zinc-300 bg-white px-2 py-1 font-mono text-xs text-zinc-700 outline-none hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-600 hover:opacity-80 transition-opacity"
       >
         {!models.some((m) => `${m.provider}/${m.id}` === model) && <option value={model}>{model}</option>}
         {models.map((m) => (
@@ -289,7 +289,7 @@ export function ModelBar(props: ModelBarProps) {
             ? `${contextUsage.tokens.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens — click to compact`
             : "Click to compact the conversation context"
         }
-        className={`${props.shellConfinement ? "" : "ml-auto "}flex items-center gap-1.5 rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs text-zinc-500 hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600`}
+        className={`${props.shellConfinement ? "" : "ml-auto "}flex items-center gap-1.5 rounded-full border border-zinc-300 px-2 py-1 font-mono text-xs text-zinc-500 hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 hover:opacity-80 transition-opacity`}
       >
         <ContextRing usage={contextUsage} />
         {isCompacting ? "compacting…" : contextUsage?.percent != null ? `${Math.round(contextUsage.percent)}%` : "context"}

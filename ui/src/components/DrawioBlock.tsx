@@ -373,7 +373,7 @@ export function DrawioBlock({
 
   if (variant === "reply" && read.status === "failed") {
     return (
-      <div ref={blockRef} role="alert" data-testid="drawio-block-missing" className="my-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+      <div ref={blockRef} role="alert" data-testid="drawio-block-missing" className="my-2 rounded-2xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
         The diagram <code>{path}</code> could not be shown: {read.message}
       </div>
     );

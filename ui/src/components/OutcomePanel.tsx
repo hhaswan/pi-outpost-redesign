@@ -39,7 +39,7 @@ function Entry({ entry, onTarget }: { entry: OutcomeEntry; onTarget(target: Outc
   const box = "block w-full rounded-md border border-zinc-200 p-2 text-left hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900";
   if (entry.target?.kind === "external-url") return <a href={entry.target.url} target="_blank" rel="noreferrer" className={box}>{content}</a>;
   if (entry.target) return <button type="button" onClick={() => onTarget(entry.target!)} className={box}>{content}</button>;
-  return <div className="rounded-md border border-zinc-200 p-2 dark:border-zinc-800">{content}</div>;
+  return <div className="rounded-2xl border border-zinc-200 p-2 dark:border-zinc-800">{content}</div>;
 }
 
 export function OutcomePanel({ state, onClose, onRefresh, onTarget }: {
@@ -52,13 +52,13 @@ export function OutcomePanel({ state, onClose, onRefresh, onTarget }: {
     <header className="flex items-start justify-between gap-2 border-b border-zinc-200 px-3 py-3 dark:border-zinc-800">
       <div><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Workspace review</div><h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Outcome</h2></div>
       <div className="flex gap-1">
-        <button type="button" onClick={onRefresh} className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800">Refresh</button>
-        <button type="button" onClick={onClose} className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="Close Outcome">×</button>
+        <button type="button" onClick={onRefresh} className="rounded-full px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:opacity-80 transition-opacity">Refresh</button>
+        <button type="button" onClick={onClose} className="rounded-full px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:opacity-80 transition-opacity" aria-label="Close Outcome">×</button>
       </div>
     </header>
     <div className="min-h-0 flex-1 overflow-y-auto p-3">
-      {state === null || state.status === "loading" ? <div role="status" className="text-sm text-zinc-500">Loading Outcome…</div> : state.status === "error" ? <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{state.message}</div> : <div className="space-y-4">
-        {state.outcome.sections.map((section) => <section key={section.id} aria-labelledby={`outcome-${section.id}`} className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+      {state === null || state.status === "loading" ? <div role="status" className="text-sm text-zinc-500">Loading Outcome…</div> : state.status === "error" ? <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{state.message}</div> : <div className="space-y-4">
+        {state.outcome.sections.map((section) => <section key={section.id} aria-labelledby={`outcome-${section.id}`} className="rounded-2xl border border-zinc-200 p-3 dark:border-zinc-800">
           <div className="flex items-center justify-between gap-2">
             <h3 id={`outcome-${section.id}`} className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{section.title}</h3>
             {section.availability === "partial" || section.availability === "unavailable" ? <span className="text-[11px] font-semibold uppercase text-red-600 dark:text-red-400">{section.availability}</span> : null}

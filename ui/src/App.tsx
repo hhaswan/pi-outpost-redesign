@@ -9,6 +9,7 @@ import type { OutcomeTarget, Theme, WireImage } from "@pi-outpost/shared";
 import { AssistantMessage } from "./components/AssistantMessage";
 import { CompactionBoundary } from "./components/CompactionBoundary";
 import { CustomMessageCard } from "./components/CustomMessageCard";
+import { MCPManager } from "./components/MCPManager";
 import { OlderMessages } from "./components/OlderMessages";
 import { SessionAnalysisPanel } from "./components/SessionAnalysis";
 import { ThemeContext } from "./theme/ThemeContext";
@@ -116,6 +117,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
     prompt,
     abort,
     cancelPendingPrompt,
+    setMcpManagerOpen,
     setModel,
     setThinking,
     newSession,
@@ -1552,6 +1554,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
       </div>
 
       <ExtensionNotifications notifications={state.notifications} onDismiss={dismissNotification} />
+      {state.mcpManagerOpen && <MCPManager onClose={() => setMcpManagerOpen(false)} />}
     </DrawioFilesContext.Provider>
     </StructuredAppearanceContext.Provider>
     </ReplyConformanceContext.Provider>
