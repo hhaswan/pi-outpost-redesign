@@ -1,4 +1,3 @@
-import React from 'react';
 
 export function MCPManager({ onClose }: { onClose: () => void }) {
   return (
