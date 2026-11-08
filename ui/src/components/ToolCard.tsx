@@ -24,7 +24,7 @@ export function ToolCard({ item, dispatch = noopDispatch }: { item: ToolItem; di
   const presentation = selectPresentation(item, shown.current);
   shown.current = presentation.id;
 
-  const startsExpanded = presentation.startsExpanded === true;
+  const startsExpanded = false;
   const [open, setOpen] = useState(startsExpanded);
   // A call that turns into a diff mid-stream opens itself; the reader did not
   // choose the folded state, so replacing it is not overriding them.
@@ -40,7 +40,7 @@ export function ToolCard({ item, dispatch = noopDispatch }: { item: ToolItem; di
 
   return (
     <div
-      className={`rounded-lg border text-sm ${
+      className={`${open ? "rounded-lg" : "w-max max-w-full rounded-xl"} border text-sm ${
         item.isError
           ? "border-red-300 bg-red-50 dark:border-red-900/60 dark:bg-red-950/20"
           : "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60"
@@ -74,6 +74,7 @@ export function ToolCard({ item, dispatch = noopDispatch }: { item: ToolItem; di
           aria-label={callHtml ? item.toolName : undefined}
           className="flex shrink-0 items-center gap-2"
         >
+          <span className="text-xs text-zinc-400 dark:text-zinc-600">{open ? "▾" : "▸"}</span>
           <span className={`h-2 w-2 shrink-0 rounded-full ${
             item.running ? "animate-pulse motion-reduce:animate-none bg-amber-400" : item.isError ? "bg-red-500" : "bg-emerald-500"
           }`} />
@@ -91,7 +92,6 @@ export function ToolCard({ item, dispatch = noopDispatch }: { item: ToolItem; di
             <span className="min-w-0 overflow-x-auto whitespace-nowrap font-mono text-xs text-zinc-500 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{summary}</span>
           )
         )}
-        <span className="ml-auto text-xs text-zinc-400 dark:text-zinc-600">{open ? "▾" : "▸"}</span>
       </div>
       {item.running && item.progress != null && (
         <div className="border-t border-zinc-200 px-3 py-1.5 dark:border-zinc-800">

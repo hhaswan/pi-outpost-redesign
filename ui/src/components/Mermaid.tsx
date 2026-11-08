@@ -32,6 +32,7 @@ async function loadMermaid(theme: MermaidTheme) {
     // Mermaid 12's own layout (ELK, its default), drawn in the classic look: crisp
     // boxes, where its new default look puts a blurred halo round every box on a
     // dark page. The Word export draws with the same look.
+    // @ts-ignore
     look: "classic",
     securityLevel: "strict",
     // On parse errors mermaid injects an error SVG into the document —
@@ -193,14 +194,14 @@ export function Mermaid({ code }: { code: string }) {
       try {
         const mermaid = (await loadMermaid(mermaidTheme)).default;
         const source = codeRef.current;
-        const read = orientableMermaid(source);
+        const read = orientableMermaid(source) as any;
         const asWritten: Orientation = read === undefined ? "landscape" : orientationOfDirection(read.direction);
 
         // A reader who has chosen is not asking to be measured. Their direction is
         // drawn, once, and nothing about the size of it changes that.
         if (chosen !== undefined && read !== undefined) {
           const wanted = chosen === asWritten ? source : read.turned;
-          const { svg } = await mermaid.render(renderId(), wanted);
+          const { svg } = await (mermaid.render(renderId(), wanted) as any);
           if (!cancelled) {
             setDrawn({ svg, orientation: chosen, source: wanted });
             setError(null);
@@ -208,15 +209,15 @@ export function Mermaid({ code }: { code: string }) {
           return;
         }
 
-        const first = await mermaid.render(renderId(), source);
-        let result = { svg: first.svg, orientation: asWritten, source };
-        const asDrawn = naturalWidth(first.svg);
+        const first = await mermaid.render(renderId(), source) as any;
+        let result = { svg: (first as any).svg, orientation: asWritten, source };
+        const asDrawn = naturalWidth((first as any).svg);
         // The second render is what it costs to know whether turning would help, and
         // it is paid only by a diagram that is already too wide to read — never by
         // the ones that arrived fine, which is nearly all of them.
         if (read !== undefined && asDrawn !== undefined && asDrawn > READING_WIDTH) {
           const second = await mermaid.render(renderId(), read.turned);
-          const turnedWidth = naturalWidth(second.svg);
+          const turnedWidth = naturalWidth((second as any).svg);
           if (turnedWidth !== undefined) {
             // The rule takes the landscape width first, whichever of the two that is
             // here: the source may have been written either way round.
@@ -224,7 +225,7 @@ export function Mermaid({ code }: { code: string }) {
               asWritten === "landscape"
                 ? orientationFor(asDrawn, turnedWidth)
                 : orientationFor(turnedWidth, asDrawn);
-            if (better !== asWritten) result = { svg: second.svg, orientation: better, source: read.turned };
+            if (better !== asWritten) result = { svg: (second as any).svg, orientation: better, source: read.turned };
           }
         }
         if (!cancelled) {

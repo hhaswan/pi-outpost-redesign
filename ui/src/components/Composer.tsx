@@ -480,7 +480,7 @@ export function Composer({
             onClick={onAbort}
             title="stop"
             aria-label="Stop the agent"
-            className="rounded-lg bg-red-100 p-2 text-red-700 hover:bg-red-200 dark:bg-red-900/60 dark:text-red-200 dark:hover:bg-red-900"
+            className="rounded-full bg-red-100 p-2 text-red-700 hover:bg-red-200 dark:bg-red-900/60 dark:text-red-200 dark:hover:bg-red-900 hover:opacity-80 transition-opacity"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className="h-4 w-4">
               <rect x="6" y="6" width="12" height="12" rx="2" />
@@ -493,7 +493,7 @@ export function Composer({
           disabled={!connected}
           title="attach files"
           aria-label="Attach files"
-          className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-700 disabled:opacity-30 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+          className="rounded-full p-2 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-700 disabled:opacity-30 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 hover:opacity-80 transition-opacity"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden className="h-4 w-4">
             <path
@@ -519,7 +519,7 @@ export function Composer({
           disabled={!connected || uploading || (!text.trim() && attachments.length === 0)}
           title={uploading ? "waiting for an attachment to finish uploading" : isStreaming ? "steer" : "send"}
           aria-label={isStreaming ? "Steer the agent" : "Send message"}
-          className="rounded-lg bg-zinc-900 p-2 text-zinc-100 hover:bg-zinc-800 disabled:opacity-30 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+          className="rounded-full bg-zinc-900 p-2 text-zinc-100 hover:bg-zinc-800 disabled:opacity-30 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white hover:opacity-80 transition-opacity"
         >
           {isStreaming ? (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden className="h-4 w-4">

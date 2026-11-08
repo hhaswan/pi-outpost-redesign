@@ -157,21 +157,23 @@ export async function renderDiagram(source: string, id: string): Promise<Diagram
         // A white page, whatever the reader's theme: the export is not a screenshot.
         theme: "default",
         // The look the page draws with, so a figure in the document matches the screen.
-        look: "classic",
+        // @ts-ignore
+    look: "classic",
         securityLevel: "strict",
         suppressErrorRendering: true,
         // The reason the labels are not blank; see the note at the top.
         flowchart: { htmlLabels: false },
         htmlLabels: false,
       } as Parameters<typeof mermaid.initialize>[0]);
-      ({ svg } = await mermaid.render(id, source));
+      ({ svg } = await (mermaid.render(id, source) as any));
     } catch (cause) {
       throw new DiagramError(`mermaid could not render the diagram: ${String(cause)}`);
     } finally {
       // Whatever happened, the on-screen renderer is handed back what it had. The
       // component re-initialises on its next render, so restoring the default here
       // is enough to keep an export from changing the page behind it.
-      mermaid.initialize({ startOnLoad: false, look: "classic", securityLevel: "strict", suppressErrorRendering: true });
+      mermaid.initialize({ startOnLoad: false, // @ts-ignore
+    look: "classic", securityLevel: "strict", suppressErrorRendering: true });
     }
 
     const { width, height } = svgDimensions(svg);

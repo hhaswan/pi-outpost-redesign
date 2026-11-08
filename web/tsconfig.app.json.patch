@@ -1,0 +1,14 @@
+--- web/tsconfig.app.json
++++ web/tsconfig.app.json
+@@ -6,6 +6,9 @@
+     "baseUrl": ".",
+     "paths": {
+       "@pi-outpost/*": ["../*/src"]
+-    }
++    },
++    "typeRoots": [
++      "../node_modules/@types",
++      "../types"
++    ]
+   }
+ }

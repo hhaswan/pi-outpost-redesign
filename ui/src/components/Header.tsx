@@ -204,14 +204,14 @@ function SessionRow({
 }) {
   if (renaming) {
     return (
-      <div className="px-3 py-2">
+      <div className="px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800/60">
         <RenameField initial={session.name ?? ""} onCommit={onRename} onCancel={onCancelRename} />
       </div>
     );
   }
   return (
     <div
-      className={`group flex items-start gap-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
+      className={`group flex items-start gap-1 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800/80 ${
         isCurrent ? "bg-zinc-100 dark:bg-zinc-800/60" : ""
       }`}
     >
@@ -236,7 +236,7 @@ function SessionRow({
         onClick={onStartRename}
         title="rename session"
         aria-label="Rename session"
-        className="mt-2 rounded px-1.5 py-0.5 text-xs text-zinc-400 opacity-0 hover:bg-zinc-200 hover:text-zinc-700 focus-visible:opacity-100 group-hover:opacity-100 dark:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+        className="mt-2 rounded-full px-1.5 py-0.5 text-xs text-zinc-400 opacity-0 hover:bg-zinc-200 hover:text-zinc-700 focus-visible:opacity-100 group-hover:opacity-100 dark:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-200 hover:opacity-80 transition-opacity"
       >
         ✎
       </button>
@@ -246,10 +246,118 @@ function SessionRow({
           onClick={onDelete}
           title="delete session"
           aria-label="Delete session"
-          className="mr-2 mt-2 rounded px-1.5 py-0.5 text-xs text-zinc-400 opacity-0 hover:bg-red-100 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-zinc-600 dark:hover:bg-red-950/60 dark:hover:text-red-400"
+          className="mr-2 mt-2 rounded-full px-1.5 py-0.5 text-xs text-zinc-400 opacity-0 hover:bg-red-100 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-zinc-600 dark:hover:bg-red-950/60 dark:hover:text-red-400 hover:opacity-80 transition-opacity"
         >
           ✕
         </button>
+      )}
+    </div>
+  );
+}
+
+function groupSessions(sessions: SessionSummary[]): { label: string; sessions: SessionSummary[] }[] {
+  const today: SessionSummary[] = [];
+  const yesterday: SessionSummary[] = [];
+  const lastWeek: SessionSummary[] = [];
+  const lastMonth: SessionSummary[] = [];
+  const older: SessionSummary[] = [];
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+
+  for (const session of sessions) {
+    const d = new Date(session.modified).getTime();
+    
+    if (d >= todayStart) {
+      today.push(session);
+    } else if (d >= todayStart - ONE_DAY) {
+      yesterday.push(session);
+    } else if (d >= todayStart - 7 * ONE_DAY) {
+      lastWeek.push(session);
+    } else if (d >= todayStart - 30 * ONE_DAY) {
+      lastMonth.push(session);
+    } else {
+      older.push(session);
+    }
+  }
+
+  return [
+    { label: "Today", sessions: today },
+    { label: "Yesterday", sessions: yesterday },
+    { label: "Last Week", sessions: lastWeek },
+    { label: "Last 30 Days", sessions: lastMonth },
+    { label: "Older", sessions: older }
+  ].filter(g => g.sessions.length > 0);
+}
+
+function SessionGroup({
+  label,
+  sessions,
+  sessionId,
+  renamingPath,
+  setRenamingPath,
+  onSwitchSession,
+  onDeleteSession,
+  onRenameSession,
+  close,
+  searching,
+  onSearchSessions,
+  query
+}: {
+  label: string;
+  sessions: SessionSummary[];
+  sessionId: string;
+  renamingPath: string | null;
+  setRenamingPath: (path: string | null) => void;
+  onSwitchSession: (path: string) => void;
+  onDeleteSession: (path: string) => void;
+  onRenameSession: (path: string, name: string) => void;
+  close: () => void;
+  searching: boolean;
+  onSearchSessions: (query: string) => void;
+  query: string;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  return (
+    <div className="mb-2 last:mb-0 px-2">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-xs font-bold uppercase tracking-wider text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+      >
+        <span className="text-[10px] opacity-80">{expanded ? "▾" : "▸"}</span>
+        <span>{label}</span>
+        <span className="ml-auto rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] dark:bg-zinc-800">
+          {sessions.length}
+        </span>
+      </button>
+      {expanded && (
+        <div className="flex flex-col gap-0.5 mt-0.5">
+          {sessions.map((session) => (
+            <SessionRow
+              key={session.path}
+              session={session}
+              isCurrent={session.id === sessionId}
+              renaming={renamingPath === session.path}
+              onSwitch={() => {
+                onSwitchSession(session.path);
+                close();
+              }}
+              onDelete={() => {
+                if (window.confirm("Delete this session?")) onDeleteSession(session.path);
+              }}
+              onStartRename={() => setRenamingPath(session.path)}
+              onRename={(name) => {
+                onRenameSession(session.path, name);
+                setRenamingPath(null);
+                if (searching) onSearchSessions(query.trim());
+              }}
+              onCancelRename={() => setRenamingPath(null)}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -335,7 +443,7 @@ function SessionMenu({
         sessions
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 flex max-h-96 w-96 flex-col rounded-lg border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="absolute right-0 top-full z-20 mt-1 flex max-h-96 w-96 flex-col rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 overflow-hidden">
           <div className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
             <input
               type="search"
@@ -349,33 +457,26 @@ function SessionMenu({
               Searches names and everything said in a session · ✎ to rename
             </p>
           </div>
-          <div className="min-h-0 overflow-y-auto">
+          <div className="min-h-0 overflow-y-auto py-2">
             {rows === null && <div className="px-3 py-2 text-xs text-zinc-500">loading…</div>}
             {rows?.length === 0 && (
               <div className="px-3 py-2 text-xs text-zinc-500">{searching ? "no matches" : "no saved sessions"}</div>
             )}
-            {rows?.map((session) => (
-              <SessionRow
-                key={session.path}
-                session={session}
-                isCurrent={session.id === sessionId}
-                renaming={renamingPath === session.path}
-                onSwitch={() => {
-                  onSwitchSession(session.path);
-                  close();
-                }}
-                onDelete={() => {
-                  if (window.confirm("Delete this session?")) onDeleteSession(session.path);
-                }}
-                onStartRename={() => setRenamingPath(session.path)}
-                onRename={(name) => {
-                  onRenameSession(session.path, name);
-                  setRenamingPath(null);
-                  // Search results are a server-side snapshot: the rename's `sessions`
-                  // broadcast doesn't refresh them, so ask again
-                  if (searching) onSearchSessions(query.trim());
-                }}
-                onCancelRename={() => setRenamingPath(null)}
+            {rows && rows.length > 0 && groupSessions(rows).map((group) => (
+              <SessionGroup
+                key={group.label}
+                label={group.label}
+                sessions={group.sessions}
+                sessionId={sessionId}
+                renamingPath={renamingPath}
+                setRenamingPath={setRenamingPath}
+                onSwitchSession={onSwitchSession}
+                onDeleteSession={onDeleteSession}
+                onRenameSession={onRenameSession}
+                close={close}
+                searching={searching}
+                onSearchSessions={onSearchSessions}
+                query={query}
               />
             ))}
           </div>

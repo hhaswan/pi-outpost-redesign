@@ -87,7 +87,7 @@ describe("ToolCard", () => {
     const { container } = render(<ToolCard item={item} />);
 
     const button = cardRoot(container).querySelector("button");
-    const statusDot = button?.querySelector("span");
+    const statusDot = button?.querySelectorAll("span")[1];
     expect(statusDot).toHaveClass("animate-pulse");
     expect(statusDot).toHaveClass("bg-amber-400");
   });
@@ -106,7 +106,7 @@ describe("ToolCard", () => {
     const { container } = render(<ToolCard item={item} />);
 
     const button = cardRoot(container).querySelector("button");
-    const statusDot = button?.querySelector("span");
+    const statusDot = button?.querySelectorAll("span")[1];
     expect(statusDot).toHaveClass("bg-red-500");
     expect(statusDot).not.toHaveClass("animate-pulse");
   });
@@ -125,7 +125,7 @@ describe("ToolCard", () => {
     const { container } = render(<ToolCard item={item} />);
 
     const button = cardRoot(container).querySelector("button");
-    const statusDot = button?.querySelector("span");
+    const statusDot = button?.querySelectorAll("span")[1];
     expect(statusDot).toHaveClass("bg-emerald-500");
     expect(statusDot).not.toHaveClass("animate-pulse");
   });
@@ -163,7 +163,7 @@ describe("ToolCard", () => {
     const { container } = render(<ToolCard item={item} />);
 
     expect(cardRoot(container).querySelector("span[class*='font-mono']")?.textContent).toBe("bash");
-    expect(cardRoot(container).querySelector("span[class*='text-xs']")?.textContent).toBe("npm install");
+    expect(cardRoot(container).querySelector("span.whitespace-nowrap")?.textContent).toBe("npm install");
   });
 
   it("renders tool with formatted output in collapsed state", () => {
@@ -199,7 +199,8 @@ describe("ToolCard", () => {
       },
     };
 
-    render(<ToolCard item={item} />);
+    const { container } = render(<ToolCard item={item} />);
+    fireEvent.click(cardRoot(container).querySelector("button")!);
 
     const splitDiffBlocks = screen.getAllByTestId("split-diff-block");
     expect(splitDiffBlocks.length).toBeGreaterThan(0);
@@ -218,7 +219,8 @@ describe("ToolCard", () => {
       },
     };
 
-    render(<ToolCard item={item} />);
+    const { container } = render(<ToolCard item={item} />);
+    fireEvent.click(cardRoot(container).querySelector("button")!);
 
     const diffBlocks = screen.getAllByTestId("diff-block");
     expect(diffBlocks.length).toBeGreaterThan(0);
@@ -341,8 +343,8 @@ describe("ToolCard", () => {
     const editRoot = cardRoot(render(<ToolCard item={editItem} />).container);
     const writeRoot = cardRoot(render(<ToolCard item={writeItem} />).container);
 
-    expect(editRoot.children.length).toBe(2);
-    expect(writeRoot.children.length).toBe(2);
+    expect(editRoot.children.length).toBe(1);
+    expect(writeRoot.children.length).toBe(1);
   });
 
   it("starts collapsed for non-edit/write tools", () => {

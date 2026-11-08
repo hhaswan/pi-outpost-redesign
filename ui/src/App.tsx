@@ -1273,7 +1273,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
                   <div
                     key={anchorKey}
                     data-item-index={i}
-                    className={`flex flex-col gap-3 rounded-lg transition-shadow ${
+                    className={`flex flex-col gap-3 rounded-2xl transition-shadow ${
                       highlightIndex === i ? "ring-2 ring-blue-400 dark:ring-blue-500" : ""
                     }`}
                   >
@@ -1401,20 +1401,20 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
               {attachmentErrors.map((error, i) => (
                 <div
                   key={`att${i}`}
-                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300"
+                  className="rounded-2xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300"
                 >
                   {error}
                 </div>
               ))}
               {exportError && (
-                <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+                <div className="rounded-2xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
                   {exportError}
                 </div>
               )}
               {state.errors.map((error, i) => (
                 <div
                   key={i}
-                  className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
+                  className="rounded-2xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
                 >
                   {error}
                 </div>
@@ -1444,7 +1444,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
               type="button"
               onClick={scrollToLatest}
               aria-label="Scroll to the latest message"
-              className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-zinc-300 bg-white/95 px-3 py-1.5 text-xs text-zinc-600 shadow-lg backdrop-blur transition-colors hover:bg-zinc-50 motion-reduce:transition-none dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-zinc-300 bg-white/95 px-3 py-1.5 text-xs text-zinc-600 shadow-lg backdrop-blur transition-colors hover:bg-zinc-50 hover:opacity-80 transition-opacity motion-reduce:transition-none dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
               <span aria-hidden>↓</span>
               Latest

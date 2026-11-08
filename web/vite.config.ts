@@ -1,4 +1,4 @@
-import tailwindcss from '@tailwindcss/vite'
+
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
@@ -8,7 +8,7 @@ const port = process.env.PI_OUTPOST_PORT ?? '3141'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react()],
   build: {
     rollupOptions: {
       // The application, and the poster editor frame the file viewer hosts.
@@ -19,6 +19,8 @@ export default defineConfig({
     },
   },
   server: {
+    
+    port: 5173,
     proxy: {
       '/ws': {
         target: `ws://127.0.0.1:${port}`,

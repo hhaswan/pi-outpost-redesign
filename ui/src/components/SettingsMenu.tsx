@@ -341,7 +341,7 @@ export function SettingsMenu({
         ⚙
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 flex max-h-[80vh] w-[380px] flex-col rounded-lg border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="absolute right-0 top-full z-20 mt-1 flex max-h-[80vh] w-[380px] flex-col rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
           <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
             {creditsOpen && <button type="button" onClick={() => setCreditsOpen(false)} className="mb-2 text-xs text-zinc-600 hover:underline dark:text-zinc-400">← Back to settings</button>}
             <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{creditsOpen ? "Credits" : "Settings"}</h2>
@@ -401,9 +401,9 @@ export function SettingsMenu({
                         )}
                         {!credentials.locked && (
                           <div className="flex flex-wrap gap-1">
-                            {provider.methods?.includes("oauth") && <button type="button" className="rounded border px-2 py-1 text-[11px]" onClick={() => handleProviderLogin(provider.id, "oauth")}>Sign in</button>}
-                            {provider.methods?.includes("api_key") && <button type="button" className="rounded border px-2 py-1 text-[11px]" onClick={() => handleProviderLogin(provider.id, "api_key")}>API key</button>}
-                            {provider.configured && provider.source === "stored" && <button type="button" className="rounded border px-2 py-1 text-[11px]" onClick={() => onLogoutProvider?.(provider.id)}>{provider.auth === "api_key" ? "Remove API key" : "Sign out"}</button>}
+                            {provider.methods?.includes("oauth") && <button type="button" className="rounded-full border px-2 py-1 text-[11px] hover:opacity-80 transition-opacity" onClick={() => handleProviderLogin(provider.id, "oauth")}>Sign in</button>}
+                            {provider.methods?.includes("api_key") && <button type="button" className="rounded-full border px-2 py-1 text-[11px] hover:opacity-80 transition-opacity" onClick={() => handleProviderLogin(provider.id, "api_key")}>API key</button>}
+                            {provider.configured && provider.source === "stored" && <button type="button" className="rounded-full border px-2 py-1 text-[11px] hover:opacity-80 transition-opacity" onClick={() => onLogoutProvider?.(provider.id)}>{provider.auth === "api_key" ? "Remove API key" : "Sign out"}</button>}
                           </div>
                         )}
                         {login?.provider === provider.id && <div className="mt-2"><LoginFlow login={login} providerName={provider.name} onAnswer={(value) => onAnswerLogin?.(value)} onCancel={() => onCancelLogin?.()} onDismiss={() => onDismissLogin?.()} /></div>}

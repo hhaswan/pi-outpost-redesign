@@ -1,0 +1,8 @@
+FROM node:24-bookworm
+WORKDIR /app
+COPY . .
+RUN npm install
+RUN npm run build --workspace web || true
+ENV PI_OUTPOST_TOKEN="tmp_token_12345"
+EXPOSE 3141 5173
+CMD ["npm", "run", "dev:server"]

@@ -1,18 +1,22 @@
-@import "tailwindcss";
 @import "katex/dist/katex.min.css";
 @import "@xterm/xterm/css/xterm.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+
+
 
 /* Explicit source root: Tailwind's automatic content detection is relative to the
    Vite build consuming this file, which resolves correctly for web's own build but
    not for embed's (a different package importing this file directly) — this makes
    utility-class scanning of web/src work the same regardless of which build processes
    this stylesheet. */
-@source "./**/*.{ts,tsx}";
 /* Every component moved to the ui workspace (#20/#21); web/src now holds little
    more than main.tsx. Without this, Tailwind scans a directory with no components
    in it and emits no utilities at all — the app renders unstyled. Relative to this
    stylesheet, so it resolves the same whether web or embed is doing the build. */
-@source "../../ui/src/**/*.{ts,tsx}";
 
 /* data-theme is set by useTheme() on the root element: document.documentElement for
    the standalone app, or the widget's shadow host when embedded (embed/src/mount.tsx)
@@ -20,9 +24,8 @@
    element outside the shadow tree these rules are scoped to. Lets dark: utilities key
    off it instead of only prefers-color-scheme, so the in-app toggle/config default
    and host-driven postMessage overrides all take effect. */
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, :host([data-theme="dark"]) &));
 
-@theme {
+:root {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
 }
@@ -32,14 +35,14 @@
    :host variants apply the same defaults when embedded (see mount.tsx). */
 :root,
 :host {
-  --accent: #1d4ed8;
+  --accent: #0f172a;
   /* Also what `light-dark()` picks by: the tool cards the server renders carry both a
      light and a dark colour for their text (server/src/extensionRender.ts). */
   color-scheme: light;
 }
 :root[data-theme="dark"],
 :host([data-theme="dark"]) {
-  --accent: #60a5fa;
+  --accent: #f8fafc;
   color-scheme: dark;
 }
 
@@ -60,7 +63,7 @@ body,
    same id as the standalone app's mount point, see embed/src/mount.tsx. */
 body,
 #root {
-  @apply bg-white text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
+  @apply bg-slate-50 text-slate-800 antialiased dark:bg-slate-900 dark:text-slate-200;
 }
 
 /* Markdown content */

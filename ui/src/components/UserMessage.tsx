@@ -73,7 +73,7 @@ export function UserMessage({ item, canEdit, onEdit, queued }: UserMessageProps)
   }
 
   const actionClass =
-    "mt-1.5 shrink-0 rounded px-1 py-0.5 text-xs text-zinc-400 opacity-0 hover:bg-zinc-200 hover:text-zinc-700 focus-visible:opacity-100 group-hover:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200";
+    "mt-1.5 shrink-0 rounded-full px-1 py-0.5 text-xs text-zinc-400 opacity-0 hover:bg-zinc-200 hover:text-zinc-700 focus-visible:opacity-100 group-hover:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200 hover:opacity-80 transition-opacity";
   return (
     <div className="group ml-auto flex max-w-[85%] items-start gap-1.5" {...(queued ? { "data-queued-prompt": item.entryId } : {})}>
       {editable && !editing && (
@@ -105,8 +105,8 @@ export function UserMessage({ item, canEdit, onEdit, queued }: UserMessageProps)
         className={
           // Waiting, the bubble is the same shape, only paler: no frame or heading to read past.
           queued && !editing
-            ? "min-w-0 flex-1 rounded-xl bg-blue-50 px-4 py-2 text-[15px] text-blue-950/70 dark:bg-blue-950/25 dark:text-zinc-400"
-            : "min-w-0 flex-1 rounded-xl bg-blue-100 px-4 py-2 text-[15px] text-blue-950 dark:bg-blue-950/60 dark:text-zinc-100"
+            ? "min-w-0 flex-1 rounded-2xl bg-blue-50 px-4 py-2 text-[15px] text-blue-950/70 dark:bg-blue-950/25 dark:text-zinc-400"
+            : "min-w-0 flex-1 rounded-2xl bg-blue-100 px-4 py-2 text-[15px] text-blue-950 dark:bg-blue-950/60 dark:text-zinc-100"
         }
         {...(queued && !editing ? { title: "queued — the agent has not read it yet" } : {})}
       >
@@ -118,7 +118,7 @@ export function UserMessage({ item, canEdit, onEdit, queued }: UserMessageProps)
                 key={j}
                 src={`data:${image.mimeType};base64,${image.data}`}
                 alt=""
-                className="max-h-48 max-w-full rounded-lg object-contain"
+                className="max-h-48 max-w-full rounded-2xl object-contain"
               />
             ))}
           </div>
@@ -140,7 +140,7 @@ export function UserMessage({ item, canEdit, onEdit, queued }: UserMessageProps)
                 if (event.key === "Escape") setDraft(null);
               }}
               rows={Math.min(10, Math.max(2, draft.split("\n").length))}
-              className="w-full resize-none rounded-md bg-white/70 px-2 py-1 text-[15px] outline-none ring-1 ring-blue-300 dark:bg-zinc-900/60 dark:ring-blue-900"
+              className="w-full resize-none rounded-2xl bg-white/70 px-2 py-1 text-[15px] outline-none ring-1 ring-blue-300 dark:bg-zinc-900/60 dark:ring-blue-900"
             />
             <div className="mt-1.5 flex items-center justify-end gap-2 text-xs">
               <span className="mr-auto text-blue-900/70 dark:text-zinc-400">
@@ -155,7 +155,7 @@ export function UserMessage({ item, canEdit, onEdit, queued }: UserMessageProps)
               <button
                 type="button"
                 onClick={() => setDraft(null)}
-                className="rounded border border-blue-300 px-2 py-0.5 hover:bg-white/60 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                className="rounded-full border border-blue-300 px-2 py-0.5 hover:bg-white/60 dark:border-zinc-700 dark:hover:bg-zinc-800 hover:opacity-80 transition-opacity"
               >
                 cancel
               </button>
@@ -163,7 +163,7 @@ export function UserMessage({ item, canEdit, onEdit, queued }: UserMessageProps)
                 type="button"
                 onClick={submit}
                 disabled={!canEdit || !draft.trim() || draft.trim() === item.text}
-                className="rounded border border-blue-400 bg-white/70 px-2 py-0.5 font-medium disabled:opacity-50 dark:border-blue-800 dark:bg-zinc-900/60"
+                className="rounded-full border border-blue-400 bg-white/70 px-2 py-0.5 font-medium disabled:opacity-50 dark:border-blue-800 dark:bg-zinc-900/60 hover:opacity-80 transition-opacity"
               >
                 {queued ? "save" : "send"}
               </button>

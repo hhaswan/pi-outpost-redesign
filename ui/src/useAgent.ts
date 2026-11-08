@@ -385,6 +385,8 @@ export interface AgentState {
    * what the session file holds.
    */
   olderHistory: OlderHistory | null;
+  /** Whether the MCP Manager modal is open */
+  mcpManagerOpen: boolean;
   /**
    * A prompt this client has sent and the server has not echoed back yet.
    *
@@ -570,6 +572,7 @@ const initialState: AgentState = {
   isStreaming: false,
   items: [],
   olderHistory: null,
+  mcpManagerOpen: false,
   pendingPrompt: null,
   workPlan: null,
   replyConformance: {},
@@ -640,6 +643,7 @@ type Action =
   | { type: "auth_required" }
   | { type: "auth_retrying" }
   | { type: "server"; message: ServerMessage }
+  | { type: "set_mcp_manager_open"; open: boolean }
   | { type: "login_started"; flowId: string; provider: string; method: "oauth" | "api_key" }
   | { type: "login_answered" }
   | { type: "login_dismissed" }
@@ -904,6 +908,7 @@ function followMoves(state: AgentState, moves: readonly [from: string, to: strin
 }
 
 function reduce(state: AgentState, action: Action): AgentState {
+  if (action.type === "set_mcp_manager_open") return { ...state, mcpManagerOpen: action.open };
   if (action.type === "connected") return { ...state, connected: true, authRequired: false };
   if (action.type === "workspace_switching") return { ...state, switching: true };
   if (action.type === "pi_package_update_started") {
@@ -2784,6 +2789,9 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
       dispatch({ type: "workspace_switching" });
       sendMessage({ type: "open_project", root });
     },
+    setMcpManagerOpen: (open: boolean) => {
+      dispatch({ type: "set_mcp_manager_open", open });
+    },
     /**
      * Close an open project with its side sessions, or — given a side session's id —
      * that side session alone. Refused server-side while an agent it would stop is streaming.
@@ -2843,6 +2851,10 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
       setAuthNonce((n) => n + 1);
     },
     prompt: (text: string, images?: WireImage[]) => {
+      if (text.trim() === "/mcp") {
+        dispatch({ type: "set_mcp_manager_open", open: true });
+        return;
+      }
       // Shown immediately, before the server has accepted anything: the round
       // trip is long enough at the start of a conversation to read as a failure.
       dispatch({ type: "prompt_sent", text, ...(images?.length ? { images } : {}) });

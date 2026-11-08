@@ -121,14 +121,14 @@ function isWorkspaceDrawio(src: unknown): src is string {
 function ThinkingBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="my-1 rounded-lg border border-zinc-200 bg-zinc-50 text-sm dark:border-zinc-800/80 dark:bg-zinc-900/40">
+    <div className={`my-1 border border-zinc-200 bg-zinc-50 text-sm dark:border-zinc-800/80 dark:bg-zinc-900/40 ${open ? "rounded-2xl" : "w-max max-w-full rounded-2xl"}`}>
       <button
         type="button"
         onClick={() => setOpen(!open)}
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-500"
       >
+        <span className="text-zinc-400 dark:text-zinc-600">{open ? "▾" : "▸"}</span>
         <span className="italic">thinking</span>
-        <span className="ml-auto">{open ? "▾" : "▸"}</span>
       </button>
       {open && (
         <div className="whitespace-pre-wrap border-t border-zinc-200 px-3 py-2 text-xs italic text-zinc-500 dark:border-zinc-800/80">
@@ -164,7 +164,7 @@ export function AssistantMessage({ item, serverUrl = "", token = null, workspace
         typeof src === "string" && src !== "" && !isExternalRef(src)
           ? rawFileUrl(serverUrl, resolveRelativeHref("", src), token, undefined, workspace)
           : src;
-      return <img {...rest} src={resolved} alt={alt ?? ""} loading="lazy" className="max-h-96 max-w-full rounded-lg object-contain" />;
+      return <img {...rest} src={resolved} alt={alt ?? ""} loading="lazy" className="max-h-96 max-w-full rounded-2xl object-contain" />;
     }
 
     function MarkdownLink({ href, children, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
@@ -231,7 +231,7 @@ export function AssistantMessage({ item, serverUrl = "", token = null, workspace
         ),
       )}
       {item.errorMessage && (
-        <div className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+        <div className="mt-2 rounded-2xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
           {item.errorMessage}
         </div>
       )}
