@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { randomId } from "./util/randomId";
+import type { McpManagementOperation, McpManagementReply } from "@pi-outpost/shared";
 import type { LoginEvent, LoginPrompt, OutpostChanges, OutpostUpdateNotice, PiPackageInfo, SandboxGrantDecision, SandboxGrantState, SessionSnapshot } from "@pi-outpost/shared";
 type PiPackageScope = PiPackageInfo["scope"];
 import type { ProjectAppearance, StructuredConformance } from "@pi-outpost/shared/structured-exchange/profile";
 import { workspaceKey } from "./util/workspaceKey";
+import { readWorkspaceSelection, writeWorkspaceSelection, type WorkspaceSelection } from "./util/workspaceSelection";
 import { bootstrapToken, storedToken, storeToken } from "./authToken";
 import { repoForPath } from "./util/gitRepos";
 import type {
@@ -328,6 +330,7 @@ export interface OlderHistory {
 }
 
 export interface AgentState {
+  mcpManagement: (McpManagementReply & { loading: boolean }) | null;
   connected: boolean;
   /**
    * The project this connection is bound to; null on a single-project server,
@@ -547,6 +550,7 @@ export interface LoginFlowState {
 }
 
 const initialState: AgentState = {
+  mcpManagement: null,
   login: null,
   connected: false,
   workspace: null,
@@ -644,6 +648,7 @@ type Action =
   | { type: "auth_retrying" }
   | { type: "server"; message: ServerMessage }
   | { type: "set_mcp_manager_open"; open: boolean }
+  | { type: "mcp_management_started"; requestId: string }
   | { type: "login_started"; flowId: string; provider: string; method: "oauth" | "api_key" }
   | { type: "login_answered" }
   | { type: "login_dismissed" }
@@ -775,9 +780,11 @@ function applySnapshot(state: AgentState, message: ServerMessage & { sessionId: 
     // this project. Another project's list, form and answers are not this one's.
     piPackages: message.piPackages ?? (message.type === "workspace_switched" || message.type === "workspace_starting" ? null : state.piPackages),
     ...(message.type === "workspace_switched" || message.type === "workspace_starting"
-      ? { piPackageLookup: null, piPackageChange: null, piPackageUpdate: null }
+      ? { piPackageLookup: null, piPackageChange: null, piPackageUpdate: null, mcpManagement: null, mcpManagerOpen: false }
       : {}),
     serverRestarting: false,
+    mcpManagement: null,
+    mcpManagerOpen: false,
     restartNeeded: message.restartNeeded ?? [],
     connected: true,
     brandingReady: true,
@@ -909,6 +916,7 @@ function followMoves(state: AgentState, moves: readonly [from: string, to: strin
 
 function reduce(state: AgentState, action: Action): AgentState {
   if (action.type === "set_mcp_manager_open") return { ...state, mcpManagerOpen: action.open };
+  if (action.type === "mcp_management_started") return { ...state, mcpManagement: { ...state.mcpManagement, requestId: action.requestId, loading: true, error: undefined, message: undefined } };
   if (action.type === "connected") return { ...state, connected: true, authRequired: false };
   if (action.type === "workspace_switching") return { ...state, switching: true };
   if (action.type === "pi_package_update_started") {
@@ -923,7 +931,7 @@ function reduce(state: AgentState, action: Action): AgentState {
     const { type: _type, ...change } = action;
     return { ...state, piPackageChange: { ...change, status: "pending" } };
   }
-  if (action.type === "auth_required") return { ...state, connected: false, authRequired: true };
+  if (action.type === "auth_required") return { ...state, connected: false, switching: false, authRequired: true };
   if (action.type === "auth_retrying") return { ...state, authRequired: false };
   if (action.type === "login_started") {
     return { ...state, login: { flowId: action.flowId, provider: action.provider, method: action.method, events: [], prompt: null, done: null } };
@@ -943,7 +951,8 @@ function reduce(state: AgentState, action: Action): AgentState {
         ? { ...file, pendingSave: undefined, saveError: { message: "Connection lost while saving — try again", conflict: false } }
         : state.openFile;
     const outcome = state.outcome?.status === "loading" ? { ...state.outcome, status: "error" as const, message: "Connection lost while loading Outcome." } : state.outcome;
-    return { ...state, connected: false, openFile, outcome };
+    return { ...state, connected: false, switching: false, openFile, outcome,
+      mcpManagement: state.mcpManagement ? { ...state.mcpManagement, loading: false, error: state.mcpManagement.loading ? "Connection lost; refresh MCP status after reconnecting" : state.mcpManagement.error } : null };
   }
   // Fetched independently of the WS "hello" so it renders before the session is ready
   // (see the /branding fetch below); "hello" still wins if it arrives with a different value.
@@ -1355,6 +1364,9 @@ function reduce(state: AgentState, action: Action): AgentState {
     }
     case "workspace_error":
       return { ...state, switching: false, errors: [...state.errors, message.message] };
+    case "mcp_management_result":
+      if (state.mcpManagement?.requestId !== message.requestId) return state;
+      return { ...state, mcpManagement: { ...state.mcpManagement, ...message, loading: false, reloadRequired: message.reloadRequired ?? state.mcpManagement.reloadRequired } };
     case "sessions":
       return { ...state, sessions: message.sessions };
     case "session_search_results":
@@ -1635,6 +1647,7 @@ function reduce(state: AgentState, action: Action): AgentState {
     case "error":
       return {
         ...state,
+        switching: false,
         errors: [...state.errors, message.message],
         // A prompt the server refused — a session change in flight, attachments it
         // would not take — is answered with an error and never with a `user`. The
@@ -2010,6 +2023,7 @@ const REVEAL_REPEAT_MS = 1000;
 export function useAgent(serverUrl = "", explicitToken?: string, embedded = false, workspaceRoot?: string) {
   const [state, dispatch] = useReducer(reduce, initialState);
   const socketRef = useRef<WebSocket | null>(null);
+  const selectionsRef = useRef(new Map<string, WorkspaceSelection | null>());
   // Bumped when the user submits a token on the TokenGate — re-runs the connect effect
   const [authNonce, setAuthNonce] = useState(0);
   const tokenRef = useRef<string | null>(null);
@@ -2083,6 +2097,8 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
   const terminalRequestsRef = useRef(new Map<string, {
     message: Extract<ClientMessage, { type: "terminal_open" }>;
     socket: WebSocket | null;
+    workspace: string | null;
+    serverUrl: string;
   }>());
   const boundKey = state.workspace ? workspaceKey(state.workspace) : null;
   // A file read can finish after a workspace switch was requested or acknowledged.
@@ -2349,10 +2365,38 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
   useEffect(() => {
     let retryTimer: number | undefined;
     let disposed = false;
+    const restoreSelection = !embedded && workspaceRoot === undefined;
+    if (restoreSelection && !selectionsRef.current.has(serverUrl)) {
+      selectionsRef.current.set(serverUrl, readWorkspaceSelection(serverUrl));
+    }
+    let restoreTimer: number | undefined;
+    const clearRestoreTimer = () => {
+      if (restoreTimer !== undefined) clearTimeout(restoreTimer);
+      restoreTimer = undefined;
+    };
 
     function connect() {
+      let awaitingRestore = false;
+      let restoringWorkspace: WorkspaceSelection | undefined;
+      let sawHello = false;
+      let fallbackWorkspace: WorkspaceSelection | undefined;
+      const remember = (workspace: WorkspaceSelection | undefined) => {
+        if (!restoreSelection) return;
+        const selection = workspace ? { root: workspace.root, ...(workspace.id !== undefined ? { id: workspace.id } : {}) } : null;
+        selectionsRef.current.set(serverUrl, selection);
+        writeWorkspaceSelection(serverUrl, selection);
+      };
       const socket = new WebSocket(wsUrlFor(serverUrl, tokenRef.current, workspaceRoot));
       socketRef.current = socket;
+      const cancelTerminalReplay = () => {
+        for (const [id, request] of terminalRequestsRef.current) {
+          if (request.socket === socket) continue;
+          terminalRequestsRef.current.delete(id);
+          for (const listener of terminalListenersRef.current.get(id)?.onError ?? []) {
+            listener("Terminal was not restored because its workspace could not be restored. Open a new terminal to retry.");
+          }
+        }
+      };
 
       socket.onopen = () => {
         if (socketRef.current !== socket) return;
@@ -2366,9 +2410,59 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
         } catch {
           return; // ignore malformed frames
         }
-        if (message.type === "hello") {
-          for (const request of terminalRequestsRef.current.values()) {
+        let restoreTarget: WorkspaceSelection | undefined;
+        let restoreNotice: string | undefined;
+        if (message.type === "hello" && !sawHello) {
+          sawHello = true;
+          fallbackWorkspace = message.workspace;
+          const selected = restoreSelection ? selectionsRef.current.get(serverUrl) : null;
+          if (selected && (!message.workspace || workspaceKey(selected) !== workspaceKey(message.workspace))) {
+            const live = message.workspaces?.find((workspace) => workspaceKey(workspace) === workspaceKey(selected) && workspace.root === selected.root);
+            if (live && !message.workspaceLocked) restoreTarget = selected;
+            else restoreNotice = "The previous workspace is no longer available. Showing the server's current workspace.";
+          }
+        }
+        if (restoreTarget) {
+          restoringWorkspace = restoreTarget;
+          awaitingRestore = true;
+        }
+        const snapshot = message.type === "hello" || message.type === "workspace_switched" || message.type === "workspace_starting" || message.type === "session_replaced" || message.type === "update_config_ack" ? message : null;
+        let replayTerminals = message.type === "hello" && !awaitingRestore && !restoreNotice;
+        if (snapshot) {
+          if (awaitingRestore && message.type === "workspace_switched") {
+            // Only the requested workspace's completed binding can release deferred
+            // terminals. An intervening user switch cancels, rather than retargets, them.
+            replayTerminals = !!message.workspace && !!restoringWorkspace && workspaceKey(message.workspace) === workspaceKey(restoringWorkspace) && message.workspace.root === restoringWorkspace.root && !message.agentStarting;
+            if (!replayTerminals) cancelTerminalReplay();
+            awaitingRestore = false;
+            clearRestoreTimer();
+            remember(message.workspace);
+          } else if (awaitingRestore && message.type === "workspace_starting") {
+            // Files are bound, but the agent's full snapshot has not arrived. Keep
+            // the deadline and terminal deferral until workspace_switched confirms it.
+            fallbackWorkspace = message.workspace;
+            remember(message.workspace);
+          } else if (!awaitingRestore) {
+            remember(snapshot.workspace);
+          }
+        } else if ((message.type === "error" || message.type === "workspace_error") && awaitingRestore) {
+          awaitingRestore = false;
+          clearRestoreTimer();
+          cancelTerminalReplay();
+          remember(fallbackWorkspace);
+          restoreNotice = "Could not restore the previous workspace. Showing the last acknowledged workspace.";
+        }
+        if (restoreNotice) cancelTerminalReplay();
+        if (replayTerminals && snapshot) {
+          for (const [id, request] of terminalRequestsRef.current) {
             if (request.socket === socket) continue;
+            if (request.serverUrl !== serverUrl || request.workspace !== (snapshot.workspace ? workspaceKey(snapshot.workspace) : null)) {
+              terminalRequestsRef.current.delete(id);
+              for (const listener of terminalListenersRef.current.get(id)?.onError ?? []) {
+                listener("Terminal was not restored because the workspace changed. Open a new terminal to retry.");
+              }
+              continue;
+            }
             for (const listener of terminalListenersRef.current.get(request.message.terminalId)?.onData ?? []) {
               listener("\r\n[Connection restored; starting a new terminal session.]\r\n");
             }
@@ -2608,6 +2702,18 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
           }
         }
         dispatch({ type: "server", message });
+        if (restoreNotice) dispatch({ type: "server", message: { type: "error", message: restoreNotice } });
+        if (snapshot && awaitingRestore) dispatch({ type: "workspace_switching" });
+        if (restoreTarget) {
+          socket.send(JSON.stringify({ type: "switch_workspace", root: restoreTarget.root, ...(restoreTarget.id !== undefined ? { id: restoreTarget.id } : {}) }));
+          restoreTimer = window.setTimeout(() => {
+            if (socketRef.current !== socket || !awaitingRestore) return;
+            awaitingRestore = false;
+            cancelTerminalReplay();
+            remember(fallbackWorkspace);
+            dispatch({ type: "server", message: { type: "error", message: "Workspace restoration was not confirmed. Select a workspace to retry." } });
+          }, 10000);
+        }
         // A replaced session may have a different sandbox root — reload the root listing
         if (message.type === "session_replaced") {
           requestDirectory("");
@@ -2616,6 +2722,9 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
       socket.onclose = (event) => {
         // Superseded sockets must not flip the indicator (StrictMode remount, reconnect races)
         if (socketRef.current !== socket) return;
+        awaitingRestore = false;
+        clearRestoreTimer();
+        socketRef.current = null;
         uploadGenerationRef.current++;
         // An in-flight git_status will never be answered on this socket — clear the
         // coalescing flags or the branch chip/badges freeze until a page reload
@@ -2652,12 +2761,13 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
     connect();
     return () => {
       disposed = true;
+      clearRestoreTimer();
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       const socket = socketRef.current;
       socketRef.current = null;
       socket?.close();
     };
-  }, [sendMessage, serverUrl, refreshGitStatus, gitStatusSettled, relistDirectory, requestDirectory, invalidateOutcome, settleOutcome, authNonce, workspaceRoot, askGitLog]);
+  }, [sendMessage, serverUrl, refreshGitStatus, gitStatusSettled, relistDirectory, requestDirectory, invalidateOutcome, settleOutcome, authNonce, workspaceRoot, embedded, askGitLog]);
 
   /**
    * Ask the server for the items before the ones this client holds.
@@ -2792,6 +2902,12 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
     setMcpManagerOpen: (open: boolean) => {
       dispatch({ type: "set_mcp_manager_open", open });
     },
+    manageMcp: (operation: McpManagementOperation) => {
+      if (!state.connected) return;
+      const requestId = `mcp:${randomId()}`;
+      dispatch({ type: "mcp_management_started", requestId });
+      sendMessage({ type: "mcp_management", requestId, operation });
+    },
     /**
      * Close an open project with its side sessions, or — given a side session's id —
      * that side session alone. Refused server-side while an agent it would stop is streaming.
@@ -2868,7 +2984,11 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
     setModel: (provider: string, id: string) => sendMessage({ type: "set_model", provider, id }),
     setThinking: (level: ThinkingLevel) => sendMessage({ type: "set_thinking", level }),
     newSession: () => sendMessage({ type: "new_session" }),
-    switchSession: (path: string) => sendMessage({ type: "switch_session", path }),
+    switchSession: (path: string) => {
+      if (socketRef.current?.readyState !== WebSocket.OPEN) return;
+      dispatch({ type: "workspace_switching" });
+      sendMessage({ type: "switch_session", path });
+    },
     deleteSession: (path: string) => sendMessage({ type: "delete_session", path }),
     listSessions: () => sendMessage({ type: "list_sessions" }),
     /** Set a session's display name; an empty name clears it (back to its first message). */
@@ -3219,7 +3339,7 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
     },
     openTerminal: (terminalId: string, cwd?: string, cols?: number, rows?: number, shellId?: string) => {
       const message: Extract<ClientMessage, { type: "terminal_open" }> = { type: "terminal_open", terminalId, cwd, cols, rows, ...(shellId ? { shellId } : {}) };
-      terminalRequestsRef.current.set(terminalId, { message, socket: socketRef.current?.readyState === WebSocket.OPEN ? socketRef.current : null });
+      terminalRequestsRef.current.set(terminalId, { message, socket: socketRef.current?.readyState === WebSocket.OPEN ? socketRef.current : null, workspace: boundKey, serverUrl });
       sendMessage(message);
     },
     sendTerminalInput: (terminalId: string, data: string) =>

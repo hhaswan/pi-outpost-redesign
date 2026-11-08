@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { UpdateNotice } from "./components/UpdateNotice";
+import { ActivityStrip } from "./components/ActivityStrip";
 import { ChangesNotice } from "./components/ChangesNotice";
 import { ReplyConformanceContext } from "./components/ReplyStructuredExchange";
 import { StructuredAppearanceContext } from "./presentations/structuredAppearance";
@@ -24,6 +25,7 @@ import { analyzeSession } from "./util/sessionAnalysis";
 import { sessionUsage } from "./util/sessionUsage";
 import { repoForPath } from "./util/gitRepos";
 import { ToolCard } from "./components/ToolCard";
+import { ProcessGroup, isProcessItem } from "./components/ProcessGroup";
 import { createActionDispatch } from "./presentations/actions";
 import { UserMessage } from "./components/UserMessage";
 import { SendQueueNow } from "./components/SendQueueNow";
@@ -118,6 +120,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
     abort,
     cancelPendingPrompt,
     setMcpManagerOpen,
+    manageMcp,
     setModel,
     setThinking,
     newSession,
@@ -1229,6 +1232,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
               onClose={() => setAnalysisOpen(false)}
             />
           )}
+          <ActivityStrip state={state} onSwitchWorkspace={!embedded && !state.workspaceLocked ? switchWorkspace : undefined} />
           {/* The drawer overlays the right side; padding keeps the conversation
               beside it rather than behind it, so a jump lands somewhere visible. */}
           <main
@@ -1266,6 +1270,15 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
               )}
               {state.olderHistory && <OlderMessages older={state.olderHistory} onLoad={loadOlder} />}
               {state.items.map((item, i) => {
+                if (isProcessItem(item)) {
+                  if (i > 0 && isProcessItem(state.items[i - 1])) return null;
+                  const entries = [];
+                  for (let index = i; index < state.items.length && isProcessItem(state.items[index]); index++) {
+                    entries.push({ item: state.items[index], index });
+                  }
+                  return <ProcessGroup key={`${state.sessionId}:${i}`} entries={entries}
+                    showTools={filters.tools} showReasoning={filters.reasoning} dispatch={toolActions} highlightedIndex={highlightIndex} />;
+                }
                 // Scope keys to the session so component state (collapsed cards…)
                 // never bleeds across session_replaced
                 const key = `${state.sessionId}:${i}`;
@@ -1554,7 +1567,9 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
       </div>
 
       <ExtensionNotifications notifications={state.notifications} onDismiss={dismissNotification} />
-      {state.mcpManagerOpen && <MCPManager onClose={() => setMcpManagerOpen(false)} />}
+      {state.mcpManagerOpen && <MCPManager key={state.workspace?.root ?? state.sessionId} onClose={() => setMcpManagerOpen(false)}
+        state={state.mcpManagement} onRequest={manageMcp} busy={state.isStreaming || state.switching}
+        connected={state.connected} onApply={() => { setMcpManagerOpen(false); restartSession(); }} />}
     </DrawioFilesContext.Provider>
     </StructuredAppearanceContext.Provider>
     </ReplyConformanceContext.Provider>

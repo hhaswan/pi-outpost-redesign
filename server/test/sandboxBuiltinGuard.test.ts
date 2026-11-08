@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
-import { assertNoUnconfinedBuiltIns, createSandboxedTools, unsuppliedBuiltIns } from "../src/sandbox.ts";
+import { assertNoUnconfinedBuiltIns, createSandboxedTools, shadowedBashWarning, unsuppliedBuiltIns } from "../src/sandbox.ts";
 
 const root = mkdtempSync(path.join(tmpdir(), "sandbox-builtin-guard-"));
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -29,6 +29,26 @@ test("a read-only sandbox excludes Pi's write and edit too", async () => {
   const excluded = unsuppliedBuiltIns(tools);
   for (const name of ["write", "edit", "bash", "powershell"]) assert.ok(excluded.includes(name), name);
   assert.ok(!excluded.includes("read"));
+});
+
+test("a renderer-only extension's shadowed bash is not described as a sandbox", () => {
+  const registered = [{ definition: { name: "bash" }, sourceInfo: { source: "npm:pi-tool-display", path: "" } }];
+  const warning = shadowedBashWarning(registered, { allowBash: true });
+  assert.ok(warning);
+  assert.match(warning, /npm:pi-tool-display registers its own bash, but that bash is shadowed/);
+  assert.match(warning, /pi-outpost's unconfined bash/);
+  assert.match(warning, /Registration alone does not establish whether the extension confines bash\./);
+  assert.doesNotMatch(warning, /sandboxing extension|extension's (?:sandbox|confined bash)/i);
+  assert.ok(warning.includes('"sandbox.bashFrom": "npm:pi-tool-display"'));
+});
+
+test("shadowed bash warnings remain absent when sandbox bash is disabled or delegated", () => {
+  const registered = [{ definition: { name: "bash" }, sourceInfo: { source: "npm:pi-tool-display", path: "" } }];
+  assert.equal(shadowedBashWarning(registered, undefined), undefined);
+  assert.equal(shadowedBashWarning(registered, { allowBash: false }), undefined);
+  assert.equal(shadowedBashWarning(registered, { allowBash: true, bashFrom: "npm:pi-tool-display" }), undefined);
+  assert.equal(shadowedBashWarning([], { allowBash: true }), undefined);
+  assert.equal(shadowedBashWarning([{ ...registered[0]!, definition: { name: "read" } }], { allowBash: true }), undefined);
 });
 
 test("a session whose tools all come from the sandbox or extensions passes", () => {

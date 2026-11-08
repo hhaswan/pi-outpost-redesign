@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useAgent } from "./useAgent";
+import { workspaceSelectionKey } from "./util/workspaceSelection";
 import type { ClientMessage } from "@pi-outpost/shared";
 
 // ---------------------------------------------------------------------------
@@ -61,6 +62,7 @@ class MockWebSocket {
 // Make the hook use our mock
 beforeEach(() => {
   mockWs = null;
+  localStorage.clear();
   vi.stubGlobal("WebSocket", MockWebSocket);
 
   // Provide a stable crypto.randomUUID
@@ -123,6 +125,211 @@ const outcome = (workspaceRoot = "/a", sessionId = "sess_1") => ({
     { id: "work-plan", title: "Work Plan", order: 10, availability: "available", entries: [] },
     { id: "future", title: "Future", order: 20, availability: "unavailable", summary: "offline", entries: [] },
   ],
+});
+
+describe("acknowledged workspace restoration", () => {
+  const main = { root: "/project", name: "project", activity: "idle" };
+  const side = { ...main, id: "side-1", name: "side" };
+  const snapshot = (type = "hello", workspace = main, sessionId = "current") => ({
+    type, workspace, workspaces: [main, side], sessionId, branding: {}, model: "", thinkingLevel: "off",
+    models: [], commands: [], isStreaming: false, items: [],
+  });
+  const stored = () => JSON.parse(localStorage.getItem(workspaceSelectionKey(""))!);
+  const seed = () => localStorage.setItem(workspaceSelectionKey(""), JSON.stringify({ root: side.root, id: side.id }));
+  const frames = () => mockWs!.sent.map((frame) => JSON.parse(frame));
+
+  it("restores a live side session after refresh without opening agents or replaying prompts", () => {
+    seed();
+    const { result, unmount } = renderHook(() => useAgent());
+    act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+    expect(frames()).toEqual([{ type: "switch_workspace", root: side.root, id: side.id }]);
+    expect(result.current.state.switching).toBe(true);
+    expect(stored()).toEqual({ root: side.root, id: side.id });
+    act(() => mockWs!.receive({ ...snapshot("workspace_switched", side, "new-server-session"), items: [userItem("Already sent")] }));
+    expect(result.current.state.switching).toBe(false);
+    expect(result.current.state.sessionId).toBe("new-server-session");
+    expect(result.current.state.items).toEqual([userItem("Already sent")]);
+    expect(frames()).toHaveLength(1);
+    expect(stored()).toEqual({ root: side.root, id: side.id });
+    unmount();
+  });
+
+  it("defers side-session terminal replay until the matching full workspace snapshot, including workspace_starting", () => {
+    vi.useFakeTimers();
+    try {
+      const { result, unmount } = renderHook(() => useAgent());
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
+      const onData = vi.fn();
+      act(() => {
+        result.current.subscribeTerminal("side-terminal", { onData });
+        result.current.openTerminal("side-terminal", "/project/nested", 100, 30, "bash");
+      });
+      act(() => mockWs!.disconnect(1006));
+      act(() => vi.advanceTimersByTime(1500));
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+      expect(frames()).toEqual([{ type: "switch_workspace", root: side.root, id: side.id }]);
+      expect(onData).not.toHaveBeenCalled();
+      act(() => mockWs!.receive({ ...snapshot("workspace_starting", side), agentStarting: true }));
+      expect(result.current.state.switching).toBe(true);
+      expect(result.current.state.agentStarting).toBe(true);
+      expect(frames()).toHaveLength(1);
+      expect(onData).not.toHaveBeenCalled();
+      act(() => mockWs!.receive(snapshot("workspace_switched", side)));
+      expect(result.current.state.switching).toBe(false);
+      expect(result.current.state.agentStarting).toBe(false);
+      expect(frames()).toEqual([
+        { type: "switch_workspace", root: side.root, id: side.id },
+        { type: "terminal_open", terminalId: "side-terminal", cwd: "/project/nested", cols: 100, rows: 30, shellId: "bash" },
+      ]);
+      expect(onData).toHaveBeenCalledTimes(1);
+      act(() => { mockWs!.receive(snapshot("workspace_switched", side)); vi.advanceTimersByTime(10000); });
+      expect(frames()).toHaveLength(2);
+      expect(result.current.state.errors).toEqual([]);
+      unmount();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(["missing", "refused", "cancelled", "timeout", "starting-timeout"])("does not replay old terminals into fallback when restoration is %s", (failure) => {
+    vi.useFakeTimers();
+    try {
+      const { result, unmount } = renderHook(() => useAgent());
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
+      const onError = vi.fn();
+      act(() => {
+        result.current.subscribeTerminal("side-terminal", { onError });
+        result.current.openTerminal("side-terminal", "/project", 80, 24);
+      });
+      act(() => mockWs!.disconnect(1006));
+      act(() => vi.advanceTimersByTime(1500));
+      act(() => { mockWs!.open(); mockWs!.receive({ ...snapshot(), ...(failure === "missing" ? { workspaces: [main] } : {}) }); });
+      if (failure === "refused") act(() => mockWs!.receive({ type: "workspace_error", message: "Closed" }));
+      if (failure === "cancelled") {
+        act(() => result.current.switchWorkspace(main.root));
+        act(() => mockWs!.receive(snapshot("workspace_switched", main)));
+      }
+      if (failure === "starting-timeout") {
+        act(() => mockWs!.receive({ ...snapshot("workspace_starting", side), agentStarting: true }));
+        expect(result.current.state.switching).toBe(true);
+      }
+      if (failure.endsWith("timeout")) act(() => vi.advanceTimersByTime(10000));
+      expect(result.current.state.switching).toBe(false);
+      expect(frames().filter((frame) => frame.type === "terminal_open")).toEqual([]);
+      expect(onError).toHaveBeenCalledTimes(1);
+      // A late acknowledgement cannot resurrect a cancelled terminal request.
+      act(() => mockWs!.receive(snapshot("workspace_switched", side)));
+      expect(frames().filter((frame) => frame.type === "terminal_open")).toEqual([]);
+      // Nor can the next reconnect into the fallback workspace.
+      act(() => mockWs!.receive(snapshot("workspace_switched", main)));
+      act(() => mockWs!.disconnect(1006));
+      act(() => vi.advanceTimersByTime(1500));
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+      expect(frames().filter((frame) => frame.type === "terminal_open")).toEqual([]);
+      unmount();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("persists acknowledgements only, not requested selections", () => {
+    const { result, unmount } = renderHook(() => useAgent());
+    act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+    act(() => result.current.switchWorkspace(side.root, side.id));
+    expect(stored()).toEqual({ root: main.root });
+    act(() => mockWs!.receive(snapshot("workspace_switched", side)));
+    expect(stored()).toEqual({ root: side.root, id: side.id });
+    unmount();
+  });
+
+  it("uses tab memory on reconnect despite another tab changing stored selection; rejects old socket callbacks", () => {
+    vi.useFakeTimers();
+    try {
+      const { result, unmount } = renderHook(() => useAgent());
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
+      localStorage.setItem(workspaceSelectionKey(""), JSON.stringify(main));
+      const old = mockWs!;
+      act(() => old.disconnect(1006));
+      act(() => old.receive(snapshot()));
+      expect(result.current.state.connected).toBe(false);
+      act(() => vi.advanceTimersByTime(1500));
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+      expect(frames()).toEqual([{ type: "switch_workspace", root: side.root, id: side.id }]);
+      act(() => old.disconnect(1006));
+      expect(result.current.state.connected).toBe(true);
+      act(() => mockWs!.disconnect(1006));
+      expect(result.current.state.switching).toBe(false);
+      unmount();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("never replays an unacknowledged prompt after a connection drop", () => {
+    vi.useFakeTimers();
+    try {
+      const { result, unmount } = renderHook(() => useAgent());
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
+      act(() => result.current.prompt("Send once"));
+      expect(result.current.state.pendingPrompt?.text).toBe("Send once");
+      act(() => mockWs!.disconnect(1006));
+      act(() => vi.advanceTimersByTime(1500));
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+      act(() => mockWs!.receive({ ...snapshot("workspace_switched", side), items: [userItem("Send once")] }));
+      expect(result.current.state.pendingPrompt).toBeNull();
+      expect(result.current.state.items).toEqual([userItem("Send once")]);
+      expect(frames()).toEqual([{ type: "switch_workspace", root: side.root, id: side.id }]);
+      unmount();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("explicit embed root overrides saved standalone selection and does not overwrite it", () => {
+    seed();
+    const { unmount } = renderHook(() => useAgent("", "private-token", true, "/embed"));
+    expect(new URL(mockWs!.url).searchParams.get("workspace")).toBe("/embed");
+    act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+    expect(frames()).toEqual([]);
+    expect(stored()).toEqual({ root: side.root, id: side.id });
+    expect(JSON.stringify(stored())).not.toContain("private-token");
+    unmount();
+  });
+
+  it("missing or closed workspace falls back visibly without retrying", () => {
+    seed();
+    const { result, unmount } = renderHook(() => useAgent());
+    act(() => { mockWs!.open(); mockWs!.receive({ ...snapshot(), workspaces: [main] }); });
+    expect(frames()).toEqual([]);
+    expect(result.current.state.errors.join(" ")).toContain("no longer available");
+    expect(result.current.state.switching).toBe(false);
+    expect(stored()).toEqual({ root: main.root });
+    unmount();
+  });
+
+  it("handles a workspace closed between hello and switch without a restore loop", () => {
+    seed();
+    const { result, unmount } = renderHook(() => useAgent());
+    act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+    act(() => mockWs!.receive({ type: "workspace_error", message: "No open project" }));
+    expect(result.current.state.switching).toBe(false);
+    expect(result.current.state.errors.join(" ")).toContain("Could not restore");
+    expect(stored()).toEqual({ root: main.root });
+    expect(frames()).toHaveLength(1);
+    unmount();
+  });
+
+  it("times out an unanswered restore and clears session-switch loading on error or snapshot", () => {
+    vi.useFakeTimers();
+    try {
+      seed();
+      const { result, unmount } = renderHook(() => useAgent());
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+      act(() => vi.advanceTimersByTime(10000));
+      expect(result.current.state.switching).toBe(false);
+      expect(result.current.state.errors.join(" ")).toContain("not confirmed");
+      act(() => result.current.switchSession("selected.jsonl"));
+      expect(result.current.state.switching).toBe(true);
+      act(() => mockWs!.receive({ type: "error", message: "Could not switch session" }));
+      expect(result.current.state.switching).toBe(false);
+      act(() => result.current.switchSession("selected.jsonl"));
+      act(() => mockWs!.receive(snapshot("session_replaced")));
+      expect(result.current.state.switching).toBe(false);
+      unmount();
+    } finally { vi.useRealTimers(); }
+  });
 });
 
 describe("workspace Outcome", () => {
@@ -1273,14 +1480,17 @@ describe("stale responses", () => {
   it("ignores session search results from a superseded query", async () => {
     const result = await connected();
 
-    act(() => result.current.searchSessions("a"));
+    act(() => result.current.searchSessions("pa"));
     const first = lastRequestId();
-    act(() => result.current.searchSessions("ab"));
+    act(() => result.current.searchSessions("par"));
+    const latest = lastRequestId();
+    const hit = { id: "latest", path: "/sessions/latest.jsonl", parentSession: "/sessions/parent.jsonl" };
+    act(() => mockWs!.receive({ type: "session_search_results", requestId: latest, query: "par", sessions: [hit] }));
+    act(() => mockWs!.receive({ type: "session_search_results", requestId: first, query: "pa", sessions: [{ id: "stale" }] }));
 
-    act(() => mockWs!.receive({ type: "session_search_results", requestId: first, sessions: [{ id: "s1" }] }));
-
-    await waitFor(() => expect(result.current.state.sessionSearch?.status).toBe("loading"));
-    expect(result.current.state.sessionSearch?.results).toEqual([]);
+    await waitFor(() => expect(result.current.state.sessionSearch?.status).toBe("loaded"));
+    expect(result.current.state.sessionSearch?.query).toBe("par");
+    expect(result.current.state.sessionSearch?.results).toEqual([hit]);
   });
 });
 
@@ -4048,4 +4258,30 @@ it("keeps an import callback usable across a new session with the same filesyste
   expect(request).toMatchObject({ type: "upload_file", existingDirectory: true });
   act(() => mockWs!.receive({ type: "file_uploaded", requestId: request.requestId, path: "src/one.txt" }));
   await expect(promise).resolves.toBe("src/one.txt");
+});
+
+describe("MCP manager request lifecycle", () => {
+  it("ignores stale replies and clears pending work on disconnect", async () => {
+    const result = await connected();
+    act(() => result.current.manageMcp({ action: "list" }));
+    const first = JSON.parse(mockWs!.sent.at(-1)!).requestId;
+    act(() => result.current.manageMcp({ action: "list" }));
+    const second = JSON.parse(mockWs!.sent.at(-1)!).requestId;
+    act(() => mockWs!.receive({ type: "mcp_management_result", requestId: second, message: "latest" }));
+    act(() => mockWs!.receive({ type: "mcp_management_result", requestId: first, message: "stale" }));
+    expect(result.current.state.mcpManagement?.message).toBe("latest");
+    act(() => result.current.manageMcp({ action: "list" }));
+    act(() => mockWs!.disconnect(1006));
+    expect(result.current.state.mcpManagement?.loading).toBe(false);
+    expect(result.current.state.mcpManagement?.error).toMatch(/Connection lost/);
+  });
+  it("does not carry another workspace's MCP status across a switch", async () => {
+    const result = await connected();
+    act(() => result.current.manageMcp({ action: "list" }));
+    const requestId = JSON.parse(mockWs!.sent.at(-1)!).requestId;
+    act(() => mockWs!.receive({ type: "workspace_switched", sessionId: "other", branding: {}, model: "", thinkingLevel: "off", models: [], commands: [], items: [], isStreaming: false }));
+    act(() => mockWs!.receive({ type: "mcp_management_result", requestId, message: "old workspace" }));
+    expect(result.current.state.mcpManagement).toBeNull();
+    expect(result.current.state.mcpManagerOpen).toBe(false);
+  });
 });

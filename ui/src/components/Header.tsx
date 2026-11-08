@@ -211,11 +211,13 @@ function SessionRow({
   }
   return (
     <div
-      className={`group flex items-start gap-1 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800/80 ${
-        isCurrent ? "bg-zinc-100 dark:bg-zinc-800/60" : ""
+      className={`group flex items-start gap-1 rounded-xl ${
+        isCurrent
+          ? "bg-blue-100 ring-2 ring-inset ring-blue-600 dark:bg-blue-950 dark:ring-blue-400"
+          : "hover:bg-zinc-100 dark:hover:bg-zinc-800/80"
       }`}
     >
-      <button type="button" onClick={onSwitch} className="min-w-0 flex-1 px-3 py-2 text-left text-sm">
+      <button type="button" onClick={onSwitch} aria-current={isCurrent ? "true" : undefined} className="min-w-0 flex-1 rounded-xl px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
         <div className="truncate text-zinc-700 dark:text-zinc-300">
           {session.name || session.firstMessage || "(empty)"}
         </div>
@@ -255,45 +257,31 @@ function SessionRow({
   );
 }
 
-function groupSessions(sessions: SessionSummary[]): { label: string; sessions: SessionSummary[] }[] {
-  const today: SessionSummary[] = [];
-  const yesterday: SessionSummary[] = [];
-  const lastWeek: SessionSummary[] = [];
-  const lastMonth: SessionSummary[] = [];
-  const older: SessionSummary[] = [];
-
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const ONE_DAY = 24 * 60 * 60 * 1000;
-
-  for (const session of sessions) {
-    const d = new Date(session.modified).getTime();
-    
-    if (d >= todayStart) {
-      today.push(session);
-    } else if (d >= todayStart - ONE_DAY) {
-      yesterday.push(session);
-    } else if (d >= todayStart - 7 * ONE_DAY) {
-      lastWeek.push(session);
-    } else if (d >= todayStart - 30 * ONE_DAY) {
-      lastMonth.push(session);
-    } else {
-      older.push(session);
-    }
-  }
-
-  return [
-    { label: "Today", sessions: today },
-    { label: "Yesterday", sessions: yesterday },
-    { label: "Last Week", sessions: lastWeek },
-    { label: "Last 30 Days", sessions: lastMonth },
-    { label: "Older", sessions: older }
-  ].filter(g => g.sessions.length > 0);
+interface SessionNode {
+  session: SessionSummary;
+  children: SessionNode[];
 }
 
-function SessionGroup({
-  label,
-  sessions,
+/** Missing parents (including filtered-out results) and malformed cycles remain reachable. */
+function sessionTree(sessions: SessionSummary[]): SessionNode[] {
+  const nodes = new Map(sessions.map((session) => [session.path, { session, children: [] } as SessionNode]));
+  const roots: SessionNode[] = [];
+  for (const node of nodes.values()) {
+    const seen = new Set([node.session.path]);
+    let ancestor = node.session.parentSession;
+    while (ancestor && nodes.has(ancestor) && !seen.has(ancestor)) {
+      seen.add(ancestor);
+      ancestor = nodes.get(ancestor)!.session.parentSession;
+    }
+    const parent = node.session.parentSession && nodes.get(node.session.parentSession);
+    if (parent && ancestor !== node.session.path) parent.children.push(node);
+    else roots.push(node);
+  }
+  return roots;
+}
+
+function SessionBranch({
+  node,
   sessionId,
   renamingPath,
   setRenamingPath,
@@ -305,8 +293,7 @@ function SessionGroup({
   onSearchSessions,
   query
 }: {
-  label: string;
-  sessions: SessionSummary[];
+  node: SessionNode;
   sessionId: string;
   renamingPath: string | null;
   setRenamingPath: (path: string | null) => void;
@@ -320,46 +307,64 @@ function SessionGroup({
 }) {
   const [expanded, setExpanded] = useState(true);
 
+  const { session, children } = node;
   return (
-    <div className="mb-2 last:mb-0 px-2">
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-xs font-bold uppercase tracking-wider text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-      >
-        <span className="text-[10px] opacity-80">{expanded ? "▾" : "▸"}</span>
-        <span>{label}</span>
-        <span className="ml-auto rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] dark:bg-zinc-800">
-          {sessions.length}
-        </span>
-      </button>
-      {expanded && (
-        <div className="flex flex-col gap-0.5 mt-0.5">
-          {sessions.map((session) => (
-            <SessionRow
-              key={session.path}
-              session={session}
-              isCurrent={session.id === sessionId}
-              renaming={renamingPath === session.path}
-              onSwitch={() => {
-                onSwitchSession(session.path);
-                close();
-              }}
-              onDelete={() => {
-                if (window.confirm("Delete this session?")) onDeleteSession(session.path);
-              }}
-              onStartRename={() => setRenamingPath(session.path)}
-              onRename={(name) => {
-                onRenameSession(session.path, name);
-                setRenamingPath(null);
-                if (searching) onSearchSessions(query.trim());
-              }}
-              onCancelRename={() => setRenamingPath(null)}
+    <li>
+      <div className="flex items-start">
+        {children.length > 0 && (
+          <button
+            type="button"
+            aria-label={`Child sessions of ${session.name || session.firstMessage || "(empty)"}`}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+            className="mt-2 rounded-full px-1.5 text-xs text-zinc-500"
+          >
+            {expanded ? "▾" : "▸"}
+          </button>
+        )}
+        <div className="min-w-0 flex-1">
+          <SessionRow
+            session={session}
+            isCurrent={session.id === sessionId}
+            renaming={renamingPath === session.path}
+            onSwitch={() => {
+              onSwitchSession(session.path);
+              close();
+            }}
+            onDelete={() => {
+              if (window.confirm("Delete this session?")) onDeleteSession(session.path);
+            }}
+            onStartRename={() => setRenamingPath(session.path)}
+            onRename={(name) => {
+              onRenameSession(session.path, name);
+              setRenamingPath(null);
+              if (searching) onSearchSessions(query.trim());
+            }}
+            onCancelRename={() => setRenamingPath(null)}
+          />
+        </div>
+      </div>
+      {expanded && children.length > 0 && (
+        <ul aria-label={`Children of ${session.name || session.firstMessage || "(empty)"}`} className="ml-4 border-l border-zinc-200 pl-2 dark:border-zinc-700">
+          {children.map((child) => (
+            <SessionBranch
+              key={child.session.path}
+              node={child}
+              sessionId={sessionId}
+              renamingPath={renamingPath}
+              setRenamingPath={setRenamingPath}
+              onSwitchSession={onSwitchSession}
+              onDeleteSession={onDeleteSession}
+              onRenameSession={onRenameSession}
+              close={close}
+              searching={searching}
+              onSearchSessions={onSearchSessions}
+              query={query}
             />
           ))}
-        </div>
+        </ul>
       )}
-    </div>
+    </li>
   );
 }
 
@@ -424,7 +429,7 @@ function SessionMenu({
   const rows = searching ? (pending ? null : (sessionSearch?.results ?? null)) : sessions;
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="static sm:relative" ref={ref}>
       <button
         type="button"
         onClick={() => {
@@ -443,7 +448,7 @@ function SessionMenu({
         sessions
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 flex max-h-96 w-96 flex-col rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 overflow-hidden">
+        <div className="absolute inset-x-4 top-full z-20 mt-1 flex max-h-96 w-auto max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl sm:left-auto sm:right-0 sm:w-96 dark:border-zinc-700 dark:bg-zinc-900">
           <div className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
             <input
               type="search"
@@ -462,23 +467,26 @@ function SessionMenu({
             {rows?.length === 0 && (
               <div className="px-3 py-2 text-xs text-zinc-500">{searching ? "no matches" : "no saved sessions"}</div>
             )}
-            {rows && rows.length > 0 && groupSessions(rows).map((group) => (
-              <SessionGroup
-                key={group.label}
-                label={group.label}
-                sessions={group.sessions}
-                sessionId={sessionId}
-                renamingPath={renamingPath}
-                setRenamingPath={setRenamingPath}
-                onSwitchSession={onSwitchSession}
-                onDeleteSession={onDeleteSession}
-                onRenameSession={onRenameSession}
-                close={close}
-                searching={searching}
-                onSearchSessions={onSearchSessions}
-                query={query}
-              />
-            ))}
+            {rows && rows.length > 0 && (
+              <ul aria-label="Saved sessions" className="px-2">
+                {sessionTree(rows).map((node) => (
+                  <SessionBranch
+                    key={`${trimmed}:${node.session.path}`}
+                    node={node}
+                    sessionId={sessionId}
+                    renamingPath={renamingPath}
+                    setRenamingPath={setRenamingPath}
+                    onSwitchSession={onSwitchSession}
+                    onDeleteSession={onDeleteSession}
+                    onRenameSession={onRenameSession}
+                    close={close}
+                    searching={searching}
+                    onSearchSessions={onSearchSessions}
+                    query={query}
+                  />
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       )}

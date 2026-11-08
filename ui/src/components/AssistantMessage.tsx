@@ -121,7 +121,7 @@ function isWorkspaceDrawio(src: unknown): src is string {
 function ThinkingBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className={`my-1 border border-zinc-200 bg-zinc-50 text-sm dark:border-zinc-800/80 dark:bg-zinc-900/40 ${open ? "rounded-2xl" : "w-max max-w-full rounded-2xl"}`}>
+    <div className={`my-1 border border-zinc-200 bg-zinc-50 text-sm dark:border-zinc-800/80 dark:bg-zinc-900/40 ${open ? "rounded-2xl" : "w-max max-w-full rounded-full"}`}>
       <button
         type="button"
         onClick={() => setOpen(!open)}

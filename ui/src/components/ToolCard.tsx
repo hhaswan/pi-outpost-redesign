@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { RenderedHtml } from "./RenderedHtml";
 import { noopDispatch } from "../presentations/actions";
 import { RawBody } from "../presentations/builtin";
@@ -24,11 +24,7 @@ export function ToolCard({ item, dispatch = noopDispatch }: { item: ToolItem; di
   const presentation = selectPresentation(item, shown.current);
   shown.current = presentation.id;
 
-  const startsExpanded = false;
-  const [open, setOpen] = useState(startsExpanded);
-  // A call that turns into a diff mid-stream opens itself; the reader did not
-  // choose the folded state, so replacing it is not overriding them.
-  useEffect(() => { setOpen(startsExpanded); }, [startsExpanded]);
+  const [open, setOpen] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const pressedAt = useRef<{ x: number; y: number } | null>(null);
 
@@ -40,7 +36,7 @@ export function ToolCard({ item, dispatch = noopDispatch }: { item: ToolItem; di
 
   return (
     <div
-      className={`${open ? "rounded-2xl" : "w-max max-w-full rounded-2xl"} border text-sm ${
+      className={`${open ? "rounded-2xl" : "w-max max-w-full rounded-full"} border text-xs ${
         item.isError
           ? "border-red-300 bg-red-50 dark:border-red-900/60 dark:bg-red-950/20"
           : "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60"
@@ -66,7 +62,7 @@ export function ToolCard({ item, dispatch = noopDispatch }: { item: ToolItem; di
           if (event.detail > 0 && pressed && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 4) return;
           setOpen(!open);
         }}
-        className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left"
+        className="flex w-full cursor-pointer items-center gap-2 px-2 py-1 text-left"
       >
         <button
           type="button"
@@ -104,12 +100,12 @@ export function ToolCard({ item, dispatch = noopDispatch }: { item: ToolItem; di
         </div>
       )}
       {showCollapsed && Collapsed !== undefined && (
-        <div className="border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
+        <div className="border-t border-zinc-200 px-2 py-1 dark:border-zinc-800">
           <Collapsed item={item} dispatch={dispatch} />
         </div>
       )}
       {open && (
-        <div className="border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
+        <div className="border-t border-zinc-200 px-2 py-1 dark:border-zinc-800">
           <presentation.Expanded item={item} dispatch={dispatch} />
           {presentation.showsRawReveal === true && (
             <div className="mt-2">

@@ -7,6 +7,7 @@
  * The agent has bash/edit/write tools: never weaken either check.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
+import { manageMcp } from "./mcpManagement.ts";
 import fs from "node:fs/promises";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
@@ -6800,6 +6801,33 @@ function handleClientMessage(socket: WebSocket, raw: string): void {
     return;
   }
   switch (message.type) {
+    case "mcp_management": {
+      if (typeof message.requestId !== "string" || message.requestId.length > 128) return;
+      const requestId = message.requestId;
+      if (Buffer.byteLength(raw) > 256 * 1024) {
+        send(socket, { type: "mcp_management_result", requestId, error: "MCP request is too large" });
+        return;
+      }
+      const mutation = message.operation?.action !== "list";
+      if (mutation && (workspace.isBusy() || workspace.replacingSession)) {
+        send(socket, { type: "mcp_management_result", requestId, error: "The session is working or changing; wait before changing MCP servers" });
+        return;
+      }
+      // Reserve synchronously: prompts, navigation and restart already respect this lock.
+      if (mutation) workspace.replacingSession = true;
+      void manageMcp({
+        cwd: workspace.root,
+        agentDir: AGENT_DIR,
+        editable: !config.extensionLock && workspace.settings.sandbox === undefined,
+        busy: () => workspace.isBusy(),
+        gateway: workspace.agent.mcpManagement,
+      }, message.operation).then((result) => {
+        if (clients.get(socket) === workspace) send(socket, { type: "mcp_management_result", requestId, ...result });
+      }).catch((error: unknown) => {
+        if (clients.get(socket) === workspace) send(socket, { type: "mcp_management_result", requestId, error: error instanceof Error ? error.message : "MCP operation failed" });
+      }).finally(() => { if (mutation) workspace.replacingSession = false; });
+      return;
+    }
     case "switch_workspace": {
       if (typeof message.root !== "string") return;
       if (config.workspaceLock) {

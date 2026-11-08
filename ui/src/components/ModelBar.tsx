@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ConfinementVerdict, ContextUsage, ModelChoice, SandboxGrantSet, ThinkingLevel } from "@pi-outpost/shared";
 import { ConfinementLock } from "./ConfinementLock";
+import { ModelPicker } from "./ModelPicker";
 import { THINKING_LEVELS } from "@pi-outpost/shared";
 import { formatCost, formatTokens, type SessionUsage } from "../util/sessionUsage";
 import { eventHitsNode } from "../util/clickOutside";
@@ -82,7 +83,7 @@ function UsageIndicator({
       )}
     </>
   );
-  const base = "flex items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-xs text-zinc-500 dark:text-zinc-400 hover:opacity-80 transition-opacity";
+  const base = "flex min-h-11 min-w-0 max-w-full flex-wrap items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-xs text-zinc-500 dark:text-zinc-400 hover:opacity-80 transition-opacity sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900";
 
   if (!onToggleAnalysis) {
     return (
@@ -197,7 +198,7 @@ function ThinkingControl({
         title="thinking level"
         aria-haspopup="true"
         aria-expanded={open}
-        className={`flex items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-xs disabled:opacity-50 hover:opacity-80 transition-opacity ${
+        className={`flex min-h-11 items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-xs disabled:opacity-50 hover:opacity-80 transition-opacity sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900 ${
           active
             ? "border-amber-300 text-amber-700 hover:border-amber-400 dark:border-amber-900 dark:text-amber-400 dark:hover:border-amber-700"
             : "border-zinc-300 text-zinc-500 hover:border-zinc-400 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600"
@@ -246,24 +247,8 @@ export function ModelBar(props: ModelBarProps) {
     props;
 
   return (
-    <div className="mt-2 flex items-center gap-2">
-      <select
-        value={model}
-        aria-label="Model"
-        onChange={(e) => {
-          const choice = models.find((m) => `${m.provider}/${m.id}` === e.target.value);
-          if (choice) props.onSetModel(choice.provider, choice.id);
-        }}
-        disabled={isStreaming}
-        className="max-w-64 rounded-full border border-zinc-300 bg-white px-2 py-1 font-mono text-xs text-zinc-700 outline-none hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-600 hover:opacity-80 transition-opacity"
-      >
-        {!models.some((m) => `${m.provider}/${m.id}` === model) && <option value={model}>{model}</option>}
-        {models.map((m) => (
-          <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
-            {m.provider}/{m.id}
-          </option>
-        ))}
-      </select>
+    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+      <ModelPicker model={model} models={models} disabled={isStreaming} onSetModel={props.onSetModel} />
 
       {modelSupportsReasoning && (
         <ThinkingControl
@@ -275,7 +260,7 @@ export function ModelBar(props: ModelBarProps) {
       )}
 
       {props.shellConfinement && (
-        <span className="ml-auto">
+        <span className="ml-auto min-w-0 max-w-full [&>span]:whitespace-normal [&>span]:rounded-full">
           <ConfinementLock verdict={props.shellConfinement} surface="shell" grants={props.shellGrants} />
         </span>
       )}
@@ -289,7 +274,7 @@ export function ModelBar(props: ModelBarProps) {
             ? `${contextUsage.tokens.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens — click to compact`
             : "Click to compact the conversation context"
         }
-        className={`${props.shellConfinement ? "" : "ml-auto "}flex items-center gap-1.5 rounded-full border border-zinc-300 px-2 py-1 font-mono text-xs text-zinc-500 hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 hover:opacity-80 transition-opacity`}
+        className={`${props.shellConfinement ? "" : "ml-auto "}flex min-h-11 items-center gap-1.5 rounded-full border border-zinc-300 px-2 py-1 font-mono text-xs text-zinc-500 hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 hover:opacity-80 transition-opacity sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900`}
       >
         <ContextRing usage={contextUsage} />
         {isCompacting ? "compacting…" : contextUsage?.percent != null ? `${Math.round(contextUsage.percent)}%` : "context"}

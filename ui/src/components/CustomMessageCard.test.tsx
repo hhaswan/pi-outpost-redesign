@@ -73,3 +73,16 @@ describe("CustomMessageCard", () => {
     expect(screen.getByText("<p>Full</p>")).toBeInTheDocument();
   });
 });
+
+describe("subagent notification disclosure", () => {
+  it("shows only summary until explicitly expanded, never raw XML by default", () => {
+    const text = '<task-notification><summary>Worker finished</summary><result>long private transcript</result></task-notification>';
+    const { container } = render(<CustomMessageCard item={{ kind: "custom", customType: "subagent-notification", text }} />);
+    expect(screen.getByRole("button", { name: "Worker finished" })).toHaveAttribute("aria-expanded", "false");
+    expect(container).not.toHaveTextContent("long private transcript");
+    fireEvent.click(screen.getByRole("button", { name: "Worker finished" }));
+    expect(container).toHaveTextContent(text);
+    fireEvent.click(screen.getByRole("button", { name: "Worker finished" }));
+    expect(container).not.toHaveTextContent("long private transcript");
+  });
+});

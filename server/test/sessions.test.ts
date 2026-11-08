@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import path from "node:path";
+import os from "node:os";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, test } from "node:test";
 import { sanitizeName, hasBeenNamed, firstExchange, toSummary, snippetAround, searchSessions } from "../src/sessions.ts";
 import type { SessionEntry, SessionInfo } from "@earendil-works/pi-coding-agent";
@@ -179,6 +183,29 @@ describe("toSummary", () => {
     assert.equal(result.modified, "2025-06-01T12:00:00.000Z");
     assert.equal(result.messageCount, 5);
     assert.equal(result.snippet, "excerpt of transcript");
+  });
+
+  test("exposes SDK parentSessionPath as an absolute parentSession in lists and filtered search", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "session-tree-"));
+    try {
+      const parent = path.join(root, "parent.jsonl");
+      const child = path.join(root, "child.jsonl");
+      for (const [file, id, parentSession] of [[parent, "parent", undefined], [child, "child", parent]] as const) {
+        await writeFile(file, JSON.stringify({ type: "session", version: 3, id, timestamp: new Date().toISOString(), cwd: root, parentSession }) + "\n" + JSON.stringify({ type: "session_info", id: `${id}-name`, parentId: null, timestamp: new Date().toISOString(), name: id }) + "\n");
+      }
+      const infos = await SessionManager.list(root, root);
+      assert.equal(infos.length, 2);
+      const childInfo = infos.find((info) => info.id === "child")!;
+      assert.equal(childInfo.parentSessionPath, parent);
+      assert.equal(toSummary(childInfo).parentSession, path.resolve(parent));
+      const hits = searchSessions(infos, "child", 10);
+      assert.equal(hits.length, 1);
+      assert.equal(hits[0].parentSession, parent);
+      assert.equal(toSummary(infos.find((info) => info.id === "parent")!).parentSession, undefined);
+      assert.equal(toSummary({ ...childInfo, parentSessionPath: path.join("relative", "parent.jsonl") }).parentSession, path.resolve("relative", "parent.jsonl"));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("omits name when info has no name", () => {

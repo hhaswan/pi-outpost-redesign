@@ -7,7 +7,7 @@
  * on ☾ left the widget dark for good, with nothing the host could do about it.
  */
 import { renderHook, act } from "@testing-library/react";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { useTheme } from "./useTheme";
 
 const STORAGE_KEY = "pi-outpost:theme";
@@ -24,9 +24,27 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   localStorage.clear();
   document.documentElement.removeAttribute("data-theme");
 });
+
+function mockSystemTheme(dark = false) {
+  const listeners = new Set<() => void>();
+  const query = {
+    matches: dark,
+    media: "(prefers-color-scheme: dark)",
+    addEventListener: (_event: string, listener: () => void) => listeners.add(listener),
+    removeEventListener: (_event: string, listener: () => void) => listeners.delete(listener),
+  };
+  vi.stubGlobal("matchMedia", vi.fn(() => query));
+  return (nextDark: boolean) => {
+    act(() => {
+      query.matches = nextDark;
+      for (const listener of listeners) listener();
+    });
+  };
+}
 
 function mount(configured: "light" | "dark" | "system", hostTheme?: "light" | "dark" | "system") {
   const root = document.createElement("div");
@@ -38,10 +56,12 @@ describe("useTheme precedence", () => {
     expect(mount("light").current.theme).toBe("light");
   });
 
-  it("lets a stored pick from an earlier visit override the configured default", () => {
+  it("UserPrefersDarkMode: applies stored dark to the root over the configured default", () => {
     localStorage.setItem(STORAGE_KEY, "dark");
 
-    expect(mount("light").current.theme).toBe("dark");
+    const { result } = renderHook(() => useTheme("light", true));
+    expect(result.current.theme).toBe("dark");
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
   });
 
   it("gives the host the theme it asked for, over anything this browser remembered", () => {
@@ -100,26 +120,79 @@ describe("useTheme following what changes after mount", () => {
     expect(result.current.theme).toBe("dark");
   });
 
-  it("follows the system while set to system, as the OS switches", () => {
-    let listener: (() => void) | undefined;
-    const query = { matches: false, addEventListener: (_: string, next: () => void) => (listener = next), removeEventListener: () => {} };
-    const previous = window.matchMedia;
-    window.matchMedia = (() => query) as unknown as typeof window.matchMedia;
-    try {
-      const result = mount("system");
-      expect(result.current.theme).toBe("light");
-      query.matches = true;
-      act(() => listener?.());
-      expect(result.current.theme).toBe("dark");
-    } finally {
-      window.matchMedia = previous;
+  it("SystemPreferenceFollowed: applies the OS theme to the root and follows OS changes", () => {
+    const changeSystemTheme = mockSystemTheme(false);
+    const { result } = renderHook(() => useTheme("system", true));
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(result.current.preference).toBe("system");
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    changeSystemTheme(true);
+    expect(result.current.theme).toBe("dark");
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    changeSystemTheme(false);
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+  });
+
+  it.each([
+    ["ToggleFromLightToDark", "light", "dark"],
+    ["ToggleFromDarkToLight", "dark", "light"],
+  ] as const)("%s: applies the toggled theme to the root and persists it", (_scenario, initial, next) => {
+    const { result } = renderHook(() => useTheme(initial, true));
+    expect(document.documentElement).toHaveAttribute("data-theme", initial);
+    act(() => result.current.toggle());
+    expect(result.current.theme).toBe(next);
+    expect(result.current.preference).toBe(next);
+    expect(document.documentElement).toHaveAttribute("data-theme", next);
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(next);
+  });
+
+  it("RestoreSystemTheme: restores stored System after remount using the current OS theme", () => {
+    const changeSystemTheme = mockSystemTheme(false);
+    const first = renderHook(() => useTheme("dark", true));
+    act(() => first.result.current.setTheme("system"));
+    expect(first.result.current.preference).toBe("system");
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("system");
+    first.unmount();
+    document.documentElement.removeAttribute("data-theme");
+    changeSystemTheme(true);
+    const restored = renderHook(() => useTheme("light", true));
+    expect(restored.result.current.preference).toBe("system");
+    expect(restored.result.current.theme).toBe("dark");
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("system");
+    changeSystemTheme(false);
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+  });
+
+  it.each(["light", "dark"] as const)("ExplicitThemeStaysFixed: explicit %s resists OS changes", (explicit) => {
+    const changeSystemTheme = mockSystemTheme(false);
+    const { result } = renderHook(() => useTheme("system", true));
+    act(() => result.current.setTheme(explicit));
+    for (const dark of [true, false, true]) {
+      changeSystemTheme(dark);
+      expect(result.current.preference).toBe(explicit);
+      expect(result.current.theme).toBe(explicit);
+      expect(document.documentElement).toHaveAttribute("data-theme", explicit);
+      expect(localStorage.getItem(STORAGE_KEY)).toBe(explicit);
     }
   });
 
-  it("toggles to the other theme and remembers the pick", () => {
-    const result = mount("light");
-    act(() => result.current.toggle());
-    expect(result.current.theme).toBe("dark");
-    expect(localStorage.getItem(STORAGE_KEY)).toBe("dark");
+  it.each(["light", "dark"] as const)("ChooseSystemTheme: explicit %s switches to persisted System and follows OS changes", (explicit) => {
+    const changeSystemTheme = mockSystemTheme(explicit === "light");
+    const { result } = renderHook(() => useTheme("system", true));
+    act(() => result.current.setTheme(explicit));
+    expect(document.documentElement).toHaveAttribute("data-theme", explicit);
+    act(() => result.current.setTheme("system"));
+    expect(result.current.preference).toBe("system");
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("system");
+    expect(document.documentElement).toHaveAttribute("data-theme", explicit === "light" ? "dark" : "light");
+    for (const dark of [false, true]) {
+      changeSystemTheme(dark);
+      expect(result.current.theme).toBe(dark ? "dark" : "light");
+      expect(document.documentElement).toHaveAttribute("data-theme", dark ? "dark" : "light");
+      expect(result.current.preference).toBe("system");
+      expect(localStorage.getItem(STORAGE_KEY)).toBe("system");
+    }
   });
 });

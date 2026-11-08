@@ -201,3 +201,22 @@ calls and result SHALL remain accessible in its expanded body.
 - **THEN** the script, nested calls and output are hidden behind its folded header
 - **AND** expanding the card reveals the script and calls with their result
 - **AND** streaming updates do not change the user's expanded or folded choice
+
+### Requirement: Compact operator-controlled process disclosure
+
+Consecutive tool calls, reasoning-only turns and subagent notifications SHALL appear in one compact process group, collapsed by default. The group SHALL preserve ordering, original details, tool filters and session analysis navigation. Raw subagent notification XML SHALL require an additional explicit disclosure and SHALL NOT be rendered as a large chat message by default. Assistant answer text and errors SHALL remain outside the process group. Session changes SHALL reset disclosure state.
+
+#### Scenario: CompactProcessGroup
+- **GIVEN** consecutive thinking blocks and tool calls
+- **WHEN** the conversation renders or receives more process events
+- **THEN** the group starts collapsed and exposes details only after the operator expands it.
+
+#### Scenario: CollapsedSubagentNotification
+- **GIVEN** a subagent notification containing a summary and a raw transcript
+- **WHEN** the operator expands the process group
+- **THEN** only the notification summary appears until its own disclosure is opened.
+
+#### Scenario: ProcessAnalysisNavigation
+- **GIVEN** an analysis target inside a collapsed process group
+- **WHEN** the operator selects the target
+- **THEN** the target remains navigable and the group opens without highlighting a different turn.

@@ -18,6 +18,10 @@
    in it and emits no utilities at all — the app renders unstyled. Relative to this
    stylesheet, so it resolves the same whether web or embed is doing the build. */
 
+/* Tailwind 4's embed/Vite pipeline reads this variant; Tailwind 3's web/PostCSS
+   pipeline uses the matching darkMode selector in web/tailwind.config.cjs. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, :host([data-theme="dark"]) *));
+
 /* data-theme is set by useTheme() on the root element: document.documentElement for
    the standalone app, or the widget's shadow host when embedded (embed/src/mount.tsx)
    — the third branch matches that case, since [data-theme="dark"] then lives on an

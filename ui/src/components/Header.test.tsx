@@ -230,12 +230,39 @@ describe("Header", () => {
 
     it("ChooseSystemTheme: offers Light, Dark and System with the current preference marked", () => {
       const onSetTheme = vi.fn();
-      setup({ theme: "dark", themePreference: "system", onSetTheme });
+      const { rerenderWith } = setup({ theme: "dark", themePreference: "dark", onSetTheme });
+      fireEvent.click(screen.getByRole("button", { name: "Theme: Dark" }));
+      expect(screen.getByRole("menuitemradio", { name: "Light" })).toHaveAttribute("aria-checked", "false");
+      expect(screen.getByRole("menuitemradio", { name: "Dark" })).toHaveAttribute("aria-checked", "true");
+      expect(screen.getByRole("menuitemradio", { name: "System" })).toHaveAttribute("aria-checked", "false");
+      fireEvent.click(screen.getByRole("menuitemradio", { name: "System" }));
+      expect(onSetTheme).toHaveBeenCalledExactlyOnceWith("system");
+      expect(screen.queryByRole("menu", { name: "Theme" })).not.toBeInTheDocument();
+      rerenderWith({ themePreference: "system" });
       fireEvent.click(screen.getByRole("button", { name: "Theme: System" }));
       expect(screen.getByRole("menuitemradio", { name: "System" })).toHaveAttribute("aria-checked", "true");
-      fireEvent.click(screen.getByRole("menuitemradio", { name: "System" }));
-      expect(onSetTheme).toHaveBeenCalledWith("system");
-      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      expect(screen.getByRole("menuitemradio", { name: "Dark" })).toHaveAttribute("aria-checked", "false");
+    });
+
+    it.each(["Escape", "outside click"] as const)("ThemeMenuDismissal: %s closes the theme menu without changing the preference", (dismissal) => {
+      const onSetTheme = vi.fn();
+      const { onToggleTheme } = setup({ theme: "dark", themePreference: "system", onSetTheme });
+      const trigger = screen.getByRole("button", { name: "Theme: System" });
+      fireEvent.click(trigger);
+      const selected = screen.getByRole("menuitemradio", { name: "System" });
+      expect(selected).toHaveAttribute("aria-checked", "true");
+      expect(selected).toHaveFocus();
+      if (dismissal === "Escape") fireEvent.keyDown(selected, { key: "Escape" });
+      else fireEvent.mouseDown(document.body);
+      expect(screen.queryByRole("menu", { name: "Theme" })).not.toBeInTheDocument();
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      expect(onSetTheme).not.toHaveBeenCalled();
+      expect(onToggleTheme).not.toHaveBeenCalled();
+      if (dismissal === "Escape") expect(trigger).toHaveFocus();
+      fireEvent.click(trigger);
+      expect(screen.getByRole("menuitemradio", { name: "System" })).toHaveAttribute("aria-checked", "true");
+      expect(onSetTheme).not.toHaveBeenCalled();
+      expect(onToggleTheme).not.toHaveBeenCalled();
     });
 
     it("offers the theme toggle only when branding allows it", () => {
@@ -297,6 +324,10 @@ describe("Header", () => {
       setup({ sessionId: "b" });
       openSessions();
       expect(screen.getByText(/· current/)).toBeInTheDocument();
+      const selected = screen.getByText("refactor the parser").closest("button")!;
+      expect(selected).toHaveAttribute("aria-current", "true");
+      expect(selected.closest(".group")).toHaveClass("bg-blue-100", "ring-blue-600", "dark:bg-blue-950", "dark:ring-blue-400");
+      expect(screen.getByText("how do I start?").closest("button")).not.toHaveAttribute("aria-current");
     });
 
     it("switches session and closes", () => {
@@ -324,6 +355,80 @@ describe("Header", () => {
       openSessions();
       fireEvent.mouseDown(document.body);
       expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("parent-child sessions", () => {
+    const parent = session({ name: "Parent" });
+    const child = session({ path: "/sessions/child.jsonl", id: "child", name: "Child", parentSession: parent.path });
+    const grandchild = session({ path: "/sessions/grandchild.jsonl", id: "grandchild", name: "Grandchild", parentSession: child.path });
+
+    it("nests children across dates, toggles independently, and switches the exact child path", () => {
+      const { onSwitchSession } = setup({ sessions: [grandchild, child, { ...parent, modified: "2020-01-01T00:00:00Z" }] });
+      openSessions();
+      const roots = screen.getByRole("list", { name: "Saved sessions" });
+      expect(roots.children).toHaveLength(1);
+      expect(within(screen.getByRole("list", { name: "Children of Parent" })).getByText("Child")).toBeInTheDocument();
+      const toggle = screen.getByRole("button", { name: "Child sessions of Parent" });
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(screen.queryByText("Child")).not.toBeInTheDocument();
+      expect(onSwitchSession).not.toHaveBeenCalled();
+      fireEvent.click(toggle);
+      fireEvent.click(screen.getByRole("button", { name: "Child sessions of Child" }));
+      expect(screen.queryByText("Grandchild")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByText("Child"));
+      expect(onSwitchSession).toHaveBeenCalledWith(child.path);
+      expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    });
+
+    it("keeps orphans, self references, cycles and their descendants reachable once", () => {
+      setup({ sessions: [
+        { ...parent, parentSession: child.path }, child, grandchild,
+        session({ path: "/orphan", id: "orphan", name: "Orphan", parentSession: "/missing" }),
+        session({ path: "/self", id: "self", name: "Self", parentSession: "/self" }),
+      ] });
+      openSessions();
+      for (const name of ["Parent", "Child", "Grandchild", "Orphan", "Self"]) expect(screen.getAllByText(name)).toHaveLength(1);
+    });
+
+    it("shows filtered children without inserting unmatched parents and restores the full tree", () => {
+      const { rerenderWith } = setup({ sessions: [parent, child] });
+      openSessions();
+      fireEvent.change(searchBox(), { target: { value: "child" } });
+      rerenderWith({ sessionSearch: { status: "loaded", query: "child", requestId: "s1", results: [{ ...child, snippet: "matched child text" }] } });
+      expect(screen.queryByText("Parent")).not.toBeInTheDocument();
+      expect(screen.getByText("Child")).toBeInTheDocument();
+      expect(screen.getByText("matched child text")).toBeInTheDocument();
+      expect(screen.getByRole("list", { name: "Saved sessions" }).children).toHaveLength(1);
+      fireEvent.change(searchBox(), { target: { value: "" } });
+      expect(within(screen.getByRole("list", { name: "Children of Parent" })).getByText("Child")).toBeInTheDocument();
+    });
+
+    it("expands matching descendants even when the unfiltered parent was collapsed", () => {
+      const { rerenderWith } = setup({ sessions: [parent, child] });
+      openSessions();
+      fireEvent.click(screen.getByRole("button", { name: "Child sessions of Parent" }));
+      fireEvent.change(searchBox(), { target: { value: "match" } });
+      rerenderWith({ sessionSearch: { status: "loaded", query: "match", requestId: "s2", results: [parent, child] } });
+      expect(screen.getByText("Child")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Child sessions of Parent" })).toHaveAttribute("aria-expanded", "true");
+    });
+
+    it("preserves rename, delete and current markers on nested rows when parents disappear", () => {
+      const { onRenameSession, onDeleteSession, rerenderWith } = setup({ sessions: [parent, child, grandchild], sessionId: "grandchild" });
+      openSessions();
+      const children = screen.getByRole("list", { name: "Children of Parent" });
+      expect(within(children).getByText(/· current/)).toBeInTheDocument();
+      fireEvent.click(within(children).getAllByRole("button", { name: "Rename session" })[0]);
+      fireEvent.change(screen.getByRole("textbox", { name: "Session name" }), { target: { value: "New child" } });
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "Session name" }), { key: "Enter" });
+      expect(onRenameSession).toHaveBeenCalledWith(child.path, "New child");
+      fireEvent.click(within(children).getByRole("button", { name: "Delete session" }));
+      expect(onDeleteSession).toHaveBeenCalledWith(child.path);
+      rerenderWith({ sessions: [child, grandchild] });
+      expect(screen.queryByText("Parent")).not.toBeInTheDocument();
+      expect(screen.getByText("Grandchild")).toBeInTheDocument();
     });
   });
 

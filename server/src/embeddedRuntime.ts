@@ -759,6 +759,20 @@ export class EmbeddedRuntime implements AgentRuntime {
 
   // --- capabilities --------------------------------------------------------
 
+  readonly mcpManagement = async (operation: { action: "list" } | { action: "connect"; name: string }, signal: AbortSignal): Promise<unknown> => {
+    if (!this.bindingDone) throw new Error("Extensions are still starting; refresh MCP status shortly");
+    const tool = this.session.getToolDefinition("mcp");
+    const properties = (tool?.parameters as { properties?: Record<string, unknown> } | undefined)?.properties;
+    if (!tool || !properties?.connect) throw new Error("This runtime has no MCP management gateway; load pi-mcp-adapter to manage its servers here");
+    // This fixed operator action uses the extension's actual live state and UI bridge.
+    // No model prompt, arbitrary tool name, or browser-supplied gateway arguments are accepted.
+    const result = await tool.execute(`mcp-manager:${Date.now()}`, operation.action === "connect" ? { connect: operation.name } : {}, signal, undefined, this.session.extensionRunner.createContext() as never);
+    const details = result.details as { error?: unknown } | undefined;
+    if (result.isError || details?.error) throw new Error("MCP gateway could not complete the operation; check its configuration or authentication");
+    return result.details;
+  };
+
+
   readonly renderers: RenderCapability = {
     getToolDefinition: (name: string) => this.session.getToolDefinition(name),
     getToolRenderers: (name: string) =>

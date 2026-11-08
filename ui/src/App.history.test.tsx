@@ -226,7 +226,7 @@ describe("the way back to the beginning", () => {
       ),
     );
     render(<App />);
-    expect(screen.getByRole("status")).toHaveTextContent("the older messages did not arrive");
+    expect(screen.getByText(/the older messages did not arrive/).closest('[role="status"]')).toBeInTheDocument();
     expect(screen.getByText("kept prompt")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /earlier message/ })).not.toBeDisabled();
   });
@@ -300,6 +300,8 @@ describe("recovered messages are read-only", () => {
     ];
     mockUseAgent.mockReturnValue(agentApi(agentState({ items })));
     render(<App />);
+    expect(screen.getByRole("button", { name: /Process/ })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: /Process/ }));
     expect(screen.getByText(/read/)).toBeInTheDocument();
 
     // Hiding tools must hide a recovered card exactly as it hides a live one.

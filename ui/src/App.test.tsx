@@ -384,6 +384,91 @@ describe("App — session analysis", () => {
     expect(anchor(2)?.className).toContain("ring-2");
   });
 
+  it("ProcessAnalysisNavigation: opens the collapsed group and scrolls and highlights the exact tool, not its neighbor", () => {
+    mockUseAgent.mockReturnValue(agentApi(agentState({ items: [
+      { kind: "user", text: "inspect files" },
+      { kind: "assistant", blocks: [{ type: "thinking", text: "plan" }], usage: usage() },
+      { kind: "tool", toolCallId: "neighbor", toolName: "read", args: { path: "neighbor.ts" }, output: "neighbor output" },
+      { kind: "tool", toolCallId: "target", toolName: "grep", args: { pattern: "target" }, output: "target output" },
+      { kind: "assistant", blocks: [{ type: "text", text: "finished" }], usage: usage() },
+    ] as ChatItem[] })));
+    render(<App />);
+    const group = screen.getByRole("button", { name: /Process · 2 tools · 1 thinking/ });
+    expect(group).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("grep")).not.toBeInTheDocument();
+    openAnalysis();
+    const scroll = vi.mocked(Element.prototype.scrollIntoView);
+    scroll.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: /Jump to the grep call/ }));
+    expect(group).toHaveAttribute("aria-expanded", "true");
+    const target = anchor(3)!;
+    expect(within(target).getByText("grep")).toBeInTheDocument();
+    expect(scroll).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+    expect(scroll.mock.contexts).toContain(target);
+    for (const index of [0, 1, 2, 4]) {
+      expect(scroll.mock.contexts).not.toContain(anchor(index));
+      expect(anchor(index)).not.toHaveClass("ring-2");
+    }
+    expect(target).toHaveClass("ring-2");
+    // A visible tool must be the visible arrival, not a hidden placeholder or
+    // a ring around the entire group that also marks the neighboring call.
+    expect(target).not.toHaveClass("sr-only");
+    expect(target).toContainElement(within(target).getByText("grep"));
+    expect(within(target).queryByText("read")).toBeNull();
+  });
+
+  it("CompactProcessGroup: appends consecutive events in arrival order and resets disclosure on session change", () => {
+    const first: ChatItem[] = [
+      { kind: "user", text: "start" },
+      { kind: "assistant", blocks: [{ type: "thinking", text: "first thought" }] },
+    ];
+    const state = (items: ChatItem[], sessionId = "sess_1") => mockUseAgent.mockReturnValue(agentApi(agentState({ items, sessionId })));
+    state(first);
+    const { rerender } = render(<App />);
+    const group = () => screen.getByRole("button", { name: /Process/ });
+    expect(group()).toHaveAttribute("aria-expanded", "false");
+    const second: ChatItem[] = [...first,
+      { kind: "tool", toolCallId: "first-tool", toolName: "read", args: {}, output: "first result" },
+    ];
+    state(second);
+    rerender(<App />);
+    expect(screen.getAllByRole("button", { name: /Process/ })).toHaveLength(1);
+    expect(group()).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("read")).not.toBeInTheDocument();
+    fireEvent.click(group());
+    const third: ChatItem[] = [...second,
+      { kind: "assistant", blocks: [{ type: "thinking", text: "second thought" }] },
+      { kind: "tool", toolCallId: "second-tool", toolName: "grep", args: {}, output: "second result" },
+      { kind: "assistant", blocks: [{ type: "text", text: "answer outside group" }] },
+      { kind: "assistant", blocks: [{ type: "thinking", text: "failed thought" }], errorMessage: "failure outside group" },
+    ];
+    state(third);
+    rerender(<App />);
+    expect(screen.getAllByRole("button", { name: /Process/ })).toHaveLength(1);
+    expect(group()).toHaveAttribute("aria-expanded", "true");
+    const groupNode = group().parentElement!;
+    const details = within(groupNode);
+    const thinking = details.getAllByRole("button", { name: /^[▸▾]\s*thinking$/ });
+    fireEvent.click(thinking[0]);
+    fireEvent.click(thinking[1]);
+    const ordered = [details.getByText("first thought"), details.getByText("read"), details.getByText("second thought"), details.getByText("grep")];
+    for (let index = 1; index < ordered.length; index++) {
+      expect(ordered[index - 1].compareDocumentPosition(ordered[index]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(groupNode).not.toContainElement(screen.getByText("answer outside group"));
+    expect(groupNode).not.toContainElement(screen.getByText("failure outside group"));
+    state(third, "sess_2");
+    rerender(<App />);
+    expect(group()).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("read")).not.toBeInTheDocument();
+    expect(screen.queryByText("grep")).not.toBeInTheDocument();
+    fireEvent.click(group());
+    expect(within(group().parentElement!).getByText("read")).toBeInTheDocument();
+    expect(within(group().parentElement!).getByText("grep")).toBeInTheDocument();
+    expect(screen.queryByText("first thought")).not.toBeInTheDocument();
+    expect(screen.queryByText("second thought")).not.toBeInTheDocument();
+  });
+
   it("reports the same token total in the bar and in the panel", () => {
     renderApp();
     expect(screen.getByTitle(/2 turns ·/).textContent).toContain("2k tok");
@@ -530,7 +615,7 @@ describe("App — panes and handovers", () => {
 
   it("surfaces errors from the agent", () => {
     mount({ errors: ["git: not a repository"] });
-    expect(screen.getByText(/not a repository/)).toBeInTheDocument();
+    expect(screen.getByText("git: not a repository", { exact: true })).toBeInTheDocument();
   });
 
   it("shows an extension notification", () => {
@@ -577,6 +662,8 @@ describe("App — conversation filters", () => {
         { kind: "assistant", blocks: [{ type: "text", text: "done" }] },
       ] as ChatItem[],
     });
+    expect(screen.getByRole("button", { name: /Process · 1 tools/ })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: /Process · 1 tools/ }));
     expect(screen.getByText("read")).toBeInTheDocument();
 
     toggleFilter(/Tool calls/);
@@ -607,14 +694,25 @@ describe("App — conversation filters", () => {
     expect(screen.queryByText("grep")).not.toBeInTheDocument();
 
     toggleFilter(/Tool calls/);
+    expect(screen.getByRole("button", { name: /Process · 2 tools/ })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: /Process · 2 tools/ }));
     expect(screen.getByText("read")).toBeInTheDocument();
     expect(screen.getByText("grep")).toBeInTheDocument();
   });
 
   it("still shows that the agent is working while tool cards are hidden", () => {
-    mount({ isStreaming: true, items: [{ kind: "user", text: "go" }] as ChatItem[] });
+    mount({ isStreaming: true, items: [
+      { kind: "user", text: "go" },
+      { kind: "tool", toolCallId: "running-read", toolName: "read", args: { path: "config.ts" }, running: true, output: "" },
+    ] as ChatItem[] });
+    expect(screen.getByRole("button", { name: /Process · 1 tools · running/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Process/ }));
+    expect(screen.getByText("read")).toBeInTheDocument();
     toggleFilter(/Tool calls/);
+    expect(screen.queryByText("read")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Process/ })).not.toBeInTheDocument();
     expect(screen.getByText("working…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop the agent" })).toBeInTheDocument();
   });
 
   it("says it is working for as long as the turn can be stopped", () => {
@@ -712,6 +810,83 @@ describe("App — conversation filters", () => {
     );
     rerender(<App />);
     expect(screen.getByText("the answer")).toBeInTheDocument();
+  });
+
+  it("FiltersAreIndependent: clearing only reasoning keeps tool cards and answer text", () => {
+    mount({ items: [
+      { kind: "assistant", blocks: [{ type: "thinking", text: "private plan" }] },
+      { kind: "tool", toolCallId: "read-1", toolName: "read", args: { path: "config.ts" }, output: "config" },
+      { kind: "assistant", blocks: [{ type: "thinking", text: "private conclusion" }, { type: "text", text: "public answer" }] },
+    ] as ChatItem[] });
+    fireEvent.click(screen.getByRole("button", { name: /Process/ }));
+    for (const button of screen.getAllByRole("button", { name: /^[▸▾]\s*thinking$/ })) fireEvent.click(button);
+    expect(screen.getByText("private plan")).toBeInTheDocument();
+    expect(screen.getByText("private conclusion")).toBeInTheDocument();
+    toggleFilter(/Reasoning/);
+    expect(screen.getByRole("menuitemcheckbox", { name: /Reasoning/ })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("menuitemcheckbox", { name: /Tool calls/ })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("read")).toBeInTheDocument();
+    expect(screen.getByText("public answer")).toBeInTheDocument();
+    expect(screen.queryByText("private plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("private conclusion")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /thinking/ })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { tools: false, reasoning: true },
+    { tools: true, reasoning: false },
+    { tools: false, reasoning: false },
+    { tools: true, reasoning: true },
+  ])("PersistedAcrossReload: restores tools=$tools and reasoning=$reasoning independently", ({ tools, reasoning }) => {
+    const items: ChatItem[] = [
+      { kind: "tool", toolCallId: "persisted", toolName: "read", args: {}, output: "contents" },
+      { kind: "assistant", blocks: [{ type: "thinking", text: "persisted reasoning" }, { type: "text", text: "persisted answer" }] },
+    ];
+    const first = mount({ items });
+    if (!tools) toggleFilter(/Tool calls/);
+    if (!reasoning) toggleFilter(/Reasoning/);
+    first.unmount();
+    mount({ items });
+    openFilters();
+    expect(screen.getByRole("menuitemcheckbox", { name: /Tool calls/ })).toHaveAttribute("aria-checked", String(tools));
+    expect(screen.getByRole("menuitemcheckbox", { name: /Reasoning/ })).toHaveAttribute("aria-checked", String(reasoning));
+    expect(screen.getByText("persisted answer")).toBeInTheDocument();
+    if (tools) {
+      fireEvent.click(screen.getByRole("button", { name: /Process/ }));
+      expect(screen.getByText("read")).toBeInTheDocument();
+    } else {
+      expect(screen.queryByRole("button", { name: /Process/ })).not.toBeInTheDocument();
+      expect(screen.queryByText("read")).not.toBeInTheDocument();
+    }
+    if (reasoning) {
+      fireEvent.click(screen.getByRole("button", { name: /thinking/ }));
+      expect(screen.getByText("persisted reasoning")).toBeInTheDocument();
+    } else {
+      expect(screen.queryByRole("button", { name: /thinking/ })).not.toBeInTheDocument();
+      expect(screen.queryByText("persisted reasoning")).not.toBeInTheDocument();
+    }
+  });
+
+  it("NoEmptyMessageIsLeftBehind: navigates to the exact hidden reasoning anchor, not its neighbors", () => {
+    mount({ items: [
+      { kind: "user", text: "before reasoning" },
+      { kind: "assistant", blocks: [{ type: "thinking", text: "hidden reasoning" }], usage: { input: 10, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 12 } },
+      { kind: "assistant", blocks: [{ type: "text", text: "after reasoning" }] },
+    ] as ChatItem[] });
+    toggleFilter(/Reasoning/);
+    const target = anchor(1)!;
+    expect(target).toHaveClass("sr-only");
+    expect(target).toBeEmptyDOMElement();
+    const scroll = vi.fn();
+    target.scrollIntoView = scroll;
+    fireEvent.click(screen.getByTitle(/turns? ·/));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Turn 1:/ })[0]);
+    expect(scroll).toHaveBeenCalledExactlyOnceWith({ behavior: "smooth", block: "center" });
+    expect(anchor(1)).toBe(target);
+    expect(anchor(0)).not.toHaveClass("ring-2");
+    expect(anchor(2)).not.toHaveClass("ring-2");
+    expect(screen.queryByText("hidden reasoning")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Process/ })).not.toBeInTheDocument();
   });
 
   it("remembers each filter across mounts, independently", () => {
@@ -1017,7 +1192,8 @@ describe("App — model bar and tree", () => {
 
   it("changes the model from the bar", () => {
     const api = mount({ models: [{ provider: "anthropic", id: "opus", name: "Opus", reasoning: true }] });
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "anthropic/opus" } });
+    fireEvent.click(screen.getByRole("button", { name: "Model", exact: true }));
+    fireEvent.click(screen.getByRole("option", { name: "anthropic/opus", exact: true }));
     expect(api.setModel).toHaveBeenCalledWith("anthropic", "opus");
   });
 

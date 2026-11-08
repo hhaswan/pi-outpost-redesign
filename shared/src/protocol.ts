@@ -151,6 +151,8 @@ export interface ModelChoice {
 export interface SessionSummary {
   path: string;
   id: string;
+  /** Absolute path of the session this session was forked from, when known. */
+  parentSession?: string;
   name?: string;
   firstMessage: string;
   modified: string;
@@ -1197,7 +1199,10 @@ export type LoginPrompt =
   | { type: "manual_code"; message: string; placeholder?: string };
 
 /** Server -> client */
+export type { McpConfigScope, McpConfigDocument, McpLiveServer, McpManagementOperation, McpManagementData, McpManagementReply } from "./mcpManagement.ts";
+
 export type ServerMessage =
+  | ({ type: "mcp_management_result" } & import("./mcpManagement.ts").McpManagementReply)
   | ({ type: "hello" } & SessionSnapshot)
   | ({ type: "session_replaced" } & SessionSnapshot)
   | { type: "sessions"; sessions: SessionSummary[] }
@@ -1666,6 +1671,7 @@ export type ClientMessage =
   | { type: "switch_session"; path: string }
   | { type: "delete_session"; path: string }
   | { type: "list_sessions" }
+  | { type: "mcp_management"; requestId: string; operation: import("./mcpManagement.ts").McpManagementOperation }
   /** Set a session's display name (any saved session, live or not). Empty name clears it. */
   | { type: "rename_session"; path: string; name: string }
   /** Find sessions by name, first message or transcript content (matched server-side). */

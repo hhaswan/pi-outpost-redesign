@@ -871,3 +871,66 @@ conversation tree as a single branch. See [Agent runtimes](configuration.md#agen
 | The file tree does not follow changes | Watching may be off (`files.watch`) or the filesystem emits no events. The tree's ↻ control re-lists by hand |
 | Settings will not change the sandbox | Either a `sandboxLocks` entry, or the RPC runtime, which has no sandbox to change |
 | Not sure which file is in force | `pi-outpost config` prints the resolved configuration and where it came from |
+
+## Browser MCP management
+
+Send `/mcp` to open the MCP manager. With the `pi-mcp-adapter` management gateway
+loaded in the embedded runtime, **Refresh** reads live connection status and tool
+counts, and **Connect** attempts a connection. Cached tools are not evidence of an
+active connection. A runtime without that gateway reports the limitation rather
+than showing invented status.
+
+Use **Add server** for an HTTP(S) URL or a stdio command, or edit/remove a definition
+in its displayed scope. The supported files are `.mcp.json`,
+`~/.config/mcp/mcp.json`, the agent directory's `mcp-adapter.json`, and the project's
+`.pi/mcp-adapter.json`. Servers imported from other files or extensions may appear
+without edit actions. Removing one definition does not remove definitions in other
+scopes or disconnect an already-running connection immediately.
+
+Secrets and opaque arguments are masked. Leave a mask unchanged to retain its
+value. When changing a URL, command, or arguments, replace or remove masked values
+explicitly; credentials are not silently transferred to another destination.
+Concurrent edits produce a refresh-and-retry error rather than overwriting newer
+configuration.
+
+Saving does not restart Pi. When the session is idle, **Apply saved configuration**
+asks for confirmation and restarts only that Pi session, reloading its extensions
+and MCP configuration. It does not restart the systemd service. Changes are disabled
+while the session is working or when sandbox/extension configuration policy locks
+them. Only configure servers you trust: stdio commands run as the server account.
+
+Consecutive tools, thinking-only turns and subagent notifications are grouped under
+a compact **Process** disclosure. They start collapsed. A subagent's raw transcript
+requires opening its own summary too. Assistant answers and errors remain visible.
+The saved-session picker nests children under their actual parent session; missing
+parents and filtered search matches remain reachable.
+
+## Read activity and return to a workspace
+
+The activity strip stays outside the scrolling transcript. It shows the current
+project/session and the server-reported activity, including waiting for input,
+working, starting, and ready for review. When the connection drops, it reports
+that activity is unknown rather than claiming the agent has stopped. Other active
+server-managed workspaces appear by name and can be selected from the strip.
+Historical error text is labeled **Last error**; it is not proof of a current failure.
+
+These states cover runtimes managed by this server. They do not discover unrelated
+Pi CLI processes or establish the liveness of detached extension subagents. A
+saved transcript or completed notification is not live activity telemetry.
+
+The standalone browser remembers the last acknowledged workspace for each server.
+After reconnecting or reopening the app, it selects that still-open workspace,
+including a side session, without sending a prompt or opening another agent.
+If that workspace is unavailable, the app reports the fallback. Existing tabs
+keep their own selection; a newly opened or refreshed tab uses the last saved
+selection. An embedded widget's explicit workspace remains authoritative.
+This restores the server's current session in that workspace, not an older session
+file if another client has changed it. Browser disconnection does not stop the
+agent runtime, but browser-owned terminals and idle workspace retirement have
+separate lifecycles. This is not attachment to an independently running Pi CLI.
+
+Use **Model** to search by provider, model ID, or display name. Arrow keys select
+an option; Enter applies it; Escape closes the picker and returns focus. Model
+changes remain disabled while the agent is streaming. The saved-session menu
+marks the current session with a contrasting outline, background, and text in
+both light and dark themes.

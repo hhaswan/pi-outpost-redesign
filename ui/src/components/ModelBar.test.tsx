@@ -54,6 +54,12 @@ describe("ModelBar usage indicator", () => {
     expect(screen.queryByText(/\$/)).toBeNull();
   });
 
+  it("SmallAmountsStayLegible: shows a fraction of a cent without claiming zero", () => {
+    renderBar({ ...NOTHING, turns: 1, totalTokens: 100, cost: 0.0004 });
+    expect(screen.getByText("$0.0004")).toBeVisible();
+    expect(screen.queryByText("$0.00")).toBeNull();
+  });
+
   it("marks an amount that covers only some of the turns", () => {
     renderBar({ ...NOTHING, turns: 4, unpriced: 2, totalTokens: 9_000, cost: 0.1 });
     expect(screen.getByText(/\$0\.10\*/)).toBeTruthy();
@@ -124,16 +130,51 @@ describe("ModelBar controls", () => {
     return props;
   }
 
+  it("wraps narrow layouts without hiding security, context or usage controls", () => {
+    const props = renderFull({
+      model: `local/${"long-model-name-".repeat(12)}`,
+      shellConfinement: { state: "checking", runner: "sandbox" },
+      shellGrants: { hosts: ["example.com"], directories: [] },
+      contextUsage: { tokens: 45_000, contextWindow: 200_000, percent: 22.5 },
+      sessionUsage: { ...NOTHING, turns: 1, totalTokens: 12_400, cost: 0.42 },
+    });
+    const model = screen.getByRole("button", { name: "Model" });
+    expect(model.parentElement?.parentElement).toHaveClass("min-w-0", "flex-wrap");
+    expect(model.parentElement).toHaveClass("min-w-0", "w-full", "max-w-full", "sm:w-auto", "sm:max-w-64");
+    expect(model).toHaveTextContent(props.model);
+    const confinement = screen.getByTestId("shell-confinement");
+    expect(confinement).toBeVisible();
+    expect(confinement).toHaveAttribute("data-grants", "1");
+    expect(confinement.parentElement).toHaveClass("min-w-0", "max-w-full", "[&>span]:whitespace-normal", "[&>span]:rounded-full");
+    const context = screen.getByRole("button", { name: "23%" });
+    const usage = screen.getByTitle(/1 turn.*click for the session analysis/);
+    expect(usage).toHaveTextContent("12k tok$0.42");
+    for (const control of [model, screen.getByTitle("thinking level"), context, usage]) {
+      expect(control).toBeVisible();
+      expect(control).toHaveClass("min-h-11", "rounded-full", "focus-visible:ring-2");
+    }
+    for (const control of [screen.getByTitle("thinking level"), context, usage]) {
+      expect(control).toHaveClass("sm:min-h-0");
+    }
+    fireEvent.click(context);
+    expect(props.onCompact).toHaveBeenCalledOnce();
+    fireEvent.click(usage);
+    expect(props.onToggleAnalysis).toHaveBeenCalledOnce();
+  });
+
   it("switches to the model the user picked, provider and id apart", () => {
     const props = renderFull();
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "openai/gpt-5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    fireEvent.click(screen.getByRole("option", { name: "openai/gpt-5" }));
     expect(props.onSetModel).toHaveBeenCalledWith("openai", "gpt-5");
   });
 
   it("keeps a model the server reports but does not list", () => {
-    // Otherwise the select would silently show someone else's model.
+    // The picker must not silently show someone else's model.
     renderFull({ model: "local/qwen3" });
-    expect(screen.getByRole("option", { name: "local/qwen3" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("local/qwen3");
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    expect(screen.getByText("Current: local/qwen3 (not listed)")).toBeVisible();
   });
 
   it("hides the thinking control for a model that cannot reason", () => {
@@ -194,7 +235,7 @@ describe("ModelBar controls", () => {
 
   it("locks the controls that would race a running turn", () => {
     renderFull({ isStreaming: true });
-    expect(screen.getByRole("combobox")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Model" })).toBeDisabled();
     expect(screen.getByTitle("thinking level")).toBeDisabled();
   });
 

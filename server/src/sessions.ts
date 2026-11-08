@@ -8,6 +8,7 @@
  * transcript as text (`allMessagesText`), so matching costs no extra I/O — and
  * that text never leaves the server, only the matched excerpt does.
  */
+import path from "node:path";
 import type { AgentSession, SessionEntry, SessionInfo } from "@earendil-works/pi-coding-agent";
 import { MIN_SESSION_QUERY_LENGTH, type SessionSummary } from "@pi-outpost/shared";
 import { contentText } from "./convert.ts";
@@ -141,6 +142,7 @@ export function toSummary(info: SessionInfo, snippet?: string): SessionSummary {
   return {
     path: info.path,
     id: info.id,
+    ...(info.parentSessionPath ? { parentSession: path.resolve(info.parentSessionPath) } : {}),
     ...(info.name ? { name: info.name } : {}),
     firstMessage: info.firstMessage.slice(0, FIRST_MESSAGE_LENGTH),
     modified: info.modified.toISOString(),

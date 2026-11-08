@@ -76,6 +76,33 @@ When theme controls are enabled, the header SHALL offer Light, Dark and System c
 - **WHEN** Escape or an outside click is used
 - **THEN** the menu closes without changing the preference
 
+### Requirement: Explicit theme utility selectors
+
+Dark utility styles SHALL follow the resolved `data-theme` value, rather than independently following the OS color scheme. The standalone document and an embedded shadow host SHALL each control their own utility styles.
+
+#### Scenario: ExplicitThemeUtilities
+- **GIVEN** the document root has an explicit light or dark `data-theme`
+- **WHEN** the OS color scheme changes
+- **THEN** compiled dark utilities follow the document attribute, including explicit light under a dark OS preference
+
+#### Scenario: ShadowHostThemeUtilities
+- **GIVEN** a shadow host has an explicit light or dark `data-theme`
+- **WHEN** the OS or outer document theme differs or changes
+- **THEN** dark utilities inside the shadow tree follow the host attribute independently
+
 ## Technical Notes
 
 - **Dependencies**: localStorage, `window.matchMedia("(prefers-color-scheme: dark)")`, React state/effects
+
+### Requirement: Rounded responsive conversation controls
+
+Shared header controls SHALL use full rounded corners, retain visible keyboard focus, and offer 44px height on narrow screens while keeping compact desktop sizing. The model/status footer SHALL wrap without horizontal page overflow at 320px and 390px viewport widths. Shell confinement, context and session usage information SHALL remain available rather than being hidden to fit.
+
+#### Scenario: NarrowConversationControls
+- **GIVEN** a 320px or 390px viewport
+- **WHEN** the conversation header and model/status footer render
+- **THEN** the page has no horizontal overflow and security and usage controls remain available.
+
+#### Scenario: RoundedHeaderAndFocus
+- **WHEN** the header is rendered and navigated by keyboard
+- **THEN** shared controls are pill-shaped with visible focus and mobile controls are at least 44px high.

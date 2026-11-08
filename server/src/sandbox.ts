@@ -574,9 +574,9 @@ export function shadowedBashWarning(
   const names = [...new Set(registered.filter((tool) => tool.definition.name === "bash").map((tool) => extensionNameOf(tool.sourceInfo)))];
   if (names.length === 0) return undefined;
   return (
-    `${names.join(", ")} registers its own bash, but the agent runs pi-outpost's, which is not confined: ` +
-    `"sandbox.allowBash" is on without "sandbox.bashFrom". To run the extension's, set ` +
-    `"sandbox.bashFrom": ${JSON.stringify(names[0])}. See docs/sandboxing.md.`
+    `${names.join(", ")} registers its own bash, but that bash is shadowed by pi-outpost's unconfined bash: ` +
+    `"sandbox.allowBash" is on without "sandbox.bashFrom". Registration alone does not establish whether the extension confines bash. ` +
+    `To run the extension's bash instead, set "sandbox.bashFrom": ${JSON.stringify(names[0])}. See docs/sandboxing.md.`
   );
 }
 

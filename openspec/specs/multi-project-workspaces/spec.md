@@ -373,3 +373,22 @@ the server's own project, and what it held SHALL be dropped.
 #### Scenario: AFailedStartTakesTheBrowserBack
 - **WHEN** the project's directory is gone and its agent cannot start
 - **THEN** the browser receives a `workspace_error` saying it could not start, then `workspace_switched` for the server's project, which answers requests
+
+### Requirement: RestoreAcknowledgedBrowserWorkspace
+
+The standalone browser SHALL remember the last acknowledged workspace identity per server, without storing credentials or a writable session-file target. Reconnection SHALL select an available remembered workspace through the existing workspace-switch protocol without replaying prompts or starting a replacement runtime. An explicit embedded workspace SHALL take precedence. Existing tabs SHALL retain their own active selection; new or refreshed tabs MAY use the last saved browser selection.
+
+#### Scenario: RestoreLiveWorkspaceAfterReload
+- **GIVEN** a standalone browser previously selected an available workspace or side session
+- **WHEN** the browser reconnects or reloads
+- **THEN** it selects that same live workspace identity without submitting a prompt or switching a saved session file
+
+#### Scenario: UnavailableRememberedWorkspace
+- **GIVEN** the remembered workspace is closed, missing, locked, or refuses restoration
+- **WHEN** the browser connects
+- **THEN** it shows a fallback notice instead of repeatedly attempting restoration or claiming the remembered workspace is active
+
+#### Scenario: ExplicitWorkspaceOverridesBrowserMemory
+- **GIVEN** an embed has an explicit workspace and the browser remembers another workspace
+- **WHEN** the embed connects
+- **THEN** the explicit workspace remains authoritative

@@ -47,3 +47,47 @@ Search requests SHALL be correlated by request id, and the client SHALL ignore a
 - **GIVEN** the user types quickly and two searches are in flight
 - **WHEN** the answer to the earlier one arrives last
 - **THEN** the menu still shows the results of the latest query
+
+### Requirement: ParentChildSessionTree
+
+Session summaries SHALL expose the SDK's parent session path as optional `parentSession`, resolved to an absolute filesystem path. The saved-session menu SHALL nest sessions beneath their listed parents, not group them only by date. Each parent SHALL have a separate accessible expand/collapse control. Session selection, rename, delete, current markers, and search snippets SHALL retain their existing behavior.
+
+#### Scenario: NestedSessionSelection
+- **GIVEN** a parent, child, and grandchild with different modification dates
+- **WHEN** the user opens the session menu
+- **THEN** descendants appear beneath their respective parents
+- **AND** collapsing a parent hides its descendants without selecting a session
+- **AND** selecting a child switches to that child's exact path and closes the menu
+
+#### Scenario: MissingOrCyclicParents
+- **GIVEN** missing parent paths, self references, or cyclic parent paths
+- **WHEN** the session menu renders
+- **THEN** every listed session remains reachable exactly once without recursive cycles
+
+#### Scenario: FilteredSessionTree
+- **GIVEN** a matching child whose parent does not match the search
+- **WHEN** the search results render
+- **THEN** the child appears as a root with its snippet, without adding the unmatched parent
+- **AND** clearing the query restores the full parent-child tree
+
+#### Scenario: NestedSessionActions
+- **GIVEN** nested sessions including the current session
+- **WHEN** the user renames or deletes a non-current child
+- **THEN** the action targets that child's exact path
+- **AND** the current marker remains visible on the current descendant
+- **AND** removing a parent from the list leaves its children reachable
+
+#### Scenario: ParentMetadataFromSdk
+- **GIVEN** session files whose JSONL headers contain a parent session path
+- **WHEN** the SDK lists the files and the server converts list or search results
+- **THEN** both summaries expose that path as absolute `parentSession`
+- **AND** sessions without a parent omit `parentSession`
+
+### Requirement: DistinctCurrentSession
+
+The saved-session menu SHALL distinguish the current session with a persistent contrasting background and outline in both themes, an accessible current marker, and text. Hovering another session SHALL NOT reproduce the current-session treatment.
+
+#### Scenario: CurrentSessionContrast
+- **WHEN** the saved-session menu opens
+- **THEN** only the current session has `aria-current="true"`, a contrasting selected background and outline, and the current text marker
+- **AND** other sessions retain their unselected hover treatment

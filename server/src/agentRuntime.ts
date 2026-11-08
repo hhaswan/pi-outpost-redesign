@@ -335,6 +335,8 @@ export interface AgentRuntime {
 
   readonly credentials?: CredentialCapability;
   readonly renderers?: RenderCapability;
+  /** Operator-only status/connect; not a way to execute arbitrary MCP tools. */
+  readonly mcpManagement?: (operation: { action: "list" } | { action: "connect"; name: string }, signal: AbortSignal) => Promise<unknown>;
   readonly titles?: TitleCapability;
   /**
    * Rebuild the agent's toolset from the current sandbox configuration and start
