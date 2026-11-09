@@ -6,7 +6,7 @@ The bridge observes an existing Pi terminal runtime. It never creates an agent, 
 pi -e /absolute/path/to/pi-outpost/extensions/cli-session-bridge.ts
 ```
 
-The build also ships a standalone `dist/extensions/cli-session-bridge.mjs`; it can be passed to `pi -e` without this source tree. To enroll future terminal sessions globally, an operator may copy that bundled file to `~/.pi/agent/extensions/pi-outpost-cli-bridge.mjs`. Existing terminal sessions need `/reload` while idle to load it; no process is remotely reloaded.
+The build also ships a standalone `dist/extensions/cli-session-bridge.mjs`; it can be passed to `pi -e` without this source tree. For automatic discovery in future terminal sessions, copy that bundle to `~/.pi/agent/extensions/pi-outpost-cli-bridge.js` (mode 0600). Pi auto-discovers global `*.js` and `*.ts` files, **not** `*.mjs`; the bundled JavaScript is also valid under the `.js` name. For the native root-owned deployment, this copy has already been installed. Existing terminal sessions need `/reload` while idle to load it; no process is remotely reloaded. A Pi CLI running as another OS user needs its own compatible installation and a secure, shared bridge registry before the root-owned server can discover it.
 
 The build itself installs nothing globally. The extension starts its endpoint only on `session_start` in TUI mode, not during module loading or SDK discovery. It uses type-only imports from the installed SDK and `shared/src/cliBridge.ts`; these imports disappear under the extension loader. Keep the repository layout when distributing the source.
 
