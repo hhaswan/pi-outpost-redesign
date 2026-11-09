@@ -48,6 +48,21 @@ Search requests SHALL be correlated by request id, and the client SHALL ignore a
 - **WHEN** the answer to the earlier one arrives last
 - **THEN** the menu still shows the results of the latest query
 
+### Requirement: Read-only Pi CLI history
+
+The session menu SHALL list bounded metadata from Pi CLI's per-cwd directory under the configured agent root. CLI entries SHALL be marked read-only, without switch, rename or delete actions. Search SHALL use available titles and opening messages, not whole transcripts. An unverified old title SHALL NOT be shown as current.
+
+#### Scenario: CliHistoryVisibleWithoutSecondWriter
+- **GIVEN** Pi CLI saved sessions for the active project in its per-cwd session directory
+- **WHEN** the Outpost session menu opens
+- **THEN** those sessions appear with a read-only CLI label and no switch, rename, or delete action
+- **AND** a forged mutation against such a file is rejected by the server
+
+#### Scenario: CliHistorySearchAndProjectIsolation
+- **GIVEN** saved CLI sessions in two different project directories
+- **WHEN** the user searches the first project's session menu by name or opening message
+- **THEN** matching CLI history appears without any session from the other project
+
 ### Requirement: ParentChildSessionTree
 
 Session summaries SHALL expose the SDK's parent session path as optional `parentSession`, resolved to an absolute filesystem path. The saved-session menu SHALL nest sessions beneath their listed parents, not group them only by date. Each parent SHALL have a separate accessible expand/collapse control. Session selection, rename, delete, current markers, and search snippets SHALL retain their existing behavior.

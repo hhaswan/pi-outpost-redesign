@@ -1477,6 +1477,23 @@ describe("stale responses", () => {
     });
   });
 
+  it("clears old project history and search when switching workspaces", async () => {
+    const result = await connected([], { workspace: { root: "/old", name: "old", activity: "idle" } });
+    const old = { id: "old", path: "/old/sessions/old.jsonl", name: "Old CLI history", readOnlyCliHistory: true };
+    act(() => mockWs!.receive({ type: "sessions", sessions: [old] }));
+    act(() => result.current.searchSessions("old"));
+    const oldRequest = lastRequestId();
+    act(() => mockWs!.receive({ type: "session_search_results", requestId: oldRequest, query: "old", sessions: [old] }));
+    expect(result.current.state.sessions).toEqual([old]);
+    expect(result.current.state.sessionSearch?.results).toEqual([old]);
+    act(() => mockWs!.receive({ type: "workspace_switched", workspace: { root: "/new", name: "new", activity: "idle" },
+      workspaces: [], sessionId: "new-session", branding: {}, model: "", thinkingLevel: "off", models: [], commands: [], isStreaming: false, items: [] }));
+    expect(result.current.state.sessions).toBeNull();
+    expect(result.current.state.sessionSearch).toBeNull();
+    act(() => mockWs!.receive({ type: "session_search_results", requestId: oldRequest, query: "old", sessions: [old] }));
+    expect(result.current.state.sessionSearch).toBeNull();
+  });
+
   it("ignores session search results from a superseded query", async () => {
     const result = await connected();
 

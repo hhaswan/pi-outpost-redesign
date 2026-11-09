@@ -157,7 +157,10 @@ export interface SessionSummary {
   name?: string;
   firstMessage: string;
   modified: string;
-  messageCount: number;
+  /** Absent for bounded, read-only CLI history: its entire transcript was not scanned. */
+  messageCount?: number;
+  /** External CLI history is visible, but this server must never open, rename or delete it. */
+  readOnlyCliHistory?: boolean;
   /** Excerpt of the transcript around the match — search results only. */
   snippet?: string;
   /**

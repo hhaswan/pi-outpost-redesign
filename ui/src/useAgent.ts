@@ -806,6 +806,10 @@ function applySnapshot(state: AgentState, message: ServerMessage & { sessionId: 
     branding: message.branding,
     sessionId: message.sessionId,
     sessionName: message.sessionName ?? null,
+    // Session menus and in-flight searches belong to the old binding. A late
+    // response must never render another project's history under this header.
+    ...(message.type === "hello" || message.type === "workspace_switched" || message.type === "workspace_starting"
+      ? { sessions: null, sessionSearch: null } : {}),
     model: message.model,
     thinkingLevel: message.thinkingLevel,
     thinkingLevels: message.thinkingLevels,

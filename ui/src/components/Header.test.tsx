@@ -495,6 +495,19 @@ describe("Header", () => {
     });
   });
 
+  it("shows CLI resume history but never offers a second writer or mutation", () => {
+    const external = session({ path: "/sessions/--project--/external.jsonl", id: "external", name: "Earlier CLI work", readOnlyCliHistory: true, messageCount: undefined });
+    const { onSwitchSession, onRenameSession, onDeleteSession } = setup({ sessions: [session(), external] });
+    openSessions();
+    expect(screen.getByText("Earlier CLI work")).toBeInTheDocument();
+    expect(screen.getByText(/Pi CLI history · read-only; use \/resume in CLI to continue/)).toBeInTheDocument();
+    expect(screen.getByLabelText("CLI history: Earlier CLI work").closest("li")!.querySelectorAll("button")).toHaveLength(0);
+    expect(screen.queryByText(/undefined messages/)).toBeNull();
+    expect(onSwitchSession).not.toHaveBeenCalled();
+    expect(onRenameSession).not.toHaveBeenCalled();
+    expect(onDeleteSession).not.toHaveBeenCalled();
+  });
+
   describe("searching sessions", () => {
     it("ignores a query too short to be worth a server scan", () => {
       const { onSearchSessions } = setup();

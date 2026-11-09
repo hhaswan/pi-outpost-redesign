@@ -9,6 +9,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createSubagentActivityExtension, getSubagentActivity } from "./subagentActivity.ts";
 import { manageCliBridge, isCliSessionClaimed } from "./cliBridge.ts";
+import { externalCliHistory } from "./externalCliHistory.ts";
 import { manageMcp } from "./mcpManagement.ts";
 import fs from "node:fs/promises";
 import rateLimit from "@fastify/rate-limit";
@@ -5064,15 +5065,16 @@ function invalidateSessionScan(workspace: Workspace): void {
   sessionScans.delete(workspace.root);
 }
 
-async function sessionList(workspace: Workspace, ): Promise<SessionSummary[]> {
+async function sessionList(workspace: Workspace): Promise<SessionSummary[]> {
   const sessions = await scanSessions(workspace);
-  return [...sessions]
-    .sort((a, b) => b.modified.getTime() - a.modified.getTime())
-    .slice(0, SESSION_LIST_LIMIT)
-    .map((info) => {
-      const holder = liveElsewhere(workspace, info.path);
-      return holder ? { ...toSummary(info), liveIn: workspaceTitle(holder) } : toSummary(info);
-    });
+  const managed = sessions.map((info) => {
+    const holder = liveElsewhere(workspace, info.path);
+    return holder ? { ...toSummary(info), liveIn: workspaceTitle(holder) } : toSummary(info);
+  });
+  const external = await externalCliHistory(AGENT_DIR, workspace.settings.cwd);
+  // Keep independent bounds: a busy CLI history must not push Outpost's own sessions out of the menu.
+  return [...managed.sort((a, b) => b.modified.localeCompare(a.modified)).slice(0, SESSION_LIST_LIMIT),
+    ...external.slice(0, SESSION_LIST_LIMIT)].sort((a, b) => b.modified.localeCompare(a.modified));
 }
 
 /**
@@ -5115,7 +5117,8 @@ async function refreshSideLabels(root: string): Promise<void> {
 }
 
 async function listSessions(workspace: Workspace, socket: WebSocket): Promise<void> {
-  send(socket, { type: "sessions", sessions: await sessionList(workspace) });
+  const sessions = await sessionList(workspace);
+  if (clients.get(socket) === workspace) send(socket, { type: "sessions", sessions });
 }
 
 /**
@@ -5234,12 +5237,12 @@ function handleHistoryBefore(
 }
 
 async function handleSearchSessions(workspace: Workspace, socket: WebSocket, query: string, requestId: string): Promise<void> {
-  send(socket, {
-    type: "session_search_results",
-    requestId,
-    query,
-    sessions: searchSessions(await scanSessions(workspace), query, SESSION_LIST_LIMIT),
-  });
+  const managed = searchSessions(await scanSessions(workspace), query, SESSION_LIST_LIMIT);
+  const external = query.trim().length >= 2 ? (await externalCliHistory(AGENT_DIR, workspace.settings.cwd)).filter(info =>
+    info.name?.toLowerCase().includes(query.trim().toLowerCase()) || info.firstMessage.toLowerCase().includes(query.trim().toLowerCase())) : [];
+  if (clients.get(socket) !== workspace) return;
+  send(socket, { type: "session_search_results", requestId, query,
+    sessions: [...managed, ...external].sort((a, b) => b.modified.localeCompare(a.modified)).slice(0, SESSION_LIST_LIMIT) });
 }
 
 // --- Automatic session naming ------------------------------------------------------

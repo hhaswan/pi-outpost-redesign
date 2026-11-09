@@ -202,6 +202,12 @@ function SessionRow({
   onRename: (name: string) => void;
   onCancelRename: () => void;
 }) {
+  if (session.readOnlyCliHistory) {
+    return <div aria-label={`CLI history: ${session.name || session.firstMessage || session.id}`} className="min-w-0 flex-1 rounded-xl px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300">
+      <div className="truncate">{session.name || session.firstMessage || session.id}</div>
+      <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{new Date(session.modified).toLocaleString()} · Pi CLI history · read-only; use /resume in CLI to continue</div>
+    </div>;
+  }
   if (renaming) {
     return (
       <div className="px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800/60">
@@ -214,7 +220,7 @@ function SessionRow({
       className={`group flex items-start gap-1 rounded-xl ${
         isCurrent
           ? "bg-blue-100 ring-2 ring-inset ring-blue-600 dark:bg-blue-950 dark:ring-blue-400"
-          : "hover:bg-zinc-100 dark:hover:bg-zinc-800/80"
+          : session.readOnlyCliHistory ? "" : "hover:bg-zinc-100 dark:hover:bg-zinc-800/80"
       }`}
     >
       <button type="button" onClick={onSwitch} aria-current={isCurrent ? "true" : undefined} className="min-w-0 flex-1 rounded-xl px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
@@ -459,7 +465,7 @@ function SessionMenu({
               className="w-full rounded-full border border-zinc-300 bg-transparent px-2 py-1 text-sm outline-none placeholder:text-zinc-400 focus:border-zinc-500 dark:border-zinc-700 dark:placeholder:text-zinc-600 dark:focus:border-zinc-500"
             />
             <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
-              Searches names and everything said in a session · ✎ to rename
+              Searches Outpost transcripts; available CLI titles and opening messages · ✎ to rename Outpost sessions
             </p>
           </div>
           <div className="min-h-0 overflow-y-auto py-2">

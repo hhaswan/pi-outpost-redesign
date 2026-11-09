@@ -421,8 +421,10 @@ web/  (React + Vite + Tailwind)     embed/  (Shadow-DOM widget)
 └──────────────────────┘            └──────────────────────────┘
 ```
 
-Sessions persist in `<agentDir>/sessions/`, per project — reconnecting clients receive the
-full history of the project they are bound to.
+Outpost-managed sessions persist directly in `<agentDir>/sessions/` and are filtered by
+project cwd; reconnecting clients receive their current managed conversation. Pi CLI's
+default store uses `<agentDir>/sessions/--encoded-cwd--/` instead. Its sessions appear
+as read-only history in the matching project's menu, never as a second Outpost writer.
 
 **Single-tenant by design.** Everyone connected to a server shares the same projects and the
 same conversations: there is one identity, not one per person. That is deliberate for a

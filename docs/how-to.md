@@ -923,7 +923,15 @@ transcript or completed notification is not live activity telemetry.
 Use **Terminal sessions** for separately running CLI processes that have loaded
 the [opt-in CLI bridge](cli-session-bridge.md). Observation does not create another
 agent. Input requires confirmation in that terminal and remains disabled when
-the owner is busy, unreachable, or has not granted permission.
+the owner is busy, unreachable, or has not granted permission. A submission receipt
+is not proof that the CLI accepted the text or completed a model response; check
+the terminal if the CLI transcript does not change.
+
+The **sessions** menu also shows Pi CLI history for the current project when Pi
+CLI and Outpost share the configured agent directory. CLI history is labelled
+**read-only**: search matches its confirmed title or opening message when available, but Outpost cannot
+resume, rename, or delete it. Continue such sessions with `/resume` in Pi CLI.
+Outpost-managed sessions remain separate, with their usual controls.
 
 The standalone browser remembers the last acknowledged workspace for each server.
 After reconnecting or reopening the app, it selects that still-open workspace,

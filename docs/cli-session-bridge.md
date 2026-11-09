@@ -14,7 +14,7 @@ The build itself installs nothing globally. The extension starts its endpoint on
 
 Observation is enabled by loading the extension. Input is disabled by default. In the terminal, run `/outpost-bridge allow` and confirm the dialog to permit authorized web operators to submit text while the CLI is idle. Run `/outpost-bridge revoke` to withdraw permission. Revocation prevents new submissions, not work already submitted. Grants do not survive runtime replacement or tree navigation.
 
-The CLI remains the sole writer. Browser disconnects do not stop it. Dialogs, tool approvals, authentication prompts, and custom terminal screens stay in the terminal. Input may cause the agent to execute tools with the CLI user's permissions; granting input is not a sandbox.
+The CLI remains the sole writer. Browser disconnects do not stop it. Dialogs, tool approvals, authentication prompts, and custom terminal screens stay in the terminal. Input may cause the agent to execute tools with the CLI user's permissions; granting input is not a sandbox. **Submitted to CLI** means the bridge accepted the text, not that Pi accepted the input or completed a model turn. If nothing appears afterward, check the actual CLI terminal for a provider/authentication error or an extension that handled the input; do not submit again automatically.
 
 ## Private protocol
 
@@ -45,7 +45,7 @@ Run the fake-context tests against real loopback HTTP without credentials or mod
 node --test extensions/cli-session-bridge.test.ts
 ```
 
-CLI-side coverage: `EnrolledCliDiscovery` and `PrivateBridgeBoundary` test registration/authentication/limits/unsafe paths; `GrantAndSubmit` and `RefuseUnsafeInput` test consent, input validation, idle checks, synchronous reservation, replay protection, revocation, and stale generations; `ObserveAndReconnect` tests active history, streaming, bounded JSON, and shutdown. `UnreachableOwner` and `ClaimedHistoryCannotBeMutated` need backend/UI integration tests. The full scenarios remain partial until those tests and a real running CLI/browser walkthrough pass. Fake contexts do not prove SDK loader or terminal interaction compatibility.
+The extension tests cover registration, authentication, limits, consent, revocation and idempotency. Backend and UI tests cover unreachable owners and mutation refusal. An isolated real Pi TUI plus browser test exercises terminal confirmation, observation, one intercepted submission, reload and owner disappearance without a model request. This proves delivery to the extension input boundary, **not** that a provider completes a model response in a user's live CLI; check that terminal for errors.
 
 ## Web access
 
