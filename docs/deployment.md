@@ -129,6 +129,67 @@ Builds the interface once and starts **one** Node process serving the app, `/ws`
 `/branding` and `/health` together on `server.port` — nothing else to run or keep track of.
 Point a process manager (systemd, pm2, Docker `CMD`, …) at that one command.
 
+### Updating this customized native deployment
+
+Do not replace this fork with `npm install -g pi-outpost@latest`. First merge the
+upstream release into the custom repository and commit the integrated source.
+The following command deploys the current committed custom source; it does not
+merge upstream automatically:
+
+```bash
+cd /root/pi-outpost-redesign
+export PATH=/root/.nvm/versions/node/v24.14.0/bin:$PATH
+export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/root/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome
+bash scripts/update-custom-native.sh /root/pi-outpost.config.json
+```
+
+This host-specific flow requires Linux, root, systemd, IPv4 HTTP on an explicit
+configured port, iptables/ip6tables, and Playwright Chromium. It refuses a dirty
+checkout, installs from the lockfile with npm 12.2.2, builds the embedded custom UI,
+and runs the artifact gate, a disposable native-service deployment probe, and
+focused update tests. It does not restart the live service during these checks.
+
+Deployment then runs in `pi-outpost-custom-deploy.service`, outside the live
+service's process group. It waits up to 15 minutes for workspaces and known
+background agents to become idle. Active side sessions cause a refusal rather
+than being silently discarded. The worker temporarily rejects client connections
+to the application port, while its private loopback connection captures and
+restores saved sessions. Normal clients cannot submit during that interval.
+The temporary rules are removed on completion and by the updater's systemd
+`ExecStopPost` cleanup if the worker is terminated.
+
+A systemd drop-in pins `pi-outpost.service` to an immutable copy under
+`.local/native-releases/`, not the global npm installation. Installing a stock
+package globally therefore no longer changes the live service's selected UI.
+Keep the repository and its pinned dependencies available: the copied bundle
+resolves its external dependencies from this repository's `node_modules`.
+
+The worker backs up the previous drop-in and CLI bridge, verifies restored saved
+session IDs through fresh connections, and checks the authenticated mobile UI.
+Empty, never-persisted sessions have no history to restore; the result explicitly
+records their replacement with new empty session IDs. On failure it restores the
+previous configuration only when no new work would be interrupted. It never
+claims a successful deployment merely because systemd started the process.
+
+Inspect the result without exposing configuration credentials:
+
+```bash
+systemctl status pi-outpost-custom-deploy.service
+cat /root/pi-outpost-redesign/.local/deploy-result.json
+```
+
+The transient updater disappears after completion; the result file remains.
+`deployed` is the success state. `waiting-for-idle` is not a completed deployment.
+Do not manually stop the updater during restart or restoration. If the worker is
+forcibly terminated, ingress cleanup alone does not prove session restoration;
+inspect service health and saved identities before claiming success.
+If cleanup is interrupted, inspect the recorded status and lock owner before
+retrying; do not remove a live updater's lock. The explicit recovery command for
+a stranded ingress gate is `node scripts/native-deploy-network.mjs unlock <port>`.
+
+The independent native proof is `node scripts/check-native-deploy.mjs`. It uses a
+new disposable systemd service and a temporary port, never `pi-outpost.service`.
+
 For a complete Docker/Compose recipe with Python, the integrated terminal and landstrip confinement,
 see [Docker with Python](docker.md). It runs the full app; the Open WebUI tool-server image is separate.
 

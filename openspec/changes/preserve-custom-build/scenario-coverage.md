@@ -39,3 +39,47 @@ findings in api-extractor/minimatch; no breaking dependency upgrade was applied.
 Review found caller-side extension version hints could run after refusal; the
 caller now suppresses hints on failure. The artifact probe includes an installed
 extension and controlled npm command, and asserts no view/install calls occur.
+
+## Native deployment extension
+
+- **NativeRestorationMatchesExactIdentity — covered.**
+  `scripts/check-native-deploy.mjs`, `ExactSessionRestorationAndBusyGuards`,
+  sends stale/intermediate snapshots and unrelated errors before the exact target;
+  a refusal must time out rather than being accepted as success.
+- **NativeBusyWorkIsNotInterrupted — covered.** The same check asserts waiting,
+  starting and working activity and unknown/running/queued background state are
+  not idle. Streaming is independently rejected by the production predicate.
+- **NativeIngressExcludesClientSubmissions — covered.**
+  `scripts/check-native-deploy.mjs`, `TemporaryIngressExcludesClientsAndCleansUp`,
+  applies actual temporary rules on the disposable port, checks normal requests
+  fail and the bound loopback request succeeds, then removes the rules and checks
+  normal HTTP succeeds again.
+- **NativeServiceUsesCustomRelease — covered.**
+  `scripts/check-native-deploy.mjs`, `RealNativeDeploymentAndFreshSessionIdentity`,
+  drives an actual disposable systemd service through the production worker,
+  checks ExecStart selects its immutable release, verifies the restored ID through
+  a fresh WebSocket, checks bridge installation, and requires the worker's real
+  authenticated mobile Playwright check to succeed.
+
+The first native probe failed because its test connection omitted authentication;
+it correctly received 4401. Adding the fixture's Authorization header fixed the
+probe; no product assertion was weakened. The subsequent real systemd probe passes.
+Live MainPID stayed 3998617 throughout isolated verification. Native probes require
+explicit Linux/root execution and are not included in cross-platform unit suites.
+
+- **NativeRollbackPreservesNewSelection — covered.**
+  `scripts/check-native-deploy.mjs`,
+  `RollbackPreservesSelectionMadeAfterIngressReopened`, uses a deliberately failing
+  browser executable. While that executable waits, a real WebSocket selects a new
+  saved session. The worker must fail, roll back the prior ExecStart, preserve the
+  newer selection on a fresh connection, and reopen normal HTTP access.
+
+The first injected rollback test exposed a real readiness bug: rollback attempted
+WebSocket restoration before the restarted service listened, then waited for a
+snapshot on a failed socket until the probe deadline terminated the worker.
+The implementation now waits for health after rollback startup and fails socket
+waiters promptly on error/close. The unchanged fault assertion then passes. Review
+also identified stale selection rollback after ingress reopened; rollback now
+captures and restores the current selection under the ingress gate. No watchdog
+terminates the worker mid-transition; idle waiting and individual operations remain
+bounded. Do not manually terminate an updater during restart/restoration.
