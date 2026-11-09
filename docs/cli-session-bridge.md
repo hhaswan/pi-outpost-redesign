@@ -1,6 +1,6 @@
 # Opt-in CLI session bridge
 
-The bridge observes an existing Pi terminal runtime. It never creates an agent, resumes a session, or writes the session JSONL file. An unmodified CLI cannot be attached retroactively. Load the extension explicitly when starting a terminal session:
+The bridge observes an existing Pi terminal runtime without creating another agent or writing its session JSONL. A separately confirmed handoff can close the CLI and let Outpost continue the exact original file, as described below. An unmodified CLI cannot be attached retroactively. Load the extension explicitly when starting a terminal session:
 
 ```sh
 pi -e /absolute/path/to/pi-outpost/extensions/cli-session-bridge.ts
@@ -14,7 +14,67 @@ The build itself installs nothing globally. The extension starts its endpoint on
 
 Observation is enabled by loading the extension. Input is disabled by default. In the terminal, run `/outpost-bridge allow` and confirm the dialog to permit authorized web operators to submit text while the CLI is idle. Run `/outpost-bridge revoke` to withdraw permission. Revocation prevents new submissions, not work already submitted. Grants do not survive runtime replacement or tree navigation.
 
-The CLI remains the sole writer. Browser disconnects do not stop it. Dialogs, tool approvals, authentication prompts, and custom terminal screens stay in the terminal. Input may cause the agent to execute tools with the CLI user's permissions; granting input is not a sandbox. **Submitted to CLI** means the bridge accepted the text, not that Pi accepted the input or completed a model turn. If nothing appears afterward, check the actual CLI terminal for a provider/authentication error or an extension that handled the input; do not submit again automatically.
+The CLI remains the sole writer until its operator explicitly releases the session and the process exits. Browser disconnects do not stop it. Dialogs, tool approvals, authentication prompts, and custom terminal screens stay in the terminal. Input may cause the agent to execute tools with the CLI user's permissions; granting input is not a sandbox. **Submitted to CLI** means the bridge accepted the text, not that Pi accepted the input or completed a model turn. If nothing appears afterward, check the actual CLI terminal for a provider/authentication error or an extension that handled the input; do not submit again automatically.
+
+## Continue the same session file in web
+
+1. If the CLI was already running before this update, run `/reload` while idle.
+2. In that CLI, run `/outpost-bridge handoff` and confirm the separate warning.
+   **This closes the CLI.** It does not grant remote input or copy/fork history.
+3. In Outpost select the same project, open **Terminal sessions**, and click
+   **Refresh list**. Under **Continue a CLI session in web**, wait until it says
+   **Released; ready to continue**, then click **Continue in web**.
+4. The panel closes when the actual session changes. Continue in the web composer.
+   The session ID and original JSONL path remain the same. Continuation uses the
+   web server's configured tools and credentials, not a copied CLI environment.
+
+The command refuses a working CLI, SDK-queued messages, a terminal dialog, or a
+session that changes during confirmation. A fresh CLI with no persisted file
+cannot be handed off. An unresolved bridge submission reservation does not turn
+into an accepted message: the handoff confirmation explicitly warns that submitted
+text without a transcript entry may be absent from history. Handoff never resends
+that text. It closes the original process before authorizing a new writer.
+
+Shutdown notification is not a release barrier. Other extension shutdown handlers
+can still append. Outpost waits until the original PID is no longer alive, then
+validates the file/header identity and acquires an exclusive web writer lease.
+An unreachable bridge or missing registration alone never grants ownership. A
+remaining stale CLI claim still blocks continuation and requires investigation.
+A cancelled or failed SDK switch does not report continuation as successful.
+
+Receipts live in `PI_OUTPOST_HANDOFF_DIR`, default `~/.pi/outpost-handoffs`.
+CLI and web must share that same private directory, OS account, and PID/network
+namespaces. Linux receipts record `/proc/self/ns/pid`; mismatched or unavailable
+PID namespace evidence fails closed. A container-local PID must never be treated
+as a host PID. Keep the CLI and web in the same supported environment rather than
+weakening container isolation to bypass this check. Directory mode
+is 0700 and receipt mode is 0600 on POSIX; use account-only ACLs on Windows.
+The browser receives only project/session identity and releasing/ready/owned state,
+not original or web owner PIDs. A filesystem mutex serializes claims. A live lease
+in another server/workspace refuses a second writer. Adoption and later restoration are supported only
+from an idle project's **main workspace**, not a side session.
+
+Adopted files appear in the normal saved-session inventory, so server restart and
+session restoration still use the original file. A dead prior web owner's lease
+can be recovered under the claim mutex. Renaming uses the owning runtime/lease;
+deletion is deliberately refused while a handoff receipt reserves the original file.
+
+Enrolled CLIs refuse normal operation on a reserved file and cancel supported
+runtime resume operations before switching. This is **cooperative protection, not
+an OS-wide file lock**. Do not independently launch `pi --session`, `--continue`, an
+unmodified CLI, or extensions that directly write a web-owned file. SDK startup
+loads a selected file before extension startup checks run; an SDK format migration
+or unrelated raw-file writer is outside this bridge's guarantee. The transfer
+itself proves that its original CLI process has exited before web writes begin.
+
+If a web process crashes inside the short claim critical section, the empty
+`.<receipt-id>.lock` directory is retained rather than automatically stolen.
+For explicit recovery: stop **all** Outpost instances using that handoff directory,
+verify the receipt's original PID and any web owner PID have exited, investigate
+any remaining CLI registration, then remove **only that empty mutex with `rmdir`**.
+Do not delete the receipt or conversation. A nonempty mutex is unsafe and must not
+be recursively removed. Restart Outpost and retry continuation. Do not perform
+this recovery while another server or CLI can still use the file.
 
 ## Private protocol
 
@@ -42,10 +102,10 @@ Web discovery, authenticated authorization, sandbox policy, unreachable-state UI
 Run the fake-context tests against real loopback HTTP without credentials or model calls:
 
 ```sh
-node --test extensions/cli-session-bridge.test.ts
+node --import tsx --test extensions/cli-session-bridge.test.ts
 ```
 
-The extension tests cover registration, authentication, limits, consent, revocation and idempotency. Backend and UI tests cover unreachable owners and mutation refusal. An isolated real Pi TUI plus browser test exercises terminal confirmation, observation, one intercepted submission, reload and owner disappearance without a model request. This proves delivery to the extension input boundary, **not** that a provider completes a model response in a user's live CLI; check that terminal for errors.
+The extension tests cover registration, authentication, limits, consent, revocation, idempotency and confirmed handoff. `server/test/cliHandoffStore.test.ts` covers real child-PID barriers, lease contention, unsafe metadata and restart recovery. `server/test/cli-handoff-wire.test.mjs` drives actual server processes, exact-file persistence, cancellation and cross-server competition. On Linux with python3 and Playwright Chromium installed, build the CLI and run `node scripts/check-cli-handoff.mjs` to exercise a real TUI, reload, browser Submit, a late shutdown append while web remains blocked, and exact-file continuation after PID exit. No model request is sent. Backend and UI tests cover unreachable owners and mutation refusal. An isolated real Pi TUI plus browser test exercises terminal confirmation, observation, one intercepted submission, reload and owner disappearance without a model request. This proves delivery to the extension input boundary, **not** that a provider completes a model response in a user's live CLI; check that terminal for errors.
 
 ## Web access
 

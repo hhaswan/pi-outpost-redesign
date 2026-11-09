@@ -22,13 +22,23 @@ export interface CliBridgeSummary {
 export type CliBridgeOperation =
   | { action: "list" }
   | { action: "read"; id: string }
-  | { action: "submit"; id: string; generation: string; inputId: string; text: string };
+  | { action: "submit"; id: string; generation: string; inputId: string; text: string }
+  | { action: "resume"; id: string };
+
+export interface CliHandoffSummary {
+  id: string;
+  cwd: string;
+  sessionId: string;
+  state: "releasing" | "ready" | "owned";
+}
 
 export interface CliBridgeReply {
   requestId: string;
   sessions?: CliBridgeSummary[];
   snapshot?: CliBridgeSnapshot;
   submitted?: boolean;
+  handoffs?: CliHandoffSummary[];
+  resumed?: boolean;
   error?: string;
 }
 

@@ -1,4 +1,4 @@
-export type { CliBridgeOperation, CliBridgeReply, CliBridgeSnapshot, CliBridgeSummary } from "./cliBridge.ts";
+export type { CliBridgeOperation, CliBridgeReply, CliBridgeSnapshot, CliBridgeSummary, CliHandoffSummary } from "./cliBridge.ts";
 /**
  * Wire protocol between server and web UI — single source of truth.
  * Lean events: SDK events are transformed server-side to keep frames small

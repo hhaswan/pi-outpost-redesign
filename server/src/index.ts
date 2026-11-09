@@ -9,6 +9,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createSubagentActivityExtension, getSubagentActivity } from "./subagentActivity.ts";
 import { manageCliBridge, isCliSessionClaimed } from "./cliBridge.ts";
+import { adoptedCliHandoffs, claimCliHandoff, findCliHandoff } from "../../shared/src/cliHandoffStore.ts";
 import { externalCliHistory } from "./externalCliHistory.ts";
 import { manageMcp } from "./mcpManagement.ts";
 import fs from "node:fs/promises";
@@ -4999,8 +5000,14 @@ async function editPrompt(workspace: Workspace, socket: WebSocket, entryId: stri
  * reading/persisting to attacker-chosen files via switch_session).
  */
 async function isKnownSessionPath(workspace: Workspace, path: string): Promise<boolean> {
-  const sessions = await SessionManager.list(workspace.settings.cwd, SESSION_DIR);
+  const sessions = await scanSessions(workspace, true);
   return sessions.some((info) => info.path === path);
+}
+
+/** Adopted external files retain their durable writer lease, including after restart. */
+async function ownsAdoptedSession(workspace: Workspace, file: string): Promise<boolean> {
+  const receipt = await findCliHandoff(file, workspace.settings.cwd);
+  return !receipt || (receipt.owner?.pid === process.pid && receipt.owner.workspace === workspace.id);
 }
 
 /** Delete a saved session file (allowlisted path, never the live one). */
@@ -5027,6 +5034,10 @@ async function deleteSession(workspace: Workspace, socket: WebSocket, path: stri
     send(socket, { type: "error", message: "This session is claimed by a terminal bridge. Continue through Terminal sessions; do not open another writer." });
     return;
   }
+  if (await findCliHandoff(path, workspace.settings.cwd)) {
+    send(socket, { type: "error", message: "Deleting a transferred CLI session is disabled while its handoff receipt reserves the original file." });
+    return;
+  }
   await fs.unlink(path);
   await deleteWorkPlan(path);
   invalidateSessionScan(workspace);
@@ -5048,7 +5059,57 @@ async function switchSession(workspace: Workspace, socket: WebSocket, path: stri
     send(socket, { type: "error", message: `This conversation is open in ${workspaceTitle(holder)} — switch there to continue it` });
     return;
   }
-  await replaceSession(workspace, socket, () => workspace.agent.switchSession(path));
+  const receipt = await findCliHandoff(path, workspace.settings.cwd);
+  if (receipt && workspace.isSide) {
+    send(socket, { type: "error", message: "Continue a transferred CLI session in its project's main workspace, not a side session." });
+    return;
+  }
+  await replaceSession(workspace, socket, async () => {
+    if (receipt) {
+      try {
+        if (!receipt.owner) throw new Error("Continue this released session through Terminal sessions first");
+        await claimCliHandoff(receipt.id, workspace.settings.cwd, workspace.id);
+      } catch {
+        send(socket, { type: "error", message: "The transferred CLI session is still reserved by another owner; no session was switched." });
+        return { cancelled: true };
+      }
+    }
+    return workspace.agent.switchSession(receipt?.sessionFile ?? path);
+  });
+}
+
+/** The receipt, never a browser-supplied path, authorizes the first external-file open. */
+async function resumeCliHandoff(workspace: Workspace, socket: WebSocket, id: string): Promise<{ resumed?: boolean; error?: string }> {
+  if (workspace.isSide || workspace.isBusy() || workspace.replacingSession || workspace.pendingDialogs.size > 0) {
+    return { error: "Continue a released CLI session from an idle main workspace in its project." };
+  }
+  let resumed = false;
+  let failure = "CLI handoff was not continued. Refresh its state before retrying.";
+  await replaceSession(workspace, socket, async () => {
+    let receipt: Awaited<ReturnType<typeof claimCliHandoff>>;
+    try {
+      receipt = await claimCliHandoff(id, workspace.settings.cwd, workspace.id);
+      if (clients.get(socket) !== workspace) return { cancelled: true };
+      if (await isCliSessionClaimed(receipt.sessionFile)) throw new Error("A terminal still claims this file; inspect its owner before continuing.");
+      const holder = liveElsewhere(workspace, receipt.sessionFile);
+      if (holder) throw new Error("This transferred session is already open in another workspace.");
+    } catch {
+      // Lease validation did not replace the runtime; preserve the current conversation.
+      failure = "CLI handoff is unavailable, still owned, or refused. No continuation was acknowledged; inspect the current session and retry only after refreshing.";
+      return { cancelled: true };
+    }
+    const current = workspace.agent.snapshot();
+    if (current.sessionId === receipt.sessionId && current.sessionFile === receipt.sessionFile) {
+      resumed = true;
+      return { cancelled: true }; // An acknowledged retry must not recreate an already-owned runtime.
+    }
+    const result = await workspace.agent.switchSession(receipt.sessionFile);
+    const actual = workspace.agent.snapshot();
+    resumed = !result.cancelled && actual.sessionId === receipt.sessionId && actual.sessionFile === receipt.sessionFile;
+    if (resumed) invalidateSessionScan(workspace);
+    return result;
+  });
+  return resumed ? { resumed: true } : { error: failure };
 }
 
 const SESSION_LIST_LIMIT = 50;
@@ -5065,10 +5126,17 @@ const SESSION_SCAN_TTL_MS = 1000;
  */
 const sessionScans = new Map<string, { at: number; sessions: SessionInfo[] }>();
 
-async function scanSessions(workspace: Workspace, ): Promise<SessionInfo[]> {
+async function scanSessions(workspace: Workspace, fresh = false): Promise<SessionInfo[]> {
   const cached = sessionScans.get(workspace.root);
-  if (cached && Date.now() - cached.at < SESSION_SCAN_TTL_MS) return cached.sessions;
+  if (!fresh && cached && Date.now() - cached.at < SESSION_SCAN_TTL_MS) return cached.sessions;
   const sessions = await SessionManager.list(workspace.settings.cwd, SESSION_DIR);
+  const adopted = await adoptedCliHandoffs(workspace.settings.cwd);
+  for (const directory of new Set(adopted.map((receipt) => path.dirname(receipt.sessionFile)))) {
+    const allowed = new Set(adopted.filter((receipt) => path.dirname(receipt.sessionFile) === directory).map((receipt) => receipt.sessionFile));
+    for (const info of await SessionManager.list(workspace.settings.cwd, directory)) {
+      if (allowed.has(info.path) && !sessions.some((existing) => existing.path === info.path)) sessions.push(info);
+    }
+  }
   sessionScans.set(workspace.root, { at: Date.now(), sessions });
   return sessions;
 }
@@ -5087,7 +5155,7 @@ async function sessionList(workspace: Workspace): Promise<SessionSummary[]> {
   const external = await externalCliHistory(AGENT_DIR, workspace.settings.cwd);
   // Keep independent bounds: a busy CLI history must not push Outpost's own sessions out of the menu.
   return [...managed.sort((a, b) => b.modified.localeCompare(a.modified)).slice(0, SESSION_LIST_LIMIT),
-    ...external.slice(0, SESSION_LIST_LIMIT)].sort((a, b) => b.modified.localeCompare(a.modified));
+    ...external.filter((info) => !sessions.some((managed) => managed.path === info.path)).slice(0, SESSION_LIST_LIMIT)].sort((a, b) => b.modified.localeCompare(a.modified));
 }
 
 /**
@@ -5158,6 +5226,10 @@ async function renameSession(workspace: Workspace, socket: WebSocket, path: stri
   }
   if (await isCliSessionClaimed(path)) {
     send(socket, { type: "error", message: "This session is claimed by a terminal bridge. Continue through Terminal sessions; do not open another writer." });
+    return;
+  }
+  if (!(await ownsAdoptedSession(workspace, path))) {
+    send(socket, { type: "error", message: "This transferred session belongs to another web workspace; resume it in its owning workspace first." });
     return;
   }
   const name = sanitizeName(rawName);
@@ -6849,7 +6921,14 @@ function handleClientMessage(socket: WebSocket, raw: string): void {
         send(socket, { type: "cli_bridge_result", requestId, error: "Terminal bridge request is too large" });
         return;
       }
-      void manageCliBridge(message.operation, { enabled: workspace.settings.sandbox === undefined && !config.extensionLock && !config.workspaceLock })
+      const enabled = workspace.settings.sandbox === undefined && !config.extensionLock && !config.workspaceLock;
+      const operation = message.operation;
+      const result = operation?.action === "resume"
+        ? (!enabled || typeof operation.id !== "string" || Object.keys(operation).some((key) => !["action", "id"].includes(key))
+          ? Promise.resolve({ error: "CLI handoff access is disabled or invalid" })
+          : resumeCliHandoff(workspace, socket, operation.id))
+        : manageCliBridge(operation, { enabled, cwd: workspace.settings.cwd });
+      void result
         .then((result) => { if (clients.get(socket) === workspace) send(socket, { type: "cli_bridge_result", requestId, ...result }); })
         .catch(() => { if (clients.get(socket) === workspace) send(socket, { type: "cli_bridge_result", requestId, error: "Terminal bridge request failed; owner state is unknown" }); });
       return;

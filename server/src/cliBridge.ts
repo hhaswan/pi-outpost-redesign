@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { request } from "node:http";
 import type { CliBridgeOperation, CliBridgeRegistration, CliBridgeReply, CliBridgeSnapshot } from "../../shared/src/cliBridge.js";
+import { listCliHandoffs } from "../../shared/src/cliHandoffStore.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_REGISTRY = 256;
@@ -138,7 +139,7 @@ async function getSnapshot(owner: CliBridgeRegistration, directory: string): Pro
 }
 
 /** Credentials and endpoint addresses are never returned to the browser. */
-export async function manageCliBridge(operation: CliBridgeOperation, options: { enabled: boolean; directory?: string }): Promise<Omit<CliBridgeReply, "requestId">> {
+export async function manageCliBridge(operation: CliBridgeOperation, options: { enabled: boolean; directory?: string; cwd?: string }): Promise<Omit<CliBridgeReply, "requestId">> {
   if (!options.enabled) return { error: "CLI bridge access is disabled" };
   try {
     if (!object(operation)) throw invalid();
@@ -159,7 +160,7 @@ export async function manageCliBridge(operation: CliBridgeOperation, options: { 
           }
         })));
       }
-      return { sessions };
+      return { sessions, ...(options.cwd ? { handoffs: await listCliHandoffs(options.cwd) } : {}) };
     }
     if ((operation.action !== "read" && operation.action !== "submit") || !string(operation.id, 36) || !UUID.test(operation.id)) throw invalid();
     if (operation.action === "read") {

@@ -330,7 +330,7 @@ export interface OlderHistory {
 }
 
 export interface AgentState {
-  cliBridge: (CliBridgeReply & { loading: boolean }) | null;
+  cliBridge: (CliBridgeReply & { loading: boolean; operation?: CliBridgeOperation["action"] }) | null;
   mcpManagement: (McpManagementReply & { loading: boolean }) | null;
   connected: boolean;
   /**
@@ -650,7 +650,7 @@ type Action =
   | { type: "auth_retrying" }
   | { type: "server"; message: ServerMessage }
   | { type: "set_mcp_manager_open"; open: boolean }
-  | { type: "cli_bridge_started"; requestId: string }
+  | { type: "cli_bridge_started"; requestId: string; operation: CliBridgeOperation["action"] }
   | { type: "mcp_management_started"; requestId: string }
   | { type: "login_started"; flowId: string; provider: string; method: "oauth" | "api_key" }
   | { type: "login_answered" }
@@ -786,7 +786,8 @@ function applySnapshot(state: AgentState, message: ServerMessage & { sessionId: 
       ? { piPackageLookup: null, piPackageChange: null, piPackageUpdate: null, mcpManagement: null, mcpManagerOpen: false }
       : {}),
     serverRestarting: false,
-    cliBridge: null,
+    cliBridge: message.type === "session_replaced" && state.cliBridge?.loading && state.cliBridge.operation === "resume" &&
+      message.workspace && state.workspace && workspaceKey(message.workspace) === workspaceKey(state.workspace) ? state.cliBridge : null,
     mcpManagement: null,
     mcpManagerOpen: false,
     restartNeeded: message.restartNeeded ?? [],
@@ -924,7 +925,7 @@ function followMoves(state: AgentState, moves: readonly [from: string, to: strin
 
 function reduce(state: AgentState, action: Action): AgentState {
   if (action.type === "set_mcp_manager_open") return { ...state, mcpManagerOpen: action.open };
-  if (action.type === "cli_bridge_started") return { ...state, cliBridge: { ...state.cliBridge, requestId: action.requestId, loading: true, error: undefined, submitted: undefined } };
+  if (action.type === "cli_bridge_started") return { ...state, cliBridge: { ...state.cliBridge, requestId: action.requestId, operation: action.operation, loading: true, error: undefined, submitted: undefined, resumed: undefined } };
   if (action.type === "mcp_management_started") return { ...state, mcpManagement: { ...state.mcpManagement, requestId: action.requestId, loading: true, error: undefined, message: undefined } };
   if (action.type === "connected") return { ...state, connected: true, authRequired: false };
   if (action.type === "workspace_switching") return { ...state, switching: true };
@@ -2965,7 +2966,7 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
     manageCliBridge: (operation: CliBridgeOperation) => {
       if (!state.connected || (state.cliBridge?.loading && operation.action !== "list")) return;
       const requestId = `cli-bridge:${randomId()}`;
-      dispatch({ type: "cli_bridge_started", requestId });
+      dispatch({ type: "cli_bridge_started", requestId, operation: operation.action });
       sendMessage({ type: "cli_bridge", requestId, operation });
     },
     manageMcp: (operation: McpManagementOperation) => {

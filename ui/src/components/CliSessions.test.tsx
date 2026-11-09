@@ -163,3 +163,40 @@ it("refreshes owner permission while preserving a nonempty draft", () => {
     unmount();
   } finally { vi.useRealTimers(); }
 });
+
+describe("CLI ownership handoff", () => {
+  it("DiscoverAndContinueReleasedSession: lists releasing/ready state and resumes only after explicit click", () => {
+    const { update, onRequest } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh list" }));
+    update({ requestId: "released-list", sessions: [], handoffs: [
+      { id: "still-alive", cwd: "/project/a", sessionId: "closing-cli", state: "releasing" },
+      { id: "released", cwd: "/project/a", sessionId: "ready-cli", state: "ready" },
+    ] });
+    const buttons = screen.getAllByRole("button", { name: "Continue in web" });
+    expect(buttons[0]).toBeDisabled();
+    expect(buttons[1]).toBeEnabled();
+    expect(onRequest).toHaveBeenLastCalledWith({ action: "list" });
+    fireEvent.click(buttons[1]);
+    expect(onRequest).toHaveBeenLastCalledWith({ action: "resume", id: "released" });
+    expect(buttons[1]).toBeDisabled();
+    update({ requestId: "continued", resumed: true });
+    expect(screen.getByText(/Continued in web using the original session file/)).toBeInTheDocument();
+  });
+
+  it("CancelledSwitchIsNotContinuation: failure/disconnect never claims success or retries automatically", () => {
+    const { update, onRequest } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh list" }));
+    update({ requestId: "released-list", sessions: [], handoffs: [
+      { id: "released", cwd: "/project/a", sessionId: "ready-cli", state: "ready" },
+    ] });
+    fireEvent.click(screen.getByRole("button", { name: "Continue in web" }));
+    const calls = onRequest.mock.calls.length;
+    update({ requestId: "refused", error: "The original process is still alive" });
+    expect(screen.queryByText(/Continued in web using/)).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("still alive");
+    expect(onRequest).toHaveBeenCalledTimes(calls);
+    update({ requestId: "disconnected" }, false);
+    expect(screen.getByRole("button", { name: "Continue in web" })).toBeDisabled();
+    expect(onRequest).toHaveBeenCalledTimes(calls);
+  });
+});

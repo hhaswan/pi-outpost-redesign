@@ -18,8 +18,9 @@ export PATH="$(dirname "$node"):$PATH"
 npx -y npm@12.2.2 ci
 "$node" cli/scripts/build.mjs
 npm run check:custom-build
+"$node" scripts/check-cli-handoff.mjs
 "$node" scripts/check-native-deploy.mjs
-"$node" --import tsx --test server/test/update.test.ts server/test/update-command-process.test.mjs server/test/piPackagesUpdate.test.ts
+CLI_HANDOFF_TEST_ENTRY="$repo/cli/dist/pi-outpost.mjs" "$node" --import tsx --test server/test/update.test.ts server/test/update-command-process.test.mjs server/test/piPackagesUpdate.test.ts extensions/cli-session-bridge.test.ts server/test/cliBridge.test.ts server/test/cliHandoffStore.test.ts server/test/cli-bridge-wire.test.mjs server/test/cli-handoff-wire.test.mjs
 "$node" scripts/deploy-custom-native.mjs "$config" --check
 port="$("$node" -e 'const fs=require("node:fs"); console.log(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).server.port)' "$config")"
 systemd-run --unit=pi-outpost-custom-deploy --collect \

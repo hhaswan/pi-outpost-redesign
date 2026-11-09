@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { CliBridgeOperation, CliBridgeReply, CliBridgeSnapshot, CliBridgeSummary } from "@pi-outpost/shared";
+import type { CliBridgeOperation, CliBridgeReply, CliBridgeSnapshot, CliBridgeSummary, CliHandoffSummary } from "@pi-outpost/shared";
 
 const button = "min-h-9 rounded-full border border-zinc-300 px-3 py-1.5 text-xs transition-colors hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800";
 
@@ -16,6 +16,7 @@ export function CliSessions({ state, connected, onRequest, onClose }: {
   request.current = onRequest;
   const [sessions, setSessions] = useState<CliBridgeSummary[]>([]);
   const [listed, setListed] = useState(false);
+  const [handoffs, setHandoffs] = useState<CliHandoffSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<CliBridgeSnapshot | null>(null);
   const [draft, setDraft] = useState("");
@@ -52,7 +53,13 @@ export function CliSessions({ state, connected, onRequest, onClose }: {
       if (active.action === "submit") setNotice("Submission outcome may be uncertain. Check the CLI transcript before sending again. No automatic retry.");
       return;
     }
-    if (active.action === "list" && state.sessions) { setSessions(state.sessions); setListed(true); }
+    if (active.action === "list" && state.sessions) {
+      setSessions(state.sessions); setHandoffs(state.handoffs ?? []); setListed(true);
+    }
+    if (active.action === "resume" && state.resumed) {
+      setSelected(null);
+      setNotice("Continued in web using the original session file. Close this panel to continue the conversation.");
+    }
     if (active.action === "read" && state.snapshot?.instanceId === selected) setSnapshot(state.snapshot);
     if (active.action === "submit") {
       if (state.submitted) {
@@ -100,13 +107,23 @@ export function CliSessions({ state, connected, onRequest, onClose }: {
           <button ref={closeButton} type="button" className={button} aria-label="Close CLI sessions" onClick={onClose}>Close</button>
         </header>
         <div className="min-h-0 space-y-4 overflow-y-auto p-4">
-          <p className="text-sm">Opt-in enrolled CLI sessions only, not all OS processes. The CLI remains the sole agent and session writer.</p>
+          <p className="text-sm">Opt-in enrolled CLI sessions only, not all OS processes. The CLI remains the sole writer until an explicitly confirmed handoff closes it.</p>
           <p className="text-xs text-zinc-500">Observation-only by default. The CLI operator grants input with <code>/outpost-bridge allow</code>. Closing this panel does not stop the CLI.</p>
           {!connected && <p role="status">Disconnected. Activity is unknown and input is disabled.</p>}
           {!selected && (pending || state?.loading) && <p role="status">Loading CLI response…</p>}
           {!selected && (formError || state?.error) && <p role="alert" className="break-words rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{formError || state?.error}</p>}
           {!selected && notice && <p role="status" className="text-sm">{notice}</p>}
-          {listed && !sessions.length && <p className="text-sm">No enrolled CLI sessions. Start a CLI with <code>pi -e &lt;bridge-extension&gt;</code>, then refresh the list.</p>}
+          {listed && !sessions.length && <p className="text-sm">{handoffs.length ? "No running enrolled CLI sessions. Released sessions are listed below." : <>No enrolled CLI sessions. Start a CLI with <code>pi -e &lt;bridge-extension&gt;</code>, then refresh the list.</>}</p>}
+          <section aria-label="Released CLI sessions" className="space-y-2">
+            <h3 className="text-sm font-semibold">Continue a CLI session in web</h3>
+            <p className="text-xs text-zinc-500">In an older CLI, run <code>/reload</code> first. Then run <code>/outpost-bridge handoff</code> and confirm closing it. Refresh this list after the CLI exits. Use the project's main workspace, not a side session. Only released sessions for this project appear; the original file is reused.</p>
+            <ul className="space-y-2">
+              {handoffs.map((handoff) => <li key={handoff.id} className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-zinc-300 p-3 text-sm dark:border-zinc-700">
+                <span className="min-w-0 flex-1 break-all">Session: {handoff.sessionId}<span className="block text-xs text-zinc-500">{handoff.state === "releasing" ? "Waiting for CLI process exit" : handoff.state === "owned" ? "Reserved by web; continuation requires the owning workspace" : "Released; ready to continue"}</span></span>
+                <button type="button" className={button} disabled={locked || handoff.state === "releasing"} onClick={() => send({ action: "resume", id: handoff.id })}>Continue in web</button>
+              </li>)}
+            </ul>
+          </section>
           <ul className="space-y-2" aria-label="Enrolled CLI sessions">
             {sessions.map((entry) => <li key={entry.id}>
               <button type="button" className="w-full min-w-0 rounded-xl border border-zinc-300 p-3 text-left text-sm hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800" aria-pressed={selected === entry.id} disabled={locked} onClick={() => {

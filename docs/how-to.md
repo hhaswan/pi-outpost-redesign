@@ -932,8 +932,15 @@ the terminal if the CLI transcript does not change.
 The **sessions** menu also shows Pi CLI history for the current project when Pi
 CLI and Outpost share the configured agent directory. CLI history is labelled
 **read-only**: search matches its confirmed title or opening message when available, but Outpost cannot
-resume, rename, or delete it. Continue such sessions with `/resume` in Pi CLI.
-Outpost-managed sessions remain separate, with their usual controls.
+resume, rename, or delete it automatically. To continue the exact original file in
+web, load the bridge in its CLI (`/reload` if it was already running), run
+`/outpost-bridge handoff`, and confirm closing that CLI. Then select the same
+project in web, open **Terminal sessions**, refresh the list, and choose
+**Continue in web** for the released session. The server waits for the original
+process to exit and acquires a writer lease before opening the same file; it never
+forks the history. See [handoff and recovery](cli-session-bridge.md#continue-the-same-session-file-in-web).
+Without an explicit handoff, continue CLI history with `/resume` in the CLI only
+when no web process owns that file. Outpost-managed sessions keep their usual controls.
 
 Each standalone browser tab remembers its last acknowledged workspace for each
 server. After reconnecting or refreshing that tab, it selects the same still-open

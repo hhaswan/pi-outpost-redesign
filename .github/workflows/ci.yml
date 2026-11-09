@@ -278,6 +278,12 @@ jobs:
       - run: npm run build
       - name: Preserve custom build behavior in the distributable
         run: npm run check:custom-build
+      - name: Confirm actual CLI exit before same-file web handoff
+        run: node scripts/check-cli-handoff.mjs
+      - name: Preserve CLI handoff ownership at the built server boundary
+        run: node --import tsx --test extensions/cli-session-bridge.test.ts server/test/cli-handoff-wire.test.mjs
+        env:
+          CLI_HANDOFF_TEST_ENTRY: cli/dist/pi-outpost.mjs
       - name: Capture extension status colours
         run: npm run test:e2e -- e2e/extension-status-colours.spec.ts
         env:

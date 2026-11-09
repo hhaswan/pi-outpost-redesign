@@ -4377,3 +4377,23 @@ it("CLI panel reopening supersedes an earlier read without replaying a submissio
   expect(result.current.state.cliBridge?.sessions).toEqual([]);
   expect(result.current.state.cliBridge?.error).toBeUndefined();
 });
+
+it("CLI handoff acknowledgment survives only its same-workspace session replacement", async () => {
+  const workspace = { root: "/project/a", name: "a", activity: "idle" };
+  const result = await connected([], { workspace });
+  act(() => result.current.manageCliBridge({ action: "resume", id: "released" }));
+  const requestId = lastRequestId();
+  act(() => mockWs!.receive({ type: "session_replaced", workspace, sessionId: "original-cli", model: "", thinkingLevel: "off", models: [], commands: [], items: [], isStreaming: false }));
+  expect(result.current.state.cliBridge?.requestId).toBe(requestId);
+  expect(result.current.state.cliBridge?.loading).toBe(true);
+  act(() => mockWs!.receive({ type: "cli_bridge_result", requestId, resumed: true }));
+  expect(result.current.state.cliBridge?.resumed).toBe(true);
+  act(() => result.current.manageCliBridge({ action: "list" }));
+  expect(result.current.state.cliBridge?.resumed).toBeUndefined();
+  act(() => mockWs!.receive({ type: "cli_bridge_result", requestId: lastRequestId(), sessions: [] }));
+  act(() => result.current.manageCliBridge({ action: "resume", id: "another" }));
+  const stale = lastRequestId();
+  act(() => mockWs!.receive({ type: "workspace_switched", workspace: { root: "/project/b", name: "b", activity: "idle" }, sessionId: "other", model: "", thinkingLevel: "off", models: [], commands: [], items: [], isStreaming: false }));
+  act(() => mockWs!.receive({ type: "cli_bridge_result", requestId: stale, resumed: true }));
+  expect(result.current.state.cliBridge).toBeNull();
+});
