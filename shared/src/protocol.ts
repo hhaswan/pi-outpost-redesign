@@ -1208,6 +1208,7 @@ export type LoginPrompt =
 export type { McpConfigScope, McpConfigDocument, McpLiveServer, McpManagementOperation, McpManagementData, McpManagementReply } from "./mcpManagement.ts";
 
 export type ServerMessage =
+  | { type: "connection_probe_ack"; requestId: string }
   | ({ type: "cli_bridge_result" } & import("./cliBridge.ts").CliBridgeReply)
   | ({ type: "mcp_management_result" } & import("./mcpManagement.ts").McpManagementReply)
   | ({ type: "hello" } & SessionSnapshot)
@@ -1586,6 +1587,7 @@ export type ServerMessage =
 
 /** Client -> server */
 export type ClientMessage =
+  | { type: "connection_probe"; requestId: string }
   /**
    * Bind this connection to another open project.
    *

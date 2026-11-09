@@ -6806,6 +6806,14 @@ function handleClientMessage(socket: WebSocket, raw: string): void {
   const workspace = clients.get(socket) ?? workspaces.default;
   // A frame from a socket that is no longer registered: it closed mid-flight.
   if (!workspace) return;
+  // Connection liveness is independent of agent startup. A tab must not sit
+  // "connected" indefinitely when the network silently drops its WebSocket.
+  if (message.type === "connection_probe") {
+    if (typeof message.requestId === "string" && message.requestId.length <= 64) {
+      send(socket, { type: "connection_probe_ack", requestId: message.requestId });
+    }
+    return;
+  }
   // Bound while its agent starts: the project's files, git and terminal are served now;
   // anything else waits for the agent, in order (see flushStartQueue).
   if (!workspace.started && !SERVED_WHILE_STARTING.has(message.type)) {

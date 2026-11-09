@@ -376,12 +376,27 @@ the server's own project, and what it held SHALL be dropped.
 
 ### Requirement: RestoreAcknowledgedBrowserWorkspace
 
-Standalone browsers SHALL remember acknowledged workspace identity per server, without credentials or session-file targets. Reconnect SHALL select an available remembered workspace through workspace switching, without prompt replay or a replacement runtime. Explicit embedded workspaces SHALL take precedence. Existing tabs SHALL keep their selection; new or refreshed tabs MAY use the last saved selection.
+Standalone browsers SHALL remember acknowledged workspace identity per server and per tab, without credentials or session-file targets. Reconnect and refresh SHALL select an available workspace remembered by that tab through workspace switching, without prompt replay or a replacement runtime. Explicit embedded workspaces SHALL take precedence. A newly opened tab SHALL NOT adopt a different tab's saved selection.
 
 #### Scenario: RestoreLiveWorkspaceAfterReload
 - **GIVEN** a standalone browser previously selected an available workspace or side session
 - **WHEN** the browser reconnects or reloads
 - **THEN** it selects that same live workspace identity without submitting a prompt or switching a saved session file
+
+#### Scenario: BrowserOfflineSignalsImmediately
+- **GIVEN** a tab is connected to its acknowledged workspace
+- **WHEN** the browser reports that its network is offline
+- **THEN** that tab immediately shows disconnected, closes its socket, and reconnects to its own workspace when a connection becomes available without replaying a prompt
+
+#### Scenario: HalfOpenBrowserConnection
+- **GIVEN** a tab has an open WebSocket but server acknowledgements stop arriving without a close or browser offline event
+- **WHEN** a connection probe times out
+- **THEN** that tab marks itself disconnected and reconnects to its own workspace without replaying a prompt or disturbing other tabs
+
+#### Scenario: IndependentBrowserTabs
+- **GIVEN** two tabs open different side sessions of the same project and a third tab opens another project
+- **WHEN** any one tab changes workspaces or refreshes
+- **THEN** each tab remains bound to its own acknowledged workspace, and a new tab does not inherit another tab's selection
 
 #### Scenario: UnavailableRememberedWorkspace
 - **GIVEN** the remembered workspace is closed, missing, locked, or refuses restoration

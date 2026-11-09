@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useAgent } from "./useAgent";
-import { workspaceSelectionKey } from "./util/workspaceSelection";
+import { readWorkspaceSelection, workspaceSelectionKey } from "./util/workspaceSelection";
 import type { ClientMessage } from "@pi-outpost/shared";
 
 // ---------------------------------------------------------------------------
@@ -20,6 +20,7 @@ class MockWebSocket {
   onclose: ((event: CloseEvent) => void) | null = null;
   readyState: number = MockWebSocket.CONNECTING;
   sent: string[] = [];
+  suppressProbeAck = false;
 
   constructor(url: string) {
     this.url = url;
@@ -27,6 +28,11 @@ class MockWebSocket {
   }
 
   send(data: string) {
+    const frame = JSON.parse(data);
+    if (frame.type === "connection_probe") {
+      if (!this.suppressProbeAck) this.receive({ type: "connection_probe_ack", requestId: frame.requestId });
+      return;
+    }
     this.sent.push(data);
   }
 
@@ -63,6 +69,7 @@ class MockWebSocket {
 beforeEach(() => {
   mockWs = null;
   localStorage.clear();
+  sessionStorage.clear();
   vi.stubGlobal("WebSocket", MockWebSocket);
 
   // Provide a stable crypto.randomUUID
@@ -134,8 +141,8 @@ describe("acknowledged workspace restoration", () => {
     type, workspace, workspaces: [main, side], sessionId, branding: {}, model: "", thinkingLevel: "off",
     models: [], commands: [], isStreaming: false, items: [],
   });
-  const stored = () => JSON.parse(localStorage.getItem(workspaceSelectionKey(""))!);
-  const seed = () => localStorage.setItem(workspaceSelectionKey(""), JSON.stringify({ root: side.root, id: side.id }));
+  const stored = () => JSON.parse(sessionStorage.getItem(workspaceSelectionKey(""))!);
+  const seed = () => { readWorkspaceSelection(""); sessionStorage.setItem(workspaceSelectionKey(""), JSON.stringify({ root: side.root, id: side.id })); };
   const frames = () => mockWs!.sent.map((frame) => JSON.parse(frame));
 
   it("restores a live side session after refresh without opening agents or replaying prompts", () => {
@@ -238,12 +245,12 @@ describe("acknowledged workspace restoration", () => {
     unmount();
   });
 
-  it("uses tab memory on reconnect despite another tab changing stored selection; rejects old socket callbacks", () => {
+  it("uses this tab's memory on reconnect despite changes to the old browser-wide preference; rejects old socket callbacks", () => {
     vi.useFakeTimers();
     try {
       const { result, unmount } = renderHook(() => useAgent());
       act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
-      localStorage.setItem(workspaceSelectionKey(""), JSON.stringify(main));
+      localStorage.setItem("pi-outpost:workspace:v1:http://localhost:3000", JSON.stringify(main));
       const old = mockWs!;
       act(() => old.disconnect(1006));
       act(() => old.receive(snapshot()));
@@ -255,6 +262,40 @@ describe("acknowledged workspace restoration", () => {
       expect(result.current.state.connected).toBe(true);
       act(() => mockWs!.disconnect(1006));
       expect(result.current.state.switching).toBe(false);
+      unmount();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("marks a tab disconnected immediately on browser offline, then restores its own workspace", () => {
+    vi.useFakeTimers();
+    try {
+      const { result, unmount } = renderHook(() => useAgent());
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
+      expect(result.current.state.connected).toBe(true);
+      const socket = mockWs!;
+      act(() => window.dispatchEvent(new Event("offline")));
+      expect(socket.readyState).toBe(MockWebSocket.CLOSED);
+      expect(result.current.state.connected).toBe(false);
+      act(() => vi.advanceTimersByTime(1500));
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+      expect(mockWs!.sent.map((frame) => JSON.parse(frame))).toEqual([{ type: "switch_workspace", root: side.root, id: side.id }]);
+      unmount();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("detects a half-open socket when the server misses a connection probe", () => {
+    vi.useFakeTimers();
+    try {
+      const { result, unmount } = renderHook(() => useAgent());
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
+      const old = mockWs!;
+      old.suppressProbeAck = true;
+      act(() => vi.advanceTimersByTime(10000));
+      expect(result.current.state.connected).toBe(false);
+      expect(old.readyState).toBe(MockWebSocket.CLOSED);
+      act(() => vi.advanceTimersByTime(1500));
+      act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+      expect(mockWs!.sent.map((frame) => JSON.parse(frame))).toEqual([{ type: "switch_workspace", root: side.root, id: side.id }]);
       unmount();
     } finally { vi.useRealTimers(); }
   });

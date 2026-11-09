@@ -2378,6 +2378,7 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
   useEffect(() => {
     let retryTimer: number | undefined;
     let disposed = false;
+    let clearActiveProbe = () => {};
     const restoreSelection = !embedded && workspaceRoot === undefined;
     if (restoreSelection && !selectionsRef.current.has(serverUrl)) {
       selectionsRef.current.set(serverUrl, readWorkspaceSelection(serverUrl));
@@ -2401,6 +2402,30 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
       };
       const socket = new WebSocket(wsUrlFor(serverUrl, tokenRef.current, workspaceRoot));
       socketRef.current = socket;
+      let probeTimer: number | undefined;
+      let deadline: number | undefined;
+      let waitingFor: string | null = null;
+      const clearProbe = () => {
+        if (probeTimer !== undefined) clearInterval(probeTimer);
+        if (deadline !== undefined) clearTimeout(deadline);
+        waitingFor = null;
+      };
+      clearActiveProbe = clearProbe;
+      const probe = () => {
+        if (socketRef.current !== socket || socket.readyState !== WebSocket.OPEN || document.hidden || waitingFor) return;
+        const requestId = `probe:${randomId()}`;
+        waitingFor = requestId;
+        socket.send(JSON.stringify({ type: "connection_probe", requestId }));
+        if (waitingFor !== requestId) return;
+        deadline = window.setTimeout(() => {
+          if (waitingFor !== requestId) return;
+          if (document.hidden) { waitingFor = null; deadline = undefined; return; }
+          // A half-open socket may never fire onclose. Run its cleanup now;
+          // late frames and a later close are ignored by the socket identity guard.
+          disconnect(1006);
+          socket.close();
+        }, 5000);
+      };
       const cancelTerminalReplay = () => {
         for (const [id, request] of terminalRequestsRef.current) {
           if (request.socket === socket) continue;
@@ -2414,6 +2439,7 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
       socket.onopen = () => {
         if (socketRef.current !== socket) return;
         dispatch({ type: "connected" });
+        probeTimer = window.setInterval(probe, 5000);
       };
       socket.onmessage = (event) => {
         if (socketRef.current !== socket) return;
@@ -2422,6 +2448,14 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
           message = JSON.parse(event.data as string) as ServerMessage;
         } catch {
           return; // ignore malformed frames
+        }
+        if (message.type === "connection_probe_ack") {
+          if (waitingFor === message.requestId) {
+            waitingFor = null;
+            if (deadline !== undefined) clearTimeout(deadline);
+            deadline = undefined;
+          }
+          return;
         }
         let restoreTarget: WorkspaceSelection | undefined;
         let restoreNotice: string | undefined;
@@ -2732,9 +2766,10 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
           requestDirectory("");
         }
       };
-      socket.onclose = (event) => {
+      const disconnect = (code: number) => {
         // Superseded sockets must not flip the indicator (StrictMode remount, reconnect races)
         if (socketRef.current !== socket) return;
+        clearProbe();
         awaitingRestore = false;
         clearRestoreTimer();
         socketRef.current = null;
@@ -2761,7 +2796,7 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
           waiter.reject(new HistoryError("the connection dropped before the older messages arrived", "failed"));
         }
         historyWaitersRef.current.clear();
-        if (event.code === WS_CLOSE_UNAUTHORIZED) {
+        if (code === WS_CLOSE_UNAUTHORIZED) {
           // Bad token: retrying is pointless — show the token screen instead
           dispatch({ type: "auth_required" });
           return;
@@ -2769,11 +2804,23 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
         dispatch({ type: "disconnected" });
         if (!disposed) retryTimer = window.setTimeout(connect, 1500);
       };
+      socket.onclose = (event) => disconnect(event.code);
     }
 
+    // A network outage may leave a WebSocket half-open until the OS times out.
+    // The browser's offline event gives an immediate, conservative indicator;
+    // closing the socket also runs the normal cleanup and reconnect path.
+    const onOffline = () => {
+      if (!socketRef.current) return;
+      dispatch({ type: "disconnected" });
+      socketRef.current.close();
+    };
+    window.addEventListener("offline", onOffline);
     connect();
     return () => {
+      window.removeEventListener("offline", onOffline);
       disposed = true;
+      clearActiveProbe();
       clearRestoreTimer();
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       const socket = socketRef.current;

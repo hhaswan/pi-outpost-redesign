@@ -933,12 +933,19 @@ CLI and Outpost share the configured agent directory. CLI history is labelled
 resume, rename, or delete it. Continue such sessions with `/resume` in Pi CLI.
 Outpost-managed sessions remain separate, with their usual controls.
 
-The standalone browser remembers the last acknowledged workspace for each server.
-After reconnecting or reopening the app, it selects that still-open workspace,
-including a side session, without sending a prompt or opening another agent.
-If that workspace is unavailable, the app reports the fallback. Existing tabs
-keep their own selection; a newly opened or refreshed tab uses the last saved
-selection. An embedded widget's explicit workspace remains authoritative.
+Each standalone browser tab remembers its last acknowledged workspace for each
+server. After reconnecting or refreshing that tab, it selects the same still-open
+workspace, including a side session, without sending a prompt or opening another
+agent. New tabs start at the server's default workspace; they do not inherit
+another tab's last selected project. Use **New side session** to run a second
+conversation on the same project in a different tab. If a side session no longer
+exists after a server restart, the tab reports the fallback; select a saved
+session explicitly rather than assuming the old session was restored. An embedded
+widget's explicit workspace remains authoritative. The tab shows disconnected as
+soon as the browser reports offline or the socket closes; a silent half-open
+socket is detected by a connection probe (normally within 10 seconds while the
+tab is visible). Hidden tabs defer probes to avoid false alarms from suspended
+browser timers. The tab then reconnects without automatically resending a prompt.
 This restores the server's current session in that workspace, not an older session
 file if another client has changed it. Browser disconnection does not stop the
 agent runtime, but browser-owned terminals and idle workspace retirement have
