@@ -38,14 +38,24 @@ describe("withoutDependencySourceMaps", () => {
 });
 
 describe("the coverage run", () => {
-  test("loads the hook after tsx", () => {
+  // Hooks registered later run first, so only a hook loaded after tsx sees tsx's output.
+  test("loads the hook after tsx in the test processes", () => {
     const script = JSON.parse(readFileSync(path.join(SERVER, "package.json"), "utf8")).scripts["test:coverage"] as string;
-    const tsxAt = script.indexOf("--import tsx/esm");
-    const hookAt = script.indexOf("--import ./test/stripDependencySourceMaps.mjs");
-    assert.notEqual(tsxAt, -1, "test:coverage no longer loads tsx");
-    assert.notEqual(hookAt, -1, "test:coverage no longer loads the hook that keeps dependency maps out of coverage files");
-    // Hooks registered later run first, so only a hook loaded after tsx sees tsx's output.
-    assert.ok(hookAt > tsxAt, "the hook must be loaded after tsx");
+    assert.equal(script, "node scripts/test-coverage.mjs");
+    const coverage = readFileSync(path.join(SERVER, "scripts", "test-coverage.mjs"), "utf8");
+    assert.match(coverage, /"scripts\/test\.mjs", "--import", "\.\/test\/stripDependencySourceMaps\.mjs"/, "test:coverage no longer loads the hook that keeps dependency maps out of coverage files");
+    // scripts/test.mjs puts tsx first and the arguments it is given after.
+    const runner = readFileSync(path.join(SERVER, "scripts", "test.mjs"), "utf8");
+    const tsxAt = runner.indexOf('"--import", "tsx/esm"');
+    const forwardedAt = runner.indexOf("...process.argv.slice(2)");
+    assert.notEqual(tsxAt, -1, "the server test runner no longer loads tsx");
+    assert.ok(forwardedAt > tsxAt, "the hook must be loaded after tsx");
+  });
+
+  test("loads the hook after tsx in the servers a coverage run starts", () => {
+    const harness = readFileSync(path.join(SERVER, "test", "harness.mjs"), "utf8");
+    assert.match(harness, /\[TSX_LOADER, \.\.\.coverageImports, ENTRY\]/);
+    assert.match(harness, /coverageImports = serverCoverageSink\(\) \? \[`--import=\$\{pathToFileURL\(path\.join\(SERVER_DIR, "test", "stripDependencySourceMaps\.mjs"\)\)\.href\}`\]/);
   });
 
   const sink = mkdtempSync(path.join(tmpdir(), "pi-outpost-dependency-maps-"));
@@ -61,7 +71,9 @@ describe("the coverage run", () => {
     );
     // One file per thread the child ran: judged together, since only the thread that loaded
     // our code stores its map, and each on its own for what no file may carry.
-    const files = readdirSync(sink).map((name) => path.join(sink, name));
+    const files = readdirSync(sink)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => path.join(sink, name));
     assert.ok(files.length > 0, "the child wrote no coverage file");
     const cached: string[] = [];
     for (const file of files) {
@@ -71,5 +83,14 @@ describe("the coverage run", () => {
       cached.push(...urls);
     }
     assert.ok(cached.some((url) => url.endsWith("/server/src/pdf.ts")), `our own source map was dropped too; cached: ${cached.join(", ") || "nothing"}`);
+
+    // The code V8 ran for our own sources is kept for the converter, and only theirs: the
+    // coverage ranges point into tsx's output, not into the .ts on disk.
+    const kept = readdirSync(path.join(sink, "sources")).map((name) => JSON.parse(readFileSync(path.join(sink, "sources", name), "utf8")) as { url: string; source: string });
+    const pdf = kept.find(({ url }) => url.endsWith("/server/src/pdf.ts"));
+    assert.ok(pdf, `the code that ran for server/src/pdf.ts was not kept; kept: ${kept.map(({ url }) => url).join(", ")}`);
+    assert.doesNotMatch(pdf.source, /:\s*(?:string|number|boolean)\b[^\n]*[=;)]/, "kept the TypeScript, not the JavaScript tsx produced");
+    assert.match(pdf.source, /sourceMappingURL=data:/, "the kept code carries the map back to the TypeScript");
+    assert.deepEqual(kept.filter(({ url }) => url.includes("/node_modules/")), [], "a dependency's code was kept");
   });
 });

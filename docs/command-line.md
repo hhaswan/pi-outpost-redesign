@@ -53,8 +53,25 @@ pi-outpost update --extensions [--check]
 | `--grants <answer>` | With `-p`: `refuse` (default), `once` or `session` — the answer to a grant request |
 | `--model <provider/id>` | With `-p`: the model for the turn |
 
+This repository produces a **custom build**. Its `update` command refuses to replace
+it with the stock npm package; `update --check` remains available. Merge upstream
+releases into this repository, build with `node cli/scripts/build.mjs`, and run
+`npm run check:custom-build` before deploying the resulting `cli/dist` artifact.
+The gate starts an isolated app and verifies the compact expandable Process group,
+searchable models, and the built-in stock-update refusal. It requires Playwright
+Chromium; set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` when using an existing browser.
+CI runs this gate against the built artifact as well.
+
+Do not use `npm install -g pi-outpost@latest` to upgrade this deployment: an external
+npm command bypasses the custom build's protection and overwrites its files.
+
 There is deliberately **no `--token` flag**: a secret on the command line is readable by
 anyone who can list processes. Use `PI_OUTPOST_TOKEN` or the file's `server.token`.
+
+Off-loopback listeners also require encrypted transport. `PI_OUTPOST_TLS_CERT` and
+`PI_OUTPOST_TLS_KEY` override the PEM paths in `server.tls` (relative environment paths
+use the launch directory). `PI_OUTPOST_ALLOW_INSECURE_HTTP=0` or `1` overrides the
+explicit protected-hop exception; no new CLI flags are needed. See [HTTPS and SSH](deployment.md#remote-transport-https-or-ssh).
 
 ### `pi-outpost -p`
 

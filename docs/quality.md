@@ -3,8 +3,8 @@
 This page describes executable checks and known limits, so contributors and reviewers can assess
 the evidence behind a green build. See [CONTRIBUTING.md](../CONTRIBUTING.md) for the contribution
 workflow and [SECURITY.md](../SECURITY.md) for private vulnerability reports. Where the project
-stands against the OpenSSF Best Practices silver and gold levels, and the work planned for each
-gap, is in [OpenSSF Best Practices: status and plan](openssf.md).
+stands against the OpenSSF Best Practices silver and gold levels and Security Baseline levels,
+and the work planned for each gap, is in [OpenSSF: status and plan](openssf.md).
 
 ## Checks in the repository
 
@@ -15,7 +15,7 @@ gap, is in [OpenSSF Best Practices: status and plan](openssf.md).
 | Static analysis | [CodeQL workflow](../.github/workflows/codeql.yml) | Actions, C# and JavaScript/TypeScript on PRs, main and weekly. JS/TS uses `security-and-quality`; other languages retain default queries. Findings still need review. |
 | Unit and integration tests | [CI workflow](../.github/workflows/ci.yml), workspace test scripts | Main suites run on Ubuntu and Windows; real HTTP/WebSocket tests use isolated server processes. Native install checks also run on macOS. |
 | Browser checks | `npm run test:e2e`, `npm run test:webbench` | Built app/widget flows; the bench covers Chromium, Firefox, WebKit and selected axe accessibility scans. These are bounded scenarios, not exhaustive accessibility or UI certification. |
-| Coverage thresholds | `server/package.json`, `ui/package.json` | Server unit suites: lines 92%, branches 86%, functions 90%. UI: lines 91%, branches 85%, functions 93%. These are minimum thresholds, not claimed current measurements. |
+| Coverage thresholds | `scripts/coverage-config.mjs` | Lines, branches and functions over every file of each scope, all suites together: `server/src` 97/92/97%, `shared/src` 97/80/96%, `ui/src` 96/86/92%. These are minimum thresholds, not claimed current measurements. |
 | Spec scenario inventory | `scripts/check-scenario-coverage.mjs` | Checks a touched change's scenario matrix and cited files. A reviewer must still read the assertions and verify their outcomes. |
 | Packaging and confinement | CLI install, container, MCP bundle and native sandbox tests | Exercises installed/native artifacts and refusals. Some jobs run only on specific platforms or changed paths; use their actual result for the change. |
 | Install and publication policy | `.npmrc`, root `allowScripts`, release workflow | npm 12.2.2 rejects unreviewed install scripts; npm publication uses GitHub OIDC/provenance. Dependencies and upstream advisories still need review. |
@@ -39,15 +39,46 @@ works before the package is built. Browser tests still import its built public e
 
 ## What the coverage badge means
 
-Server coverage instruments the `.test.ts` unit suites. It excludes `server/src/index.ts`,
-`server/src/embeddedRuntime.ts`, generated code and the bundled reference validator. The `.mjs`
-integration suites exercise real server subprocesses whose execution is not included in that
-unit coverage total. The UI has its own Vitest coverage report.
+The badge is line coverage over the merged report: `server/src`, `shared/src` and `ui/src`,
+each file counted once.
 
-The badge therefore describes the measured scopes, **not whole-repository or end-to-end coverage**.
-In particular, it does not measure the central server entry point. Inspect the integration/browser
-assertions for those behaviours. The [development guide](development.md#tests) explains the
-instrumentation constraints; the coverage command and CI summary are the source of truth.
+Coverage counts every server and UI suite, including the server processes the integration
+suites start, converted by one tool (monocart-coverage-reports) so the two sides' figures can be
+merged. It has three scopes, each with its own figure and thresholds: `server/src`,
+`shared/src` and `ui/src`. `shared/src` is credited by every suite that runs it, server and UI
+together. Every file of a scope counts, `server/src/index.ts` included, and a file no test loads
+counts with all its lines, branches and functions uncovered. Only lines that produce code count:
+comments, blank lines and what TypeScript erases (interfaces, type aliases, `import type`) do
+not. Only the files listed in [`scripts/coverage-config.mjs`](../scripts/coverage-config.mjs)
+are left out, each with its reason: the generated structured-exchange validators, type
+declarations, and the UI's tests and test helpers. The CI summary gives covered/total counts
+for lines, branches and functions, per scope and per file, and repeats that list. Statements
+are not reported: the converter counts them from the generated code's lines, so the same file
+gets different counts from the server and UI pipelines.
+
+On 8 November 2026 the merged report measured, for lines, branches and functions: `server/src`
+98.8%, 93.4%, 98.4%; `shared/src` 98.9%, 81.5%, 97.5%; `ui/src` 97.1%, 87.3%, 93.7%.
+
+### How far to trust each figure
+
+- **`ui/src`** is measured from code Vite leaves readable, so its figures are precise.
+- **`server/src`** is approximate. The server runs under tsx, which compacts each module onto
+  one line; mapped back to the TypeScript, the ranges V8 reports lose precision. A function
+  that never runs can leave only part of its first line marked unrun, so lines and functions
+  read a little high.
+- **Branches are indicative only**, wherever server suites run the code. The converter does
+  not find the same branches from the server side as from the UI side: for
+  `shared/src/structuredExchangeProfile.ts` it finds 12 through the server suites and 93
+  through the UI's. A low branch figure for a `shared/src` file can therefore be an artifact of
+  measurement rather than a gap in its tests. Choose what to test by reading the code's error
+  paths and edge cases, not from that figure alone.
+
+The badge still describes those scopes, **not whole-repository or end-to-end coverage**: the
+browser suites, the other workspaces (`office`, `posters`, `openwebui`, `mcp`, `embed`) and the
+processes the server starts (the agent, terminals) are not instrumented. Coverage says which
+lines ran, not that a test checked what they did; read the assertions for that. The
+[development guide](development.md#coverage) explains how the measurement works; the coverage
+command and CI summary are the source of truth.
 
 ## Warning and maintainability debt
 

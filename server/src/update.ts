@@ -644,8 +644,14 @@ export function whyCheckingDisabled(settings: { updateCheck?: boolean; offline?:
   return settings.updateCheck === false ? `"updateCheck" is false` : `"offline" is set and "updateCheck" is not enabled`;
 }
 
+declare const __PI_OUTPOST_CUSTOM_BUILD__: boolean;
+/** Embedded in both distributable bundles; paths do not identify a customized install. */
+export const CUSTOM_BUILD = typeof __PI_OUTPOST_CUSTOM_BUILD__ === "boolean" && __PI_OUTPOST_CUSTOM_BUILD__;
+
 export interface UpdateCommandOptions {
   version: string;
+  /** Test seam; production uses the immutable build marker. */
+  customBuild?: boolean;
   /** True for `--check`: report and touch nothing. */
   checkOnly: boolean;
   /** Configuration already said no network — refuse rather than hang. */
@@ -664,6 +670,12 @@ export interface UpdateCommandOptions {
 export async function runUpdateCommand(options: UpdateCommandOptions): Promise<number> {
   const say = options.log ?? ((line: string) => console.log(line));
   const channel = options.channel ?? detectChannel(currentEvidence(options.version));
+
+  if ((options.customBuild ?? CUSTOM_BUILD) && !options.checkOnly) {
+    say("[pi] this is a custom build; refusing to replace it with the stock npm package");
+    say("[pi] merge the upstream release into the custom repository, rebuild, verify custom UI behavior, then deploy that artifact");
+    return 1;
+  }
 
   if (options.checkingDisabled) {
     // Asked directly, so silence would be a lie: say which setting is in the way.
@@ -1020,7 +1032,14 @@ export interface StartupNoticeOptions {
  * command that would refuse them. A one-off runner already fetches the newest version
  * on its next run, so it gets no notice at all.
  */
-export function updateNoticeFor(channel: InstallChannel, running: string, latest: string): OutpostUpdateNotice | undefined {
+export function updateNoticeFor(channel: InstallChannel, running: string, latest: string, customBuild = CUSTOM_BUILD): OutpostUpdateNotice | undefined {
+  if (customBuild) return {
+    running,
+    latest,
+    instruction: "Custom build: merge the upstream release into the custom repository, rebuild, verify, then deploy. Do not install the stock npm package.",
+    copy: `${PACKAGE_NAME} update --check`,
+    releaseNotes: releaseNotesUrl(latest),
+  };
   switch (channel) {
     case "global":
     case "unknown":
@@ -1111,5 +1130,7 @@ export async function runStartupUpdateNotice(options: StartupNoticeOptions): Pro
 }
 
 function announce(say: (line: string) => void, running: string, latest: string): void {
-  say(`[pi] pi-outpost ${latest} is available (running ${running}) — "pi-outpost update" to move to it`);
+  say(CUSTOM_BUILD
+    ? `[pi] pi-outpost ${latest} is available (running ${running}, custom build) — merge, rebuild, verify, and deploy from the custom repository`
+    : `[pi] pi-outpost ${latest} is available (running ${running}) — "pi-outpost update" to move to it`);
 }

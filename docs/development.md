@@ -89,11 +89,17 @@ version differs from `packageManager`, or if a workflow or Dockerfile installs n
 To move to another npm version, change it in `tools/npm/package.json`, then:
 
 ```bash
-npx -y npm@<version> install --package-lock-only --prefix tools/npm --allow-remote=all
+npx -y npm@<version> install --prefix tools/npm --allow-remote=all --no-audit --no-fund
 cp tools/npm/package.json tools/npm/package-lock.json deploy/docker/npm/
 ```
 
-and update `packageManager`, `engines.npm` and the version named in this guide,
+Run a full install, not `--package-lock-only`. Without the tarball, npm cannot see the versions
+it bundles and writes stale ones into the lockfile: for npm 12.2.2 it recorded `undici` 6.29.0
+and `ip-address` 10.7.2, while the tarball ships the fixed 6.29.1 and 10.7.5, so `npm audit` and
+Dependabot reported advisories that did not apply (corrected in #453). To check a lockfile, compare
+it with what the install put in `tools/npm/node_modules/npm/node_modules`.
+
+Then update `packageManager`, `engines.npm` and the version named in this guide,
 [CONTRIBUTING.md](../CONTRIBUTING.md) and the `deploy/docker/test.mjs` check, in one commit.
 
 The browser CI container needs both `build-essential` and `python3` to compile
@@ -131,7 +137,8 @@ npm run test --workspace ui            # component unit tests (vitest, jsdom, te
 npm run test:e2e                        # real built app in Chromium, including multi-project flows
 npm run test:webbench                   # core app/widget flows in Chromium, Firefox and WebKit, plus WCAG 2.2 AA scans
 npm run test:live --workspace server   # drives real agent turns (needs model auth, costs tokens)
-npm run test:linux                     # the ubuntu CI leg — suite then coverage — on Linux, non-root
+npm run test:linux                     # the ubuntu CI leg — every server suite, instrumented — on Linux, non-root
+npm run test:coverage --workspace server   # the same step directly, on Linux or macOS
 ```
 
 Install the three Playwright engines once with `npx playwright install chromium firefox webkit`.
@@ -172,13 +179,12 @@ write never returns, the runner then reports every test as passing and prints no
 because a test file that never exits never reports. Run it before pushing anything that
 touches paths, permissions, signals, or file watching.
 
-It runs both server steps of the ubuntu leg — `npm test --workspace server` and then
-`npm run test:coverage --workspace server` —
-because each has gone red on its own while the other was green, and coverage runs on no
-other platform. That step once failed on `main` with 1250 tests passing and none failing:
-npm children spawned by the code under test inherited `NODE_V8_COVERAGE`, were killed at
-their timeout mid-write, and the parent's reporter died parsing the truncated file. Nothing
-short of running the real step would have shown it.
+It runs the ubuntu leg's server step, `npm run test:coverage --workspace server`: every
+server suite, instrumented, which runs on no other platform (see [Coverage](#coverage)). A
+coverage run once failed on `main` with 1250 tests passing and none failing: npm children
+spawned by the code under test inherited `NODE_V8_COVERAGE`, were killed at their timeout
+mid-write, and the parent's reporter died parsing the truncated file. Nothing short of
+running the real step would have shown it.
 
 The fix for that was incomplete, and the job kept failing the same way now and then. Deleting
 `NODE_V8_COVERAGE` from a child's environment does nothing: node's `child_process` copies the
@@ -208,6 +214,59 @@ while iterating:
 ```bash
 npm run test:linux -- npm test --workspace server
 ```
+
+### Coverage
+
+Three steps, run in this order on Ubuntu CI and locally on Linux or macOS:
+
+```bash
+npm run test:coverage --workspace server   # every server suite, instrumented → server/coverage/raw
+npm run test:coverage --workspace ui       # every UI suite, through vitest-monocart-coverage → ui/coverage/raw
+node scripts/coverage-report.mjs           # merge, inventory check, thresholds → coverage/
+node scripts/coverage-summary.mjs coverage/coverage-scopes.json   # the table CI shows
+```
+
+Both sides leave monocart-coverage-reports (MCR) raw data, and
+[`scripts/coverage-report.mjs`](../scripts/coverage-report.mjs) merges it over the scopes in
+[`scripts/coverage-config.mjs`](../scripts/coverage-config.mjs): `server/src`, `shared/src` and
+`ui/src`, a file no test loads at 0%, minus the exclusions listed there with their reasons. MCR
+merges the raw V8 data of every process before converting it, so a `shared/src` file run by
+server and UI suites gets one total and the union of their hits. The report fails below a
+scope's thresholds, or if an inventory file with code is missing from it.
+
+What the report counts, and why:
+
+- **The code V8 ran.** A coverage file holds byte ranges into the JavaScript tsx produced, not
+  that JavaScript. In a coverage run the load hook `server/test/stripDependencySourceMaps.mjs`
+  keeps tsx's output for `server/src` and `shared/src` under `<coverage dir>/sources/`, and
+  `server/test/coverageConvert.mjs` hands it to MCR, which reads functions and branches from it
+  and maps them back to the TypeScript. Files no suite loads are compiled with esbuild so they
+  count their functions and branches too.
+- **Lines of code only.** MCR also reports lines TypeScript erases as covered; the report
+  recomputes each file's lines over those its compilation maps back to. A types-only file has
+  none and is not owed.
+- **No statements.** MCR counts them from the generated code's lines, and tsx emits a module on
+  one line while Vite does not.
+
+`ui/mcr.config.mjs` holds the UI side's MCR options; Vite names the UI's own files from `ui/`,
+and the report puts them back under `ui/src`.
+
+The integration suites' servers are measured too, which takes three things from the harness,
+all switched on by `PI_OUTPOST_TEST_COVERAGE_DIR` and by nothing else:
+
+- the server gets the run's directory as `NODE_V8_COVERAGE`, through `serverCoverageSink()` in
+  `server/test/childEnv.mjs`, the one launch `testChildEnvironment.test.ts` lets name a sink;
+  the agent, terminal and npm children the server starts still blank it;
+- `stop()` gives it 15 s after SIGTERM, instead of 300 ms, to shut down and write its coverage
+  on `process.exit`;
+- as soon as it has stopped, `server/test/coverageFilter.mjs` cuts its file down to the
+  inventory's roots: about 20 MB raw, mostly dependencies' source maps, of which ours are a
+  few MB. A file a killed process left half-written is set aside and named, never parsed by
+  the report.
+
+The server step is Linux and macOS only: on Windows the harness ends a server with
+`taskkill /F`, which leaves it no exit to write coverage on, so the script refuses to run there.
+CI runs it on Ubuntu in place of `npm test`; Windows runs `npm test`, uninstrumented.
 
 ### Driving the real app
 

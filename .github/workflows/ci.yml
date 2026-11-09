@@ -109,16 +109,31 @@ jobs:
       # The confined terminal's real test needs landstrip's runner, and only Linux confines.
       # Fetched rather than depended on: the package is platform-specific, and nothing
       # pi-outpost ships needs it.
-      - name: landstrip runner for the confined-terminal test
+      # The version the Docker image ships (deploy/docker/Dockerfile): the network checks under
+      # sandbox.allowedHosts prove the runner users run. It is an AppImage, extracted since the
+      # runner has no FUSE, and it creates user namespaces, which Ubuntu 24.04's AppArmor refuses
+      # to a process without a profile: the host setting docs/sandboxing.md documents, as in mxc-linux.
+      - name: landstrip runner for the confined-terminal and network tests
         if: matrix.os == 'ubuntu-latest'
         run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           cd "$RUNNER_TEMP"
-          npm pack --silent @landstrip/landstrip-linux-x64@0.19.8
-          mkdir landstrip && tar xzf landstrip-landstrip-linux-x64-0.19.8.tgz -C landstrip
-          echo "LANDSTRIP_BIN=$RUNNER_TEMP/landstrip/package/bin/landstrip" >> "$GITHUB_ENV"
-          "$RUNNER_TEMP/landstrip/package/bin/landstrip" doctor
+          npm pack --silent @landstrip/landstrip-linux-x64@0.20.26
+          mkdir landstrip && tar xzf landstrip-landstrip-linux-x64-0.20.26.tgz -C landstrip
+          (cd landstrip && ./package/bin/landstrip --appimage-extract > /dev/null)
+          echo "LANDSTRIP_BIN=$RUNNER_TEMP/landstrip/squashfs-root/usr/bin/landstrip" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/landstrip/squashfs-root/usr/bin/landstrip" doctor
 
+      # On Ubuntu the server suites run once, instrumented: every suite, unit and integration,
+      # including the servers the integration suites start. Their coverage is reported with the
+      # UI's further down. Windows runs them uninstrumented: there the harness ends a server
+      # with taskkill /F, which leaves it no exit to write coverage on.
       - run: npm test --workspace server
+        if: matrix.os != 'ubuntu-latest'
+        env:
+          CI: true
+      - run: npm run test:coverage --workspace server
+        if: matrix.os == 'ubuntu-latest'
         env:
           CI: true
 
@@ -145,33 +160,26 @@ jobs:
           docker build -f openwebui/Dockerfile -t pi-outpost-openwebui:dev .
           bash openwebui/test/image.sh pi-outpost-openwebui:dev
 
-      # Coverage on one platform only, and over the unit suites alone. The .mjs
-      # suites drive a real server in a subprocess: its coverage is not ours to
-      # claim, and loading them all made node truncate its own report at 10 MB.
-      # Windows runs nothing instrumented, so a coverage tool cannot turn that leg red.
-      #
-      # src/embeddedRuntime.ts is excluded too: it is a thin adapter over the pi SDK's
-      # AgentSession (every method delegates), exercised only by the .mjs suites above.
-      # Its sole caller (src/index.ts) is already excluded, but node's coverage
-      # instruments it non-deterministically when it appears in the transitive import
-      # graph — pulling ~49 uncovered functions into a total the unit suites cannot reach.
-      - run: npm run test:coverage --workspace server
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          CI: true
+      # UI coverage, Ubuntu only, over ui/src and the shared/src code the UI's tests run.
       - run: npm run test:coverage --workspace ui
         if: matrix.os == 'ubuntu-latest'
+      # Both sides' raw coverage, merged by one converter over server/src, shared/src and
+      # ui/src (scripts/coverage-config.mjs): a shared file is credited by every suite that
+      # runs it, a file no test loads counts at 0%. Fails below a scope's thresholds.
+      - name: Coverage report
+        if: matrix.os == 'ubuntu-latest'
+        run: node scripts/coverage-report.mjs
       - name: Coverage summary
         if: matrix.os == 'ubuntu-latest' && !cancelled()
-        run: node scripts/coverage-summary.mjs server=server/coverage/lcov.info ui=ui/coverage/lcov.info
+        run: node scripts/coverage-summary.mjs coverage/coverage-scopes.json
+      # Kept on every run, so a pull request's per-file figures can be read; the badge job
+      # uses it on main only.
       - name: Keep the coverage for the badge job
-        if: matrix.os == 'ubuntu-latest' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        if: matrix.os == 'ubuntu-latest' && !cancelled()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage
-          path: |
-            server/coverage/lcov.info
-            ui/coverage/lcov.info
+          path: coverage/coverage-scopes.json
           retention-days: 1
 
       - run: npm test --workspace ui
@@ -268,6 +276,8 @@ jobs:
           echo "Playwright $installed, browsers from the image at $PLAYWRIGHT_BROWSERS_PATH"
       # web/dist is what the server serves, embed/dist is what the host page imports
       - run: npm run build
+      - name: Preserve custom build behavior in the distributable
+        run: npm run check:custom-build
       - name: Capture extension status colours
         run: npm run test:e2e -- e2e/extension-status-colours.spec.ts
         env:
@@ -378,7 +388,7 @@ jobs:
         with:
           name: coverage
           path: coverage-artifact
-      - run: node scripts/coverage-badge.mjs badge/coverage.svg coverage-artifact/server/coverage/lcov.info coverage-artifact/ui/coverage/lcov.info
+      - run: node scripts/coverage-badge.mjs badge/coverage.svg coverage-artifact/coverage-scopes.json
       - name: Publish to gh-pages
         run: |
           set -euo pipefail

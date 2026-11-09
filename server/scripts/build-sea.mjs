@@ -74,7 +74,7 @@ await esbuild.build({
   format: "esm",
   target: "node26",
   outfile: BUNDLE_PATH,
-  define: { __PI_OUTPOST_VERSION__: JSON.stringify(version), __PI_SDK_VERSION__: JSON.stringify(piSdkVersion), __PI_OUTPOST_CHANGELOG__: JSON.stringify(changelog) },
+  define: { __PI_OUTPOST_CUSTOM_BUILD__: "true", __PI_OUTPOST_VERSION__: JSON.stringify(version), __PI_SDK_VERSION__: JSON.stringify(piSdkVersion), __PI_OUTPOST_CHANGELOG__: JSON.stringify(changelog) },
   // Nothing beside the executable: photon, QuickJS and codemode's worker travel inside
   // the bundle, or the agent reads no image and runs no script (sea-inline-assets.mjs).
   plugins: [inlineSeaAssets()],

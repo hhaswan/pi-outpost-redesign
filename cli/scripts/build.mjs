@@ -85,7 +85,7 @@ await esbuild.build({
     "ws",
     ...MERMAID_RUNTIME,
   ],
-  define: { __PI_OUTPOST_VERSION__: JSON.stringify(version), __PI_SDK_VERSION__: JSON.stringify(piSdkVersion), __PI_OUTPOST_CHANGELOG__: JSON.stringify(changelog) },
+  define: { __PI_OUTPOST_CUSTOM_BUILD__: "true", __PI_OUTPOST_VERSION__: JSON.stringify(version), __PI_SDK_VERSION__: JSON.stringify(piSdkVersion), __PI_OUTPOST_CHANGELOG__: JSON.stringify(changelog) },
   banner: {
     js: [
       "#!/usr/bin/env node",
@@ -144,7 +144,7 @@ await esbuild.build({
   format: "esm",
   target: "node26",
   outfile: SEA_BUNDLE,
-  define: { __PI_OUTPOST_VERSION__: JSON.stringify(version), __PI_SDK_VERSION__: JSON.stringify(piSdkVersion), __PI_OUTPOST_CHANGELOG__: JSON.stringify(changelog) },
+  define: { __PI_OUTPOST_CUSTOM_BUILD__: "true", __PI_OUTPOST_VERSION__: JSON.stringify(version), __PI_SDK_VERSION__: JSON.stringify(piSdkVersion), __PI_OUTPOST_CHANGELOG__: JSON.stringify(changelog) },
   // As in server/scripts/build-sea.mjs: photon, QuickJS and codemode's worker inside the
   // bundle, or the executable reads no image and runs no script (sea-inline-assets.mjs).
   plugins: [inlineSeaAssets()],

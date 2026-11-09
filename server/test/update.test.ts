@@ -30,6 +30,7 @@ import {
   runStartupUpdateNotice,
   runUpdateCommand,
   shouldCheckAtStartup,
+  updateNoticeFor,
   writeCache,
   type ChannelEvidence,
   type InstallChannel,
@@ -326,6 +327,36 @@ describe("the remembered answer", () => {
 
 // ---------------------------------------------------------------------------
 // runUpdateCommand
+
+describe("custom build protection", () => {
+  test("CustomBuildRefusesStockReplacement before network or installer runs", async () => {
+    const lines: string[] = [];
+    const code = await runUpdateCommand({
+      version: "0.62.0", customBuild: true, checkOnly: false, channel: "global",
+      lookupImpl: async () => { assert.fail("custom update must not query npm"); },
+      install: async () => { assert.fail("custom update must not install stock UI"); },
+      log: (line) => lines.push(line),
+    });
+    assert.equal(code, 1);
+    assert.match(lines.join("\n"), /custom build; refusing/);
+  });
+
+  test("CustomBuildAllowsReadOnlyCheck without installing", async () => {
+    const code = await runUpdateCommand({
+      version: "0.62.0", customBuild: true, checkOnly: true, channel: "global",
+      lookupImpl: async () => "0.63.0",
+      install: async () => { assert.fail("check must not install"); },
+      log: () => {},
+    });
+    assert.equal(code, 0);
+  });
+
+  test("CustomBuildNoticePreservesCustomUpgradePath", () => {
+    const notice = updateNoticeFor("global", "0.62.0", "0.63.0", true);
+    assert.match(notice!.instruction, /Do not install the stock npm package/);
+    assert.equal(notice!.copy, "pi-outpost update --check");
+  });
+});
 // ---------------------------------------------------------------------------
 
 /**

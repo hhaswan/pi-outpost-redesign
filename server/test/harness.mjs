@@ -7,10 +7,13 @@
 import { spawn, execSync } from "node:child_process";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import net from "node:net";
+import https from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import WebSocket from "ws";
+import { serverCoverageSink } from "./childEnv.mjs";
+import { filterCoverageDir } from "./coverageFilter.mjs";
 
 const SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ENTRY = path.join(SERVER_DIR, "src", "index.ts");
@@ -31,6 +34,18 @@ const TSX_LOADER = "--import=tsx/esm";
  * for v0.6.6 died that way. Binding port 0 and reading back what the kernel picked
  * removes the guess.
  */
+/**
+ * How long stop() lets a server exit on SIGTERM before killing it. A server in a coverage
+ * run writes its V8 coverage on that clean exit, which takes longer than the usual
+ * shutdown; killed instead, it would leave nothing to measure.
+ */
+export const STOP_GRACE_MS = 300;
+export const COVERAGE_STOP_GRACE_MS = 15_000;
+
+export function stopGraceMs() {
+  return serverCoverageSink() ? COVERAGE_STOP_GRACE_MS : STOP_GRACE_MS;
+}
+
 export async function freePort() {
   const probe = net.createServer();
   try {
@@ -114,16 +129,14 @@ async function startServerOn(root, config, options, port) {
   // request hangs, and set_credential went from ~200 ms to 20 s (its ceiling) in
   // roughly a quarter of runs, which is the whole of #27. These tests assert local
   // onboarding behaviour; a remote catalog has nothing to do with what they check.
-  // Under `--experimental-test-coverage` node exports NODE_V8_COVERAGE, and a child
-  // that has it writes its own coverage file into the same directory. stop() ends
-  // these servers with SIGKILL, so that file is left half-written and the parent's
-  // reporter dies on it ("Unterminated string in JSON"). Their coverage was never
-  // attributable to us anyway — the process is measured, not the source.
-  //
-  // Blanked, not deleted. This used to `delete` it, which did nothing: node's
-  // child_process copies the parent's NODE_V8_COVERAGE into any child environment that
-  // does not name it. testChildEnvironment.test.ts holds every launch to this.
-  const env = { ...process.env, PI_OUTPOST_CONFIG: configPath, PI_OFFLINE: "1", NODE_V8_COVERAGE: "" };
+  // NODE_V8_COVERAGE is always named, never inherited: node's child_process copies the
+  // parent's value into any child environment that does not name it, and a server killed
+  // mid-write left a half-written file that failed the reporter ("Unterminated string in
+  // JSON"). Outside a coverage run it is blanked. In `npm run test:coverage` it is that
+  // run's directory: the server is the code being measured, stop() gives it time to exit
+  // cleanly and write it, and the run cuts each file down to server/src.
+  // testChildEnvironment.test.ts holds every launch to this.
+  const env = { ...process.env, PI_OUTPOST_CONFIG: configPath, PI_OFFLINE: "1", NODE_V8_COVERAGE: serverCoverageSink() };
   for (const [key, value] of Object.entries(options.env ?? {})) {
     if (value === undefined) delete env[key];
     else env[key] = value;
@@ -132,7 +145,10 @@ async function startServerOn(root, config, options, port) {
   // `options.entry` runs an already-bundled server instead of the TypeScript source —
   // the only way to observe a build-time define (`__PI_SDK_VERSION__`) at the wire,
   // since a source run is precisely the shape those defines are absent from.
-  const argv = options.entry ? [options.entry] : [TSX_LOADER, ENTRY];
+  // In a coverage run, dependencies' source maps are kept out of the server's coverage file
+  // from the start (stripDependencySourceMaps.mjs); the filter in stop() does the rest.
+  const coverageImports = serverCoverageSink() ? [`--import=${pathToFileURL(path.join(SERVER_DIR, "test", "stripDependencySourceMaps.mjs")).href}`] : [];
+  const argv = options.entry ? [options.entry] : [TSX_LOADER, ...coverageImports, ENTRY];
   const child = spawn(process.execPath, argv, {
     cwd: SERVER_DIR,
     env,
@@ -146,7 +162,8 @@ async function startServerOn(root, config, options, port) {
   child.stdout.on("data", (d) => (log += d));
   child.stderr.on("data", (d) => (log += d));
 
-  const base = `http://127.0.0.1:${port}`;
+  const secure = Boolean(config.server?.tls);
+  const base = `${secure ? "https" : "http"}://127.0.0.1:${port}`;
   const deadline = Date.now() + 60_000;
   // The exit code can be known before the pipes are drained: wait for them, or the
   // reason the server gave for dying is lost and the failure reads "exited (1):".
@@ -164,7 +181,14 @@ async function startServerOn(root, config, options, port) {
     try {
       const health = new URL("/health", base);
       if (health.hostname !== "127.0.0.1" || health.port !== String(port)) throw new Error("test health check escaped its local server");
-      const res = await fetch(health);
+      const res = secure ? await new Promise((resolve, reject) => {
+        const request = https.get(health, { ca: options.ca, timeout: 1000 }, (response) => {
+          response.resume();
+          resolve({ ok: response.statusCode === 200 });
+        });
+        request.on("timeout", () => request.destroy(new Error("TLS health timed out")));
+        request.on("error", reject);
+      }) : await fetch(health);
       // Ready, and *ours*. freePort() let the port go before the child bound it, so
       // another test file's server may hold it and answer here while the child is still
       // on its way to dying at bind — harnessOwnServer.test.mjs. The child logs its
@@ -183,7 +207,7 @@ async function startServerOn(root, config, options, port) {
     root,
     /** The config the server loaded — for tests that make it unwritable. */
     configFile: configPath,
-    wsUrl: (token) => `ws://127.0.0.1:${port}/ws${token ? `?token=${encodeURIComponent(token)}` : ""}`,
+    wsUrl: (token) => `${secure ? "wss" : "ws"}://127.0.0.1:${port}/ws${token ? `?token=${encodeURIComponent(token)}` : ""}`,
     log: () => log,
     async stop() {
       // Signal the *group* (negative pid): tsx does not forward signals to the node
@@ -210,10 +234,14 @@ async function startServerOn(root, config, options, port) {
         clearTimeout(timer);
         return exited;
       };
-      const stopped = await waitForExit(300);
+      const stopped = await waitForExit(stopGraceMs());
       if (!stopped) killGroup("SIGKILL");
       const exited = await waitForExit(5_000);
       if (!exited) throw new Error(`test server ${child.pid} did not exit after termination`);
+      // In a coverage run, cut what this server just wrote down to server/src now, so
+      // its ~20 MB of dependency entries and source maps never pile up on disk.
+      const coverageDir = env.NODE_V8_COVERAGE;
+      if (coverageDir) await filterCoverageDir(coverageDir, { match: (name) => name.startsWith(`coverage-${child.pid}-`) });
       // Windows may briefly keep descendant handles open after taskkill returns.
       // Wait for the parent process above, then allow transient EBUSY about nine seconds to clear.
       await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
@@ -222,8 +250,8 @@ async function startServerOn(root, config, options, port) {
 }
 
 /** Connect and collect server messages; `waitFor` resolves on the first matching one. */
-export function connect(url) {
-  const ws = new WebSocket(url);
+export function connect(url, options) {
+  const ws = new WebSocket(url, options);
   const received = [];
   const waiters = [];
   let closeInfo = null;

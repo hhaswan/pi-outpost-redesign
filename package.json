@@ -32,6 +32,7 @@
     "check:css": "node scripts/check-web-css.mjs",
     "check:embed": "node scripts/check-embed-package.mjs",
     "check:cli": "node scripts/check-cli-package.mjs",
+    "check:custom-build": "node scripts/check-custom-build.mjs",
     "check:scenarios": "node scripts/check-scenario-coverage.mjs",
     "test:scripts": "node --test scripts/*.test.mjs",
     "test:linux": "node scripts/test-linux.mjs",
@@ -49,7 +50,8 @@
     "@playwright/test": "^1.64.1",
     "@types/mermaid": "^9.1.0",
     "concurrently": "^10.0.6",
-    "jsdom": "~30.0.1"
+    "jsdom": "~30.0.1",
+    "monocart-coverage-reports": "^3.2.1"
   },
   "overrides": {
     "rehype-katex": {

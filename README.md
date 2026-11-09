@@ -4,6 +4,7 @@
 [![Coverage](https://raw.githubusercontent.com/laurentftech/pi-outpost/gh-pages/badges/coverage.svg)](https://github.com/laurentftech/pi-outpost/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/laurentftech/pi-outpost/badge)](https://scorecard.dev/viewer/?uri=github.com/laurentftech/pi-outpost)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16423/badge)](https://www.bestpractices.dev/projects/16423)
+[![OpenSSF Baseline](https://www.bestpractices.dev/projects/16423/baseline)](https://www.bestpractices.dev/en/projects/16423/baseline-1)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A524-brightgreen)](https://nodejs.org)
 
@@ -39,7 +40,7 @@ The starter configuration lets the agent **read and write this directory, with a
 
 **No Node.js?** Download a standalone executable from [Releases](https://github.com/laurentftech/pi-outpost/releases). See the [standalone executable guide](docs/sea-packaging.md) for platform setup.
 
-> The server listens on loopback by default. Network deployments require an auth token and a suitable sandbox. Everyone connected shares the same projects and conversations: this is a single-tenant application. Read the [deployment recipes](docs/how-to.md#lock-down-a-shared-deployment) and [sandboxing guide](docs/sandboxing.md) before exposing it.
+> The server listens on loopback by default. Network deployments require an auth token, encrypted transport (native HTTPS/WSS, a TLS proxy or an SSH tunnel) and a suitable sandbox. Remote HTTP refuses startup by default. Everyone connected shares the same projects and conversations: this is a single-tenant application. Read the [HTTPS/SSH guide](docs/deployment.md#remote-transport-https-or-ssh), [deployment recipes](docs/how-to.md#lock-down-a-shared-deployment) and [sandboxing guide](docs/sandboxing.md) before exposing it.
 
 ## What you get
 
@@ -71,5 +72,7 @@ See the [feature guide](docs/features.md) for details.
 | [Contributing](CONTRIBUTING.md) | Bug reports, development workflow, tests and pull requests |
 | [Security policy](SECURITY.md) | Private vulnerability reporting, supported versions and trust boundaries |
 | [Code quality](docs/quality.md) | Enforced checks, coverage scope, known debt and merge rules |
+| [Product roadmap](docs/roadmap.md) | Direction through 2027, priorities and scope; no delivery commitments |
+| [OpenSSF status and plan](docs/openssf.md) | Best Practices and Security Baseline badges, evidence and remaining work |
 
 [Compare with other tools](docs/comparison.md) · [Changelog](CHANGELOG.md) · [MIT license](LICENSE)
