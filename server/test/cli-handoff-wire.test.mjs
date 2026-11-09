@@ -52,16 +52,22 @@ async function release(f, cwd = f.cwd) {
   return { ...receipt, bytes: await fs.readFile(sessionFile) };
 }
 
-async function boot(t, f, { sandbox = false, cancel = false, lock } = {}) {
+async function boot(t, f, { sandbox = false, cancel = false, failure = false, lock } = {}) {
   const root = await makeWorkspace();
   const audit = path.join(root, "opened.jsonl");
   const veto = path.join(root, "cancel-resume");
+  const missing = path.join(root, "hide-source-before-resume");
   const extension = path.join(root, "observe-session.mjs");
   if (cancel) await fs.writeFile(veto, "cancel");
+  if (failure) await fs.writeFile(missing, "hide");
   // Observe the real SDK file, not just a listing that could conceal a fork.
-  await fs.writeFile(extension, `import { appendFileSync, existsSync } from 'node:fs';
+  await fs.writeFile(extension, `import { appendFileSync, existsSync, renameSync } from 'node:fs';
 export default function (pi) {
-  pi.on('session_before_switch', event => event.reason === 'resume' && existsSync(${JSON.stringify(veto)}) ? { cancel: true } : undefined);
+  pi.on('session_before_switch', event => {
+    if (event.reason !== 'resume') return;
+    if (existsSync(${JSON.stringify(missing)})) renameSync(event.targetSessionFile, event.targetSessionFile + '.unavailable');
+    if (existsSync(${JSON.stringify(veto)})) return { cancel: true };
+  });
   pi.on('session_start', (_event, ctx) => appendFileSync(${JSON.stringify(audit)}, JSON.stringify({ id: ctx.sessionManager.getSessionId(), file: ctx.sessionManager.getSessionFile() }) + '\\n'));
 }
 `);
@@ -78,7 +84,7 @@ export default function (pi) {
   t.after(() => client.close());
   await client.open();
   const hello = await client.waitFor(m => m.type === "hello" && !m.agentStarting && !!m.sessionId, 30_000);
-  return { server, client, hello, audit, veto, stop };
+  return { server, client, hello, audit, veto, missing, stop };
 }
 
 async function request(client, operation) {
@@ -272,4 +278,22 @@ test("SideWorkspaceCannotAcquireTransferredFile: a side session cannot strand a 
   assert.equal((await request(next.client, { action: "resume", id: receipt.id })).resumed, undefined);
   assert.deepEqual(await fs.readFile(receipt.sessionFile), sourceBeforeSide);
   assert.deepEqual(await fs.readFile(leasePath), leaseBeforeSide);
+});
+
+test("FailedSwitchIsNotContinuation: source disappears after lease validation and the SDK fallback is not acknowledged as the original session", async t => {
+  const f = await fixture(t);
+  const receipt = await release(f);
+  const web = await boot(t, f, { failure: true });
+  const since = web.client.received.length;
+  const refused = await request(web.client, { action: "resume", id: receipt.id });
+  assert.ok(refused.error);
+  assert.notEqual(refused.resumed, true);
+  assert.equal(web.client.received.slice(since).some(m => m.type === "session_replaced" && m.sessionId === receipt.sessionId), false);
+  assert.deepEqual(await fs.readFile(receipt.sessionFile + ".unavailable"), receipt.bytes);
+  assert.notEqual((await opened(web)).at(-1).id, receipt.sessionId);
+  await fs.rm(web.missing);
+  await fs.rename(receipt.sessionFile + ".unavailable", receipt.sessionFile);
+  const retrySince = web.client.received.length;
+  assert.equal((await request(web.client, { action: "resume", id: receipt.id })).resumed, true);
+  await assertContinued(web, receipt, retrySince);
 });

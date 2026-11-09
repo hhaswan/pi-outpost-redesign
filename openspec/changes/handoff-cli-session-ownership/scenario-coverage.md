@@ -154,8 +154,8 @@ an authorized main adoption; the SDK legitimately appended its thinking setting
 there. The assertion now brackets the refused side actions and checks both source
 and lease bytes unchanged, which is the actual negative contract.
 
-Final predeployment gates: all 2794 UI tests pass; the production embedded build,
-141 focused server/extension/update tests, actual PTY/browser handoff and Submit proof,
+Final predeployment gates: all 2795 UI tests pass; the production embedded build,
+142 focused server/extension/update tests, actual PTY/browser handoff and Submit proof,
 custom Process/model gate, disposable native deployment and rollback, and three-tab
 offline/reconnect probe pass. Live service stayed unchanged throughout staging.
 
@@ -163,3 +163,13 @@ PID-death evidence is namespace-bound on Linux. The store test `a PID from anoth
 namespace never proves that the original CLI exited` tampers that evidence and
 requires discovery/acquisition refusal with unchanged source bytes. This prevents
 a shared registry plus host networking from confusing container and host PIDs.
+
+The failed-switch half is also checked independently of cancellation:
+`server/test/cli-handoff-wire.test.mjs`, `FailedSwitchIsNotContinuation`, removes
+access to the source after lease validation through a trusted test extension. The
+SDK's fallback is never acknowledged as the original session; the parked original
+bytes remain intact, and repair plus explicit retry opens the original file.
+The real PTY/browser probe injects that same boundary. It requires an explicit
+refusal visible in the main UI even after SDK recovery closes the session panel.
+`useAgent.test.ts`, `handoff failure remains visible when SDK recovery closes the old session panel`,
+protects that feedback. No successful continuation is inferred from panel closure.

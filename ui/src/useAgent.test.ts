@@ -4397,3 +4397,14 @@ it("CLI handoff acknowledgment survives only its same-workspace session replacem
   act(() => mockWs!.receive({ type: "cli_bridge_result", requestId: stale, resumed: true }));
   expect(result.current.state.cliBridge).toBeNull();
 });
+
+it("handoff failure remains visible when SDK recovery closes the old session panel", async () => {
+  const workspace = { root: "/project/a", name: "a", activity: "idle" };
+  const result = await connected([], { workspace });
+  act(() => result.current.manageCliBridge({ action: "resume", id: "released" }));
+  const requestId = lastRequestId();
+  act(() => mockWs!.receive({ type: "session_replaced", workspace, sessionId: "unexpected-fallback", model: "", thinkingLevel: "off", models: [], commands: [], items: [], isStreaming: false }));
+  act(() => mockWs!.receive({ type: "cli_bridge_result", requestId, error: "CLI handoff was not continued. Refresh its state before retrying." }));
+  expect(result.current.state.cliBridge?.resumed).not.toBe(true);
+  expect(result.current.state.errors).toContain("CLI handoff was not continued. Refresh its state before retrying.");
+});

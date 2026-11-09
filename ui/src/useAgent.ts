@@ -330,7 +330,7 @@ export interface OlderHistory {
 }
 
 export interface AgentState {
-  cliBridge: (CliBridgeReply & { loading: boolean; operation?: CliBridgeOperation["action"] }) | null;
+  cliBridge: (CliBridgeReply & { loading: boolean; operation?: CliBridgeOperation["action"]; sessionIdAtRequest?: string }) | null;
   mcpManagement: (McpManagementReply & { loading: boolean }) | null;
   connected: boolean;
   /**
@@ -925,7 +925,7 @@ function followMoves(state: AgentState, moves: readonly [from: string, to: strin
 
 function reduce(state: AgentState, action: Action): AgentState {
   if (action.type === "set_mcp_manager_open") return { ...state, mcpManagerOpen: action.open };
-  if (action.type === "cli_bridge_started") return { ...state, cliBridge: { ...state.cliBridge, requestId: action.requestId, operation: action.operation, loading: true, error: undefined, submitted: undefined, resumed: undefined } };
+  if (action.type === "cli_bridge_started") return { ...state, cliBridge: { ...state.cliBridge, requestId: action.requestId, operation: action.operation, sessionIdAtRequest: state.sessionId ?? undefined, loading: true, error: undefined, submitted: undefined, resumed: undefined } };
   if (action.type === "mcp_management_started") return { ...state, mcpManagement: { ...state.mcpManagement, requestId: action.requestId, loading: true, error: undefined, message: undefined } };
   if (action.type === "connected") return { ...state, connected: true, authRequired: false };
   if (action.type === "workspace_switching") return { ...state, switching: true };
@@ -1377,7 +1377,13 @@ function reduce(state: AgentState, action: Action): AgentState {
       return { ...state, switching: false, errors: [...state.errors, message.message] };
     case "cli_bridge_result":
       if (state.cliBridge?.requestId !== message.requestId) return state;
-      return { ...state, cliBridge: { ...state.cliBridge, ...message, loading: false } };
+      return {
+        ...state,
+        // SDK failure recovery can replace the session and close its panel. Do not hide the refusal there.
+        ...(state.cliBridge.operation === "resume" && message.error && state.cliBridge.sessionIdAtRequest !== state.sessionId
+          ? { errors: [...state.errors, message.error] } : {}),
+        cliBridge: { ...state.cliBridge, ...message, loading: false },
+      };
     case "mcp_management_result":
       if (state.mcpManagement?.requestId !== message.requestId) return state;
       return { ...state, mcpManagement: { ...state.mcpManagement, ...message, loading: false, reloadRequired: message.reloadRequired ?? state.mcpManagement.reloadRequired } };

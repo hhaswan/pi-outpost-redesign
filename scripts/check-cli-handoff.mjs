@@ -14,6 +14,8 @@ const root=await fs.realpath(await makeWorkspace());
 const home=path.join(root,'home'),agentDir=path.join(home,'.pi','agent');
 const bridgeDirectory=path.join(root,'bridges'),handoffDirectory=path.join(root,'handoffs');
 const events=path.join(root,'events.jsonl'),shutdownStarted=path.join(root,'shutdown-started'),allowExit=path.join(root,'allow-exit');
+const failWebSwitch=path.join(root,'fail-web-switch'),webFault=path.join(root,'web-fault.mjs');
+await fs.writeFile(webFault,`import fs from 'node:fs';export default function(pi){pi.on('session_before_switch',event=>{if(event.reason==='resume'&&fs.existsSync(${JSON.stringify(failWebSwitch)})){fs.renameSync(event.targetSessionFile,event.targetSessionFile+'.unavailable');fs.unlinkSync(${JSON.stringify(failWebSwitch)});}});}`);
 await fs.mkdir(path.join(agentDir,'extensions'),{recursive:true});await fs.mkdir(bridgeDirectory,{mode:0o700});
 await fs.copyFile('cli/dist/extensions/cli-session-bridge.mjs',path.join(agentDir,'extensions','bridge.js'));
 const manager=SessionManager.create(root,path.join(agentDir,'sessions','external-cli'));
@@ -37,7 +39,7 @@ const wait=async(fn,timeout=20000)=>{const until=Date.now()+timeout;while(Date.n
 let server,browser,observer,secondCli;
 try{
  await wait(async()=>((await fs.readdir(bridgeDirectory)).filter(n=>n.endsWith('.json'))[0]));
- server=await startServer(root,{cwd:root,agentDir:path.join(root,'web-agent'),sandbox:false,noExtensions:true},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{HOME:home,PI_OUTPOST_BRIDGE_DIR:bridgeDirectory,PI_OUTPOST_HANDOFF_DIR:handoffDirectory,PI_OFFLINE:'1',ANTHROPIC_API_KEY:'fixture-no-model-calls'}});
+ server=await startServer(root,{cwd:root,agentDir:path.join(root,'web-agent'),sandbox:false,noExtensions:false,extensionPaths:[webFault]},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{HOME:home,PI_OUTPOST_BRIDGE_DIR:bridgeDirectory,PI_OUTPOST_HANDOFF_DIR:handoffDirectory,PI_OFFLINE:'1',ANTHROPIC_API_KEY:'fixture-no-model-calls'}});
  observer=connect(server.wsUrl());await observer.waitFor('hello');
  browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
  const page=await browser.newPage({viewport:{width:390,height:900}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -75,7 +77,16 @@ try{
  const afterExit=await fs.readFile(source,'utf8');assert.ok(afterExit.includes('Late shutdown append before process exit'));
  await dialog.getByRole('button',{name:'Refresh list',exact:true}).click();
  await released.getByText('Released; ready to continue',{exact:true}).waitFor();
+ await fs.writeFile(failWebSwitch,'fail-once');
  await released.getByRole('button',{name:'Continue in web'}).click();
+ await dialog.waitFor({state:'hidden'});
+ await page.getByText('CLI handoff was not continued. Refresh its state before retrying.',{exact:true}).waitFor();
+ assert.equal(await page.getByText('Same-file handoff fixture history',{exact:true}).count(),0);
+ assert.equal(await fs.readFile(source+'.unavailable','utf8'),afterExit);
+ await fs.rename(source+'.unavailable',source);
+ await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();await dialog.waitFor();
+ await released.getByRole('button',{name:'Continue in web'}).click();
+ console.log('PASS FailedSdkSwitchDoesNotHideRefusalAfterPanelCloses');
  const switched=await observer.waitFor(m=>m.type==='session_replaced'&&m.sessionId===originalId);
  assert.equal(switched.sessionId,originalId);
  observer.send({type:'list_sessions'});
