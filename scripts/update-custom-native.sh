@@ -5,6 +5,7 @@ repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 config="${1:?Usage: bash scripts/update-custom-native.sh /absolute/config.json}"
 [[ "$config" = /* && -f "$config" ]] || { echo 'Configuration must be an existing absolute path.' >&2; exit 1; }
 [[ "$(id -u)" = 0 ]] || { echo 'Native systemd deployment requires root.' >&2; exit 1; }
+export HOME="${HOME:-/root}"
 cd "$repo"
 [[ -z "$(git status --porcelain)" ]] || { echo 'Commit or stash local changes before deploying.' >&2; exit 1; }
 [[ ! -d .local/native-deploy.lock ]] || { echo 'Another deployment owns .local/native-deploy.lock; inspect its owner before retrying.' >&2; exit 1; }
