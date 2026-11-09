@@ -49,4 +49,4 @@ The extension tests cover registration, authentication, limits, consent, revocat
 
 ## Web access
 
-Open **Terminal sessions**, select the owner and read its transcript. The view refreshes the selected owner periodically, preserving unsent drafts. A transport failure disables submission; check the terminal before retrying an uncertain send. The server refuses this host-wide bridge under sandbox, extension-lock, or workspace-lock policy. Registry credentials stay on the server.
+Open **Terminal sessions**, select the owner and read its transcript. The view refreshes the selected owner periodically, preserving unsent drafts. Submit status and errors appear beside the button. If a refresh is still checking CLI status when you press Submit, the view preserves the draft and asks you to try again after the check, without sending input. A transport failure disables submission; check the terminal before retrying an uncertain send. The server refuses this host-wide bridge under sandbox, extension-lock, or workspace-lock policy. Registry credentials stay on the server.

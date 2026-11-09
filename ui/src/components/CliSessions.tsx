@@ -83,7 +83,6 @@ export function CliSessions({ state, connected, onRequest, onClose }: {
   const owner = sessions.find((entry) => entry.id === selected);
   const current = snapshot?.instanceId === selected ? snapshot : null;
   const canEdit = connected && owner?.activity !== "unreachable" && current?.inputGranted && current.activity === "idle";
-  const canInput = !locked && canEdit;
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={(event) => {
@@ -104,9 +103,9 @@ export function CliSessions({ state, connected, onRequest, onClose }: {
           <p className="text-sm">Opt-in enrolled CLI sessions only, not all OS processes. The CLI remains the sole agent and session writer.</p>
           <p className="text-xs text-zinc-500">Observation-only by default. The CLI operator grants input with <code>/outpost-bridge allow</code>. Closing this panel does not stop the CLI.</p>
           {!connected && <p role="status">Disconnected. Activity is unknown and input is disabled.</p>}
-          {(pending || state?.loading) && <p role="status">Loading CLI response…</p>}
-          {(formError || state?.error) && <p role="alert" className="break-words rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{formError || state?.error}</p>}
-          {notice && <p role="status" className="text-sm">{notice}</p>}
+          {!selected && (pending || state?.loading) && <p role="status">Loading CLI response…</p>}
+          {!selected && (formError || state?.error) && <p role="alert" className="break-words rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{formError || state?.error}</p>}
+          {!selected && notice && <p role="status" className="text-sm">{notice}</p>}
           {listed && !sessions.length && <p className="text-sm">No enrolled CLI sessions. Start a CLI with <code>pi -e &lt;bridge-extension&gt;</code>, then refresh the list.</p>}
           <ul className="space-y-2" aria-label="Enrolled CLI sessions">
             {sessions.map((entry) => <li key={entry.id}>
@@ -131,13 +130,17 @@ export function CliSessions({ state, connected, onRequest, onClose }: {
             </> : <p className="text-sm">No current snapshot. Refresh the transcript to confirm owner activity and permission.</p>}
             <form className="space-y-2" onSubmit={(event) => {
               event.preventDefault();
-              if (!canInput || operation.current) return;
+              if (!canEdit) return;
+              if (operation.current || state?.loading) { setFormError("Checking CLI status. Try Submit again after the check finishes."); return; }
               if (!draft.trim() || draft.length > 8000 || /^\s*[/!]/.test(draft)) { setFormError("Enter plain text (1–8000 characters), without a leading / or ! command."); return; }
               send({ action: "submit", id: selected, generation: current!.generation, inputId: crypto.randomUUID(), text: draft });
             }}>
               <label className="block text-sm">Message to CLI<textarea className="mt-1 block min-h-24 w-full min-w-0 rounded-xl border border-zinc-300 bg-transparent p-3 text-sm focus:outline-2 focus:outline-blue-500 disabled:opacity-50 dark:border-zinc-700" value={draft} maxLength={8000} disabled={!canEdit} onChange={(event) => setDraft(event.target.value)} /></label>
               <p className="text-xs text-zinc-500">Plain text only. No slash commands or shell commands. {draft.length}/8000</p>
-              <button type="submit" className={button} disabled={!canInput || !draft.trim()}>Submit to CLI</button>
+              {(pending || state?.loading) && <p role="status" className="text-sm">{operation.current?.action === "submit" ? "Sending to CLI…" : "Checking CLI status…"}</p>}
+              {(formError || state?.error) && <p role="alert" className="break-words rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{formError || state?.error}</p>}
+              {notice && <p role="status" className="text-sm">{notice}</p>}
+              <button type="submit" className={button} disabled={!canEdit || !draft.trim() || operation.current?.action === "submit"}>Submit to CLI</button>
             </form>
           </div>}
         </div>

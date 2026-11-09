@@ -40,6 +40,11 @@ Remote plain text SHALL require CLI permission. Busy, stale-generation and inval
 - **WHEN** an authorized browser submits plain text for the current generation
 - **THEN** the text is submitted to the existing owner only once and the browser reports submission rather than completion
 
+#### Scenario: SubmitWhileOwnerRefreshes
+- **GIVEN** an operator has typed a draft and the browser is checking the current CLI owner
+- **WHEN** the operator presses Submit before the check completes
+- **THEN** the browser shows an inline explanation and preserves the draft without sending input or silently discarding the click
+
 #### Scenario: RefuseUnsafeInput
 - **WHEN** remote input is ungranted, busy, stale, command-shaped, or oversized
 - **THEN** the owner refuses it without creating an agent or appending directly to its session file

@@ -87,6 +87,7 @@ describe("CliSessions", () => {
     expect(onRequest).toHaveBeenCalledTimes(3);
     expect(onRequest).toHaveBeenLastCalledWith({ action: "submit", id: "owner-a", generation: "generation-7", inputId: "11111111-1111-4111-8111-111111111111", text: "  hello CLI\nkeep spacing  " });
     update({ requestId: "send", loading: true });
+    expect(screen.getByText("Sending to CLI…")).toBeInTheDocument();
     update({ requestId: "send", submitted: true });
     expect(screen.getByText("Submitted to CLI; acceptance is shown in its transcript")).toBeInTheDocument();
     expect(screen.getByLabelText("Message to CLI")).toHaveValue("");
@@ -152,6 +153,10 @@ it("refreshes owner permission while preserving a nonempty draft", () => {
     expect(onRequest).toHaveBeenLastCalledWith({ action: "read", id: "owner-a" });
     expect(screen.getByLabelText("Message to CLI")).toHaveValue("unsent draft");
     expect(screen.getByLabelText("Message to CLI")).not.toBeDisabled();
+    expect(screen.getByText("Checking CLI status…")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Submit to CLI" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Checking CLI status. Try Submit again");
+    expect(onRequest).toHaveBeenCalledTimes(3); // list, selected owner, refresh; never a silent submit
     update({ requestId: "refresh-owner", snapshot: { ...snapshot, inputGranted: false } });
     expect(screen.getByLabelText("Message to CLI")).toHaveValue("unsent draft");
     expect(screen.getByLabelText("Message to CLI")).toBeDisabled();
