@@ -884,6 +884,9 @@ export function FileViewer({
         // find bar's Escape means. A second, separate Escape (find bar
         // already closed) reaches this branch's `else` and closes the viewer,
         // exactly as it does without this feature.
+        // Handled here: a sheet holding the viewer (the phone layout) must not
+        // close as well, past the unsaved-changes question.
+        event.preventDefault();
         if (findOpen) closeFind();
         else requestClose();
         return;

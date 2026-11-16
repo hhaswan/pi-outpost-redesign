@@ -7,11 +7,11 @@
 - [ ] 1.4 Built-app Playwright gate `scripts/check-responsive.mjs` at 360, 390, 768, 1280: no document overflow, no element beyond viewport, no overlapping controls at button centres, hit areas ≥ 44 px on phones, no page errors. Isolate the bridge registry (`PI_OUTPOST_BRIDGE_DIR`) in the fixture. Add to `update-custom-native.sh`. (Gate written; hit areas report-only until `--strict-touch`; not yet in the updater.)
 
 ## 2. Phone shell
-- [ ] 2.1 One-row header with overflow menu; move secondary controls into it.
-- [ ] 2.2 Bottom navigation (Chat, Files, Sessions, Plan, Terminal) with active state and badges (Plan progress, terminal activity).
-- [ ] 2.3 Sidebar and file viewer as full-screen sheets; viewer pushes over tree; back returns.
-- [ ] 2.4 Terminal as sheet sized by flex inside the shell.
-- [ ] 2.5 Remove floating Plan chip and Terminal sessions button on phones (moved to nav/menu).
+- [x] 2.1 One-row header with overflow menu; move secondary controls into it.
+- [ ] 2.2 Bottom navigation (Chat, Files, Sessions, Plan, Terminal) with active state and badges (Plan progress, terminal activity). (Nav, active state and Plan badge done; terminal activity badge not yet.)
+- [x] 2.3 Sidebar and file viewer as full-screen sheets; viewer pushes over tree; back returns.
+- [x] 2.4 Terminal as sheet sized by flex inside the shell.
+- [x] 2.5 Remove floating Plan chip and Terminal sessions button on phones (moved to nav/menu).
 
 ## 3. Menus and panels
 - [ ] 3.1 Settings, Tree, WorkspaceRoot, Git, Theme, Notifications as bottom sheets on phones.

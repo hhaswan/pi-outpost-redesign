@@ -17,6 +17,12 @@ import type {
 
 export interface TerminalPanelProps {
   open: boolean;
+  /**
+   * Take the whole screen (the phone layout), sized by flex rather than a height
+   * on top of the shell's, so the page under it never scrolls. Stays mounted while
+   * closed, like the docked panel, so the shells keep running.
+   */
+  fill?: boolean;
   onClose(): void;
   cwd?: string;
   /** Set when every terminal runs inside a sandbox runner: the root it is confined to. */
@@ -326,6 +332,7 @@ function SingleTerminalView({
 export function TerminalPanel({
   shells,
   open,
+  fill = false,
   onClose,
   cwd,
   confinedRoot,
@@ -449,12 +456,15 @@ export function TerminalPanel({
 
   return (
     <div
-      style={{ height: isMaximized ? "85vh" : heightResize.width, maxHeight: isMaximized ? "85vh" : "65vh" }}
-      className={`flex-col shrink-0 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 ${
+      style={fill ? undefined : { height: isMaximized ? "85vh" : heightResize.width, maxHeight: isMaximized ? "85vh" : "65vh" }}
+      {...(fill ? { role: "dialog", "aria-modal": true, "aria-label": "Terminal", "data-testid": "terminal-sheet" } : {})}
+      className={fill
+        ? `fixed inset-0 z-[100] flex-col bg-zinc-100 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] dark:bg-zinc-900 ${open ? "flex" : "hidden"}`
+        : `flex-col shrink-0 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 ${
         open ? "flex" : "hidden"
       } relative z-20`}
     >
-      {!isMaximized && <PanelResizeHandle axis="y" label="Resize Terminal panel" width={heightResize.width} config={TERMINAL_PANEL_HEIGHT} separatorProps={heightResize.separatorProps} />}
+      {!fill && !isMaximized && <PanelResizeHandle axis="y" label="Resize Terminal panel" width={heightResize.width} config={TERMINAL_PANEL_HEIGHT} separatorProps={heightResize.separatorProps} />}
       {/* Terminal Toolbar */}
       <div className="flex items-center justify-between px-2 py-1 border-b border-zinc-200 dark:border-zinc-800 select-none bg-zinc-50 dark:bg-zinc-950 text-xs">
         {/* Left: Tab list */}
@@ -517,7 +527,7 @@ export function TerminalPanel({
             onClick={addTab}
             type="button"
             title="New Terminal Tab"
-            className="p-1 rounded-full hover:opacity-80 transition-opacity text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
+            className={`${fill ? "inline-flex h-11 w-11 shrink-0 items-center justify-center" : "p-1"} rounded-full hover:opacity-80 transition-opacity text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60`}
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -560,7 +570,7 @@ export function TerminalPanel({
             onClick={handleClearCurrent}
             type="button"
             title="Clear Terminal Output"
-            className="p-1 rounded-full hover:opacity-80 transition-opacity hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
+            className={`${fill ? "inline-flex h-11 w-11 shrink-0 items-center justify-center" : "p-1"} rounded-full hover:opacity-80 transition-opacity hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60`}
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
@@ -571,27 +581,30 @@ export function TerminalPanel({
               />
             </svg>
           </button>
-          <button
-            onClick={() => setIsMaximized((prev) => !prev)}
-            type="button"
-            title={isMaximized ? "Restore Terminal Panel" : "Maximize Terminal Panel"}
-            className="p-1 rounded-full hover:opacity-80 transition-opacity hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
-          >
-            {isMaximized ? (
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            ) : (
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-              </svg>
-            )}
-          </button>
+          {!fill && (
+            <button
+              onClick={() => setIsMaximized((prev) => !prev)}
+              type="button"
+              title={isMaximized ? "Restore Terminal Panel" : "Maximize Terminal Panel"}
+              className={`${fill ? "inline-flex h-11 w-11 shrink-0 items-center justify-center" : "p-1"} rounded-full hover:opacity-80 transition-opacity hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60`}
+            >
+              {isMaximized ? (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                </svg>
+              )}
+            </button>
+          )}
           <button
             onClick={onClose}
             type="button"
             title="Minimize Terminal Panel (Ctrl+`)"
-            className="p-1 rounded-full hover:opacity-80 transition-opacity hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
+            aria-label={fill ? "Close Terminal" : undefined}
+            className={`${fill ? "inline-flex h-11 w-11 shrink-0 items-center justify-center" : "p-1"} rounded-full hover:opacity-80 transition-opacity hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60`}
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

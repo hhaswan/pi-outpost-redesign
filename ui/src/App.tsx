@@ -60,6 +60,9 @@ import { TerminalPanel } from "./components/TerminalPanel";
 import { OutcomePanel } from "./components/OutcomePanel";
 import { useAgent } from "./useAgent";
 import { useViewport } from "./useViewport";
+import { Sheet } from "./components/Sheet";
+import { PhoneNav, type PhoneSurface } from "./components/PhoneNav";
+import { SessionList } from "./components/Header";
 
 export interface AppHandle {
   setTheme(theme: Theme): void;
@@ -362,10 +365,21 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
   const [terminalOpen, setTerminalOpen] = useState(false);
   const terminalEnabled = state.terminal?.enabled ?? false;
 
+  // The phone's Sessions sheet; wider layouts list sessions from the header's dropdown.
+  const [sessionsSheetOpen, setSessionsSheetOpen] = useState(false);
+
   // Arriving at a phone width closes the phone's Work Plan overlay: it would
-  // otherwise cover the conversation the moment the window narrows.
+  // otherwise cover the conversation the moment the window narrows. The same goes
+  // for the surfaces that take the whole phone screen — the file panel and the
+  // terminal — and leaving the phone width closes the sheet only it has.
   useEffect(() => {
-    if (isNarrowViewport) setNarrowWorkPlanOpen(false);
+    if (isNarrowViewport) {
+      setNarrowWorkPlanOpen(false);
+      setSidebarOpen(false);
+      setTerminalOpen(false);
+    } else {
+      setSessionsSheetOpen(false);
+    }
   }, [isNarrowViewport]);
 
   useEffect(() => {
@@ -398,6 +412,35 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
     const next = !workPlanOpen;
     setWorkPlanOpen(next);
     if (next) { setAnalysisOpen(false); setOutcomeOpen(false); }
+  }
+  /** What the phone's bottom navigation shows as current. */
+  const phoneSurface: PhoneSurface = terminalOpen && terminalEnabled
+    ? "terminal"
+    : sidebarOpen
+      ? "files"
+      : sessionsSheetOpen
+        ? "sessions"
+        : state.workPlan && narrowWorkPlanOpen
+          ? "plan"
+          : "chat";
+  /** One phone surface at a time: choosing one closes the others. */
+  function showPhoneSurface(surface: PhoneSurface) {
+    if (surface === "files") setSidebarMounted(true);
+    // The viewer belongs to Files: another surface closes it, unless it holds edits.
+    else if (!viewerDirty) {
+      if (state.gitShow) clearGitShow();
+      if (state.gitFileHistory) closeGitFileHistory();
+      if (state.openFile) closeFilePreview();
+    }
+    setSidebarOpen(surface === "files");
+    if (surface === "sessions" && !sessionsSheetOpen) {
+      clearSessionSearch();
+      listSessions();
+    }
+    setSessionsSheetOpen(surface === "sessions");
+    setNarrowWorkPlanOpen(surface === "plan");
+    if (surface === "plan") { setAnalysisOpen(false); setOutcomeOpen(false); }
+    setTerminalOpen(surface === "terminal" && terminalEnabled);
   }
   function toggleOutcome() {
     const next = !outcomeOpen;
@@ -905,6 +948,121 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
     );
   }
 
+  const renderSidebar = (fill: boolean) => (
+    <Sidebar
+      hidden={!sidebarOpen}
+      fill={fill}
+      key={JSON.stringify([boundKey, state.sandbox?.projectRoot ?? state.sandbox?.root])}
+      onUploadFile={uploadFile}
+      onExternalDragEnter={() => setDragDepth(0)}
+      tree={state.fileTree}
+      openFile={state.openFile}
+      writableRoot={state.writableRoot}
+      gitFiles={state.gitStatus?.files}
+      attachedPaths={attachedPaths}
+      onExpand={listDirectory}
+      onSelectDirectory={setTreeSelection}
+      onRefresh={refreshFileTree}
+      onSelectFile={(path) => {
+        setDiffOnOpen(false);
+        setTreeSelection(path);
+        readFile(path);
+      }}
+      onSelectDiff={(path) => {
+        setDiffOnOpen(true);
+        setTreeSelection(path);
+        readFile(path);
+      }}
+      onToggleAttachPath={toggleAttachPath}
+      onCreateFile={(path) => {
+        setDiffOnOpen(false);
+        createFile(path);
+      }}
+      onCreateDirectory={createDirectory}
+      onOpenNative={openNative}
+      onRevealNative={revealNative}
+      onRenameFile={renameFile}
+      onDeleteFile={deleteFile}
+      onMoveFile={moveFile}
+      onCopyFile={copyFile}
+      onDeleteFiles={deleteFiles}
+      onMoveFiles={moveFiles}
+      onRestoreDeleted={restoreDeleted}
+      onDownload={(paths, singleFile) => downloadEntries({ serverUrl, token: authToken, workspace: rawWorkspace }, paths, { singleFile })}
+      fileOperation={state.fileOperation}
+      createError={state.createError}
+      created={state.created}
+      contentSearch={state.contentSearch}
+      onSearchContent={searchContent}
+      onOpenSearchHit={(hit, query) => {
+        setDiffOnOpen(false);
+        setTreeSelection(hit.path);
+        readFile(hit.path, undefined, hit.kind === "line" ? { query, line: hit.line } : { query, page: hit.page });
+      }}
+    />
+  );
+
+  const viewers = (
+    <>
+      {state.openFile && (
+        <FileViewer
+          // Remount per file: edit drafts must never survive a switch to another path
+          key={state.openFile.path}
+          file={state.openFile}
+          writableRoot={state.writableRoot}
+          docxTemplate={state.docxTemplate}
+          isStreaming={state.isStreaming}
+          onDirtyChange={setViewerDirty}
+          gitState={state.gitStatus?.files[state.openFile.path]}
+          initialShowGitDiff={diffOnOpen}
+          gitDiff={state.gitDiff}
+          gitBaseline={state.gitBaseline?.path === state.openFile.path ? (state.gitBaseline.text ?? null) : null}
+          onFetchGitDiff={fetchGitDiff}
+          onClearGitDiff={clearGitDiff}
+          inRepository={repoForPath(state.gitStatus?.repos ?? [], state.openFile.path) !== null}
+          onOpenGitHistory={fetchGitFileHistory}
+          onClose={closePreview}
+          onReload={readFile}
+          onSave={writeFile}
+          serverUrl={serverUrl}
+          token={authToken}
+          workspace={rawWorkspace}
+          onOpenNative={openNative}
+          rawRevision={state.previewRevision}
+        />
+      )}
+      {state.gitFileHistory && (
+        <GitFileHistory
+          history={state.gitFileHistory}
+          diff={state.gitFileDiff}
+          dirty={state.gitStatus?.files[state.gitFileHistory.path] !== undefined}
+          onFetchDiff={fetchGitFileDiff}
+          onClearDiff={clearGitFileDiff}
+          onClose={closeGitFileHistory}
+        />
+      )}
+      {state.gitShow && <GitCommitView show={state.gitShow} onClose={clearGitShow} />}
+    </>
+  );
+
+  const viewerOpen = Boolean(state.openFile || state.gitFileHistory || state.gitShow);
+  /** Close the file viewer, asking first when it holds unsaved edits. */
+  const requestClosePreview = () => {
+    if (viewerDirty && !window.confirm("Discard unsaved changes?")) return;
+    closePreview();
+  };
+  /** The phone's viewer sheet peels one layer: a commit, a file's history, then the file. */
+  const phoneViewerBack = () => {
+    if (state.gitShow) clearGitShow();
+    else if (state.gitFileHistory) closeGitFileHistory();
+    else requestClosePreview();
+  };
+  const phoneViewerTitle = state.gitShow
+    ? "Commit"
+    : state.gitFileHistory
+      ? `History · ${state.gitFileHistory.path.split("/").pop()}`
+      : (state.openFile?.path.split("/").pop() ?? "File");
+
   const question = state.dialogQueue[0];
   // Keep the existing question-before-grant ordering, with both beside the timeline.
   const grant = question ? undefined : state.sandboxGrants?.pending[0];
@@ -931,58 +1089,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             </p>
           </div>
         )}
-        {(sidebarOpen || sidebarMounted) && (
-          <Sidebar
-            hidden={!sidebarOpen}
-            key={JSON.stringify([boundKey, state.sandbox?.projectRoot ?? state.sandbox?.root])}
-            onUploadFile={uploadFile}
-            onExternalDragEnter={() => setDragDepth(0)}
-            tree={state.fileTree}
-            openFile={state.openFile}
-            writableRoot={state.writableRoot}
-            gitFiles={state.gitStatus?.files}
-            attachedPaths={attachedPaths}
-            onExpand={listDirectory}
-            onSelectDirectory={setTreeSelection}
-            onRefresh={refreshFileTree}
-            onSelectFile={(path) => {
-              setDiffOnOpen(false);
-              setTreeSelection(path);
-              readFile(path);
-            }}
-            onSelectDiff={(path) => {
-              setDiffOnOpen(true);
-              setTreeSelection(path);
-              readFile(path);
-            }}
-            onToggleAttachPath={toggleAttachPath}
-            onCreateFile={(path) => {
-              setDiffOnOpen(false);
-              createFile(path);
-            }}
-            onCreateDirectory={createDirectory}
-            onOpenNative={openNative}
-            onRevealNative={revealNative}
-            onRenameFile={renameFile}
-            onDeleteFile={deleteFile}
-            onMoveFile={moveFile}
-            onCopyFile={copyFile}
-            onDeleteFiles={deleteFiles}
-            onMoveFiles={moveFiles}
-            onRestoreDeleted={restoreDeleted}
-            onDownload={(paths, singleFile) => downloadEntries({ serverUrl, token: authToken, workspace: rawWorkspace }, paths, { singleFile })}
-            fileOperation={state.fileOperation}
-            createError={state.createError}
-            created={state.created}
-            contentSearch={state.contentSearch}
-            onSearchContent={searchContent}
-            onOpenSearchHit={(hit, query) => {
-              setDiffOnOpen(false);
-              setTreeSelection(hit.path);
-              readFile(hit.path, undefined, hit.kind === "line" ? { query, line: hit.line } : { query, page: hit.page });
-            }}
-          />
-        )}
+        {!isNarrowViewport && (sidebarOpen || sidebarMounted) && renderSidebar(false)}
         <div className="flex h-full min-w-0 flex-1 flex-col">
           {/* Choosing a project root reuses the picker the sandbox root already
               uses — the same walk of the server's filesystem, for the same kind of
@@ -1145,13 +1252,17 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             onShowCommit={fetchGitShow}
             terminalOpen={terminalOpen}
             onToggleTerminal={terminalEnabled ? () => setTerminalOpen((prev) => !prev) : undefined}
+            compact={isNarrowViewport}
+            sessionName={state.sessionName}
+            {...(!embedded && !state.workspaceLocked ? { onOpenCliSessions: () => setCliSessionsOpen(true) } : {})}
           />
 
           {/* `z-0` makes this a stacking context, so everything inside it (the file
               viewer, a commit view) stays below the header's menus no matter what
               z-index it asks for. */}
           <div className="relative z-0 flex min-h-0 flex-1 flex-col">
-          {state.workPlan && (
+          {/* On a phone the plan is reached from the bottom navigation: no floating chip. */}
+          {state.workPlan && (!isNarrowViewport || narrowWorkPlanOpen) && (
             <WorkPlanPanel
               plan={state.workPlan}
               open={workPlanDisplayedOpen}
@@ -1175,6 +1286,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
                   setOutcomeOpen(false);
                   setAnalysisOpen(false);
                   setWorkPlanOpen(true);
+                  if (isNarrowViewport) showPhoneSurface("plan");
                 } else if (target.kind === "workspace-file") {
                   setDiffOnOpen(false);
                   readFile(target.path);
@@ -1185,44 +1297,8 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
               }}
             />
           )}
-          {state.openFile && (
-            <FileViewer
-              // Remount per file: edit drafts must never survive a switch to another path
-              key={state.openFile.path}
-              file={state.openFile}
-              writableRoot={state.writableRoot}
-              docxTemplate={state.docxTemplate}
-              isStreaming={state.isStreaming}
-              onDirtyChange={setViewerDirty}
-              gitState={state.gitStatus?.files[state.openFile.path]}
-              initialShowGitDiff={diffOnOpen}
-              gitDiff={state.gitDiff}
-              gitBaseline={state.gitBaseline?.path === state.openFile.path ? (state.gitBaseline.text ?? null) : null}
-              onFetchGitDiff={fetchGitDiff}
-              onClearGitDiff={clearGitDiff}
-              inRepository={repoForPath(state.gitStatus?.repos ?? [], state.openFile.path) !== null}
-              onOpenGitHistory={fetchGitFileHistory}
-              onClose={closePreview}
-              onReload={readFile}
-              onSave={writeFile}
-              serverUrl={serverUrl}
-              token={authToken}
-              workspace={rawWorkspace}
-              onOpenNative={openNative}
-              rawRevision={state.previewRevision}
-            />
-          )}
-          {state.gitFileHistory && (
-            <GitFileHistory
-              history={state.gitFileHistory}
-              diff={state.gitFileDiff}
-              dirty={state.gitStatus?.files[state.gitFileHistory.path] !== undefined}
-              onFetchDiff={fetchGitFileDiff}
-              onClearDiff={clearGitFileDiff}
-              onClose={closeGitFileHistory}
-            />
-          )}
-          {state.gitShow && <GitCommitView show={state.gitShow} onClose={clearGitShow} />}
+          {/* On a phone these open in a sheet of their own (below). */}
+          {!isNarrowViewport && viewers}
           {analysis && (
             <SessionAnalysisPanel
               analysis={analysis}
@@ -1231,7 +1307,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             />
           )}
           {/* Work Plan floats at the top right — as a chip when closed, a drawer when open; reserve its width. */}
-          {!embedded && !state.workspaceLocked && <div className={`flex justify-end px-3 py-1 ${analysisOpen ? "md:pr-[26rem]" : state.workPlan ? (workPlanDisplayedOpen ? "md:pr-[23rem]" : "pr-28") : ""}`}>
+          {!isNarrowViewport && !embedded && !state.workspaceLocked && <div className={`flex justify-end px-3 py-1 ${analysisOpen ? "md:pr-[26rem]" : state.workPlan ? (workPlanDisplayedOpen ? "md:pr-[23rem]" : "pr-28") : ""}`}>
             <button type="button" onClick={() => setCliSessionsOpen(true)} className="min-h-9 rounded-full border border-zinc-300 px-3 text-xs text-zinc-700 focus-visible:outline-2 focus-visible:outline-blue-500 dark:border-zinc-700 dark:text-zinc-200">Terminal sessions</button>
           </div>}
           <ActivityStrip state={state} onSwitchWorkspace={!embedded && !state.workspaceLocked ? switchWorkspace : undefined} />
@@ -1473,6 +1549,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
           {terminalEnabled && (
             <TerminalPanel
               open={terminalOpen}
+              fill={isNarrowViewport}
               onClose={() => setTerminalOpen(false)}
               cwd={state.workspace?.root}
               confinedRoot={state.terminal?.confined ? (state.sandbox?.root ?? state.workspace?.root) : undefined}
@@ -1565,8 +1642,57 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
               />
             </div>
           </footer>
+          {isNarrowViewport && (
+            <PhoneNav
+              active={phoneSurface}
+              onSelect={showPhoneSurface}
+              plan={state.workPlan ? { done: state.workPlan.tasks.filter((task) => task.status === "done").length, total: state.workPlan.tasks.length } : null}
+              terminal={terminalEnabled}
+            />
+          )}
         </div>
       </div>
+
+      {/* Phone surfaces. Files first, so a file opened from it is pushed over it. */}
+      {isNarrowViewport && sidebarOpen && (
+        <Sheet variant="full" title="Files" testId="phone-files-sheet" onClose={() => setSidebarOpen(false)}>
+          {renderSidebar(true)}
+        </Sheet>
+      )}
+      {isNarrowViewport && viewerOpen && (
+        <Sheet
+          variant="full"
+          title={phoneViewerTitle}
+          testId="phone-viewer-sheet"
+          onBack={phoneViewerBack}
+          backLabel={sidebarOpen && !state.gitShow && !state.gitFileHistory ? "Back to files" : "Back"}
+          onClose={() => {
+            if (state.openFile && viewerDirty && !window.confirm("Discard unsaved changes?")) return;
+            if (state.gitShow) clearGitShow();
+            if (state.gitFileHistory) closeGitFileHistory();
+            if (state.openFile) closePreview();
+          }}
+        >
+          {/* The viewers fill their positioned parent: here, the sheet's body. */}
+          <div className="relative h-full">{viewers}</div>
+        </Sheet>
+      )}
+      {isNarrowViewport && sessionsSheetOpen && (
+        <Sheet variant="full" title="Sessions" testId="phone-sessions-sheet" onClose={() => setSessionsSheetOpen(false)}>
+          <SessionList
+            sessions={state.sessions}
+            sessionSearch={state.sessionSearch}
+            sessionId={state.sessionId}
+            onSwitchSession={switchSession}
+            onDeleteSession={deleteSession}
+            onRenameSession={renameSession}
+            onSearchSessions={searchSessions}
+            onClearSessionSearch={clearSessionSearch}
+            onClose={() => setSessionsSheetOpen(false)}
+            scrollClassName="py-2"
+          />
+        </Sheet>
+      )}
 
       <ExtensionNotifications notifications={state.notifications} onDismiss={dismissNotification} />
       {cliSessionsOpen && <CliSessions state={state.cliBridge} connected={state.connected} onRequest={manageCliBridge} onClose={() => setCliSessionsOpen(false)} />}

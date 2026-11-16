@@ -240,14 +240,17 @@ describe("Work Plan across viewport classes", () => {
     stubWidth(390);
     render(<App />);
     expect(screen.queryByRole("complementary", { name: "Work Plan" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Open Work Plan" })).toBeInTheDocument();
+    // On a phone the plan lives in the bottom navigation, not in a floating chip.
+    expect(screen.queryByRole("button", { name: "Open Work Plan" })).toBeNull();
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(within(nav).getByRole("button", { name: /Plan/ })).toHaveTextContent("0/1");
   });
 
   it("closes the phone overlay when the window narrows, and restores the desktop state when it widens", () => {
     const resize = stubWidth(390);
     mockUseAgent.mockReturnValue(agentApi(agentState({ workPlan })));
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Open Work Plan" }));
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Primary" })).getByRole("button", { name: /Plan/ }));
     expect(screen.getByRole("complementary", { name: "Work Plan" })).toBeInTheDocument();
 
     resize(1280);
@@ -256,6 +259,172 @@ describe("Work Plan across viewport classes", () => {
 
     resize(390);
     expect(screen.queryByRole("complementary", { name: "Work Plan" })).toBeNull();
+  });
+});
+
+describe("Phone shell", () => {
+  const workPlan = {
+    version: 1 as const,
+    id: "p",
+    title: "Shell plan",
+    updatedAt: "2026-09-01T00:00:00Z",
+    tasks: [
+      { id: "a", title: "First", status: "done" as const, dependsOn: [], resources: [], evidence: [] },
+      { id: "b", title: "Second", status: "todo" as const, dependsOn: [], resources: [], evidence: [] },
+    ],
+  };
+  function stubWidth(initial: number) {
+    let width = initial;
+    const listeners = new Set<() => void>();
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      get matches() {
+        if (query === "(max-width: 767px)") return width <= 767;
+        if (query === "(max-width: 1023px)") return width <= 1023;
+        return false;
+      },
+      media: query,
+      addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+      // The terminal's xterm still uses the legacy pair
+      addListener: () => {},
+      removeListener: () => {},
+    })));
+    return (next: number) => { width = next; act(() => { for (const listener of [...listeners]) listener(); }); };
+  }
+  afterEach(() => vi.unstubAllGlobals());
+  const nav = () => screen.getByRole("navigation", { name: "Primary" });
+  const navButton = (name: RegExp) => within(nav()).getByRole("button", { name });
+
+  it("keeps the desktop header row and shows no bottom navigation at 1280", () => {
+    stubWidth(1280);
+    mockUseAgent.mockReturnValue(agentApi(agentState({ workPlan, terminal: { enabled: true } })));
+    render(<App />);
+    expect(screen.queryByRole("navigation", { name: "Primary" })).toBeNull();
+    expect(screen.queryByTestId("compact-header")).toBeNull();
+    expect(screen.getByRole("button", { name: "◨ files" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "sessions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Terminal sessions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /terminal$/ })).toBeInTheDocument();
+  });
+
+  it("renders a one-row header with the session title and the secondary controls in the overflow sheet", () => {
+    stubWidth(390);
+    mockUseAgent.mockReturnValue(agentApi(agentState({ sessionName: "Fix the login bug", items: [{ kind: "user", text: "hi" }] })));
+    render(<App />);
+    const header = screen.getByTestId("compact-header");
+    expect(header).toHaveTextContent("Fix the login bug");
+    // The wide bar's controls are not in the row itself
+    expect(within(header).queryByRole("button", { name: "sessions" })).toBeNull();
+    expect(within(header).queryByRole("button", { name: /files/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Terminal sessions" })).toBeNull();
+
+    fireEvent.click(within(header).getByRole("button", { name: "More controls" }));
+    const sheet = screen.getByRole("dialog", { name: "Controls" });
+    for (const name of [/^Filter/, "Export the conversation as HTML", /^Theme/, /^Outcome/, "+ new", /tree/i, "Terminal sessions"]) {
+      expect(within(sheet).getAllByRole("button", { name }).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("closes the overflow sheet when one of its controls opens something over the conversation", () => {
+    stubWidth(390);
+    const api = agentApi(agentState());
+    mockUseAgent.mockReturnValue(api);
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "More controls" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Controls" })).getByRole("button", { name: "+ new" }));
+    expect(api.newSession).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog", { name: "Controls" })).toBeNull();
+  });
+
+  it("offers Chat, Files, Sessions, Plan with progress, and Terminal only when enabled", () => {
+    stubWidth(390);
+    mockUseAgent.mockReturnValue(agentApi(agentState({ workPlan })));
+    const first = render(<App />);
+    expect(within(nav()).getAllByRole("button").map((button) => button.textContent)).toEqual(["Chat", "Files", "Sessions", "1/2Plan"]);
+    expect(navButton(/Chat/)).toHaveAttribute("aria-current", "page");
+    first.unmount();
+
+    mockUseAgent.mockReturnValue(agentApi(agentState({ terminal: { enabled: true } })));
+    render(<App />);
+    expect(navButton(/Terminal/)).toBeInTheDocument();
+    // No plan in this session: Plan is there but cannot be chosen
+    expect(navButton(/Plan/)).toBeDisabled();
+  });
+
+  it("opens Files as a sheet, pushes the file viewer over it, and back returns to the tree", () => {
+    stubWidth(390);
+    const api = agentApi(agentState({ fileTree: { "": [{ name: "notes.md", type: "file" }] } }));
+    mockUseAgent.mockReturnValue(api);
+    const view = render(<App />);
+    fireEvent.click(navButton(/Files/));
+    expect(navButton(/Files/)).toHaveAttribute("aria-current", "page");
+    const files = screen.getByTestId("phone-files-sheet");
+    expect(within(files).getByRole("complementary", { name: "Files" })).toBeInTheDocument();
+
+    // The file opens: the viewer is pushed as a second sheet, with back to the tree
+    const opened = agentApi(agentState({
+      fileTree: { "": [{ name: "notes.md", type: "file" }] },
+      openFile: { status: "loaded", path: "notes.md", content: "x", size: 1, mtimeMs: 1 },
+    }));
+    mockUseAgent.mockReturnValue(opened);
+    view.rerender(<App />);
+    const viewer = screen.getByTestId("phone-viewer-sheet");
+    expect(within(viewer).getByRole("heading", { name: "notes.md" })).toBeInTheDocument();
+    fireEvent.click(within(viewer).getByRole("button", { name: "Back to files" }));
+    expect(opened.closeFilePreview).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("phone-files-sheet")).toBeInTheDocument();
+
+    fireEvent.click(within(screen.getByTestId("phone-files-sheet")).getByRole("button", { name: "Close" }));
+    expect(screen.queryByTestId("phone-files-sheet")).toBeNull();
+    expect(navButton(/Chat/)).toHaveAttribute("aria-current", "page");
+  });
+
+  it("lists sessions in a sheet and closes it when a session is chosen", () => {
+    stubWidth(390);
+    const sessions = [
+      { id: "sess_1", path: "/s/1.jsonl", name: "Current", modified: "2026-09-01T00:00:00Z", messageCount: 2 },
+      { id: "sess_2", path: "/s/2.jsonl", name: "Older one", modified: "2026-08-01T00:00:00Z", messageCount: 4 },
+    ];
+    const api = agentApi(agentState({ sessions }));
+    mockUseAgent.mockReturnValue(api);
+    render(<App />);
+    fireEvent.click(navButton(/Sessions/));
+    expect(api.listSessions).toHaveBeenCalledTimes(1);
+    const sheet = screen.getByTestId("phone-sessions-sheet");
+    fireEvent.click(within(sheet).getByRole("button", { name: /Older one/ }));
+    expect(api.switchSession).toHaveBeenCalledWith("/s/2.jsonl");
+    expect(screen.queryByTestId("phone-sessions-sheet")).toBeNull();
+  });
+
+  it("opens the terminal full screen and choosing it again returns to the chat", () => {
+    stubWidth(390);
+    mockUseAgent.mockReturnValue(agentApi(agentState({ terminal: { enabled: true } })));
+    render(<App />);
+    fireEvent.click(navButton(/Terminal/));
+    const terminal = screen.getByTestId("terminal-sheet");
+    expect(terminal).toHaveClass("fixed", "inset-0");
+    expect(terminal.getAttribute("style") ?? "").not.toMatch(/vh/);
+    fireEvent.click(within(terminal).getByRole("button", { name: "Close Terminal" }));
+    expect(terminal).toHaveClass("hidden");
+    expect(navButton(/Chat/)).toHaveAttribute("aria-current", "page");
+  });
+
+  it("switches surfaces one at a time and leaves no phone sheet behind at a desktop width", () => {
+    const resize = stubWidth(390);
+    mockUseAgent.mockReturnValue(agentApi(agentState({ workPlan })));
+    render(<App />);
+    fireEvent.click(navButton(/Plan/));
+    expect(screen.getByRole("complementary", { name: "Work Plan" })).toBeInTheDocument();
+    fireEvent.click(navButton(/Sessions/));
+    expect(screen.getByTestId("phone-sessions-sheet")).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Work Plan" })).toBeNull();
+
+    resize(1280);
+    expect(screen.queryByTestId("phone-sessions-sheet")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Primary" })).toBeNull();
+    resize(390);
+    expect(screen.queryByTestId("phone-sessions-sheet")).toBeNull();
+    expect(navButton(/Chat/)).toHaveAttribute("aria-current", "page");
   });
 });
 

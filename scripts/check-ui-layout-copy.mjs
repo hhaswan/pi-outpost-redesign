@@ -1,4 +1,5 @@
-/** Real browser over plain HTTP: Work Plan never covers Terminal sessions; code copy works without navigator.clipboard. */
+/** Real browser over plain HTTP: Work Plan never covers Terminal sessions; code copy works without navigator.clipboard.
+ * On a phone both live elsewhere (bottom navigation, header overflow sheet): nothing floats over the conversation there. */
 import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';
 import {chromium} from 'playwright';import {SessionManager} from '@earendil-works/pi-coding-agent';
 import {makeWorkspace,startServer} from '../server/test/harness.mjs';
@@ -19,6 +20,29 @@ try{for(const width of [1280,390]){
  const ctx=await b.newContext({viewport:{width,height:800}});const page=await ctx.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(s.base.replace('127.0.0.1',lan)+'?token=probe-token-0123456789abcdef0123456789');
  assert.equal(await page.evaluate(()=>window.isSecureContext),false,'must reproduce insecure plain HTTP');
+ const phone=width<768;
+ if(phone){
+  const nav=page.getByRole('navigation',{name:'Primary'});const navButton=n=>nav.getByRole('button',{name:n});
+  await navButton('Sessions').click();await page.getByTestId('phone-sessions-sheet').getByText('Copy fixture',{exact:true}).click();
+  await page.getByTestId('phone-sessions-sheet').waitFor({state:'detached'});
+  await page.getByRole('button',{name:'Copy code'}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Open Work Plan'}).count(),0,'floating Plan chip on a phone');
+  assert.equal(await page.getByRole('button',{name:'Terminal sessions'}).count(),0,'Terminal sessions row on a phone');
+  await page.getByRole('button',{name:'More controls'}).click();
+  await page.getByTestId('compact-header-more').getByRole('button',{name:'Terminal sessions'}).waitFor();
+  await page.keyboard.press('Escape');await page.getByTestId('compact-header-more').waitFor({state:'detached'});
+  const onTop=async(locator,label)=>{const box=await locator.boundingBox();const hit=await page.evaluate(([x,y])=>{const el=document.elementFromPoint(x,y);return el?.closest('button')?.textContent??null},[box.x+box.width/2,box.y+box.height/2]);assert.equal(hit,await locator.textContent(),`${label} not on top`)};
+  for(let i=0;i<7;i++){await navButton(/Plan/).click();}
+  await page.getByRole('complementary',{name:'Work Plan'}).waitFor();await onTop(navButton(/Plan/),'Plan nav with the drawer open');
+  await navButton('Chat').click();await page.getByRole('complementary',{name:'Work Plan'}).waitFor({state:'detached'});
+  await page.evaluate(()=>{window.__copied=null;document.addEventListener('copy',e=>{window.__copied=document.getSelection()?.toString()??null})});
+  const copy=page.getByRole('button',{name:'Copy code'});await copy.click();await copy.click({force:true}).catch(()=>{});
+  await page.getByRole('button',{name:'Copied'}).first().waitFor();
+  assert.match(await page.evaluate(()=>window.__copied),/migrate\.sh version/);
+  await page.getByRole('button',{name:/Copy code|Copied|Copy failed/}).first().dblclick();await page.waitForTimeout(1700);
+  assert.equal(await page.getByRole('button',{name:'Copy code'}).count(),1,'copy button returns to idle after double click');
+  assert.deepEqual(errors,[]);console.log(`PASS width ${width}: nothing floats on the phone, Plan in the nav, copy works on insecure HTTP`);await ctx.close();continue;
+ }
  await page.getByRole('button',{name:'sessions',exact:true}).click();await page.getByText('Copy fixture',{exact:true}).click();
  const term=page.getByRole('button',{name:'Terminal sessions'});await term.waitFor();
  const apart=(a,c)=>a.x>=c.x+c.width||c.x>=a.x+a.width||a.y>=c.y+c.height||c.y>=a.y+a.height;

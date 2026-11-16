@@ -2,19 +2,24 @@
  * Built-app responsive gate: the real bundle (cli/dist) in a real browser at phone,
  * tablet and desktop widths.
  *
- * At each width, for each surface it can open (the chat, the Work Plan, the sessions
- * sidebar), it checks that:
+ * At each width, for each surface it can open, it checks that:
  * - the document does not scroll horizontally;
  * - no visible interactive control extends beyond the viewport;
  * - the element at each visible button's centre is that button (nothing covers it);
  * - no page error was thrown.
+ * On phone widths the surfaces are the phone shell's: the header's overflow sheet (and
+ * Settings opened inside it), Files, a file pushed over Files and back, Sessions, the
+ * Work Plan and the terminal, each from the bottom navigation. At wider widths they are
+ * the Work Plan and the sessions dropdown; at 1280 it also asserts the desktop header
+ * is still one row with its own controls and that there is no bottom navigation.
  * On phone widths it also measures hit areas below 44x44 px. That list is printed
  * only, unless `--strict-touch` is given: later phases of responsive-mobile-layout
  * make it pass.
  *
- * Usage: node scripts/check-responsive.mjs [--report] [--strict-touch] [--width=360,...]
+ * Usage: node scripts/check-responsive.mjs [--report] [--strict-touch] [--width=360,...] [--shots=dir]
  *   --report        print every violation and exit 0 (a broken fixture still exits 1)
  *   --strict-touch  count small phone hit areas as violations
+ *   --shots=dir     save a screenshot of every checked screen into dir
  *
  * Isolation: a throwaway workspace and agent dir, no extensions, offline, and private
  * bridge, handoff and reservation registries, so a CLI on this machine never sees the
@@ -31,6 +36,8 @@ const args = process.argv.slice(2);
 const reportOnly = args.includes('--report');
 const strictTouch = args.includes('--strict-touch');
 const widthArg = args.find((a) => a.startsWith('--width='));
+const shotsDir = args.find((a) => a.startsWith('--shots='))?.slice('--shots='.length);
+if (shotsDir) await fs.mkdir(shotsDir, { recursive: true });
 const VIEWPORTS = [
   { width: 360, height: 740 },
   { width: 390, height: 844 },
@@ -112,6 +119,9 @@ function inspect({ phone, minTarget, surface }) {
   const controls = document.querySelectorAll('button, a[href], input:not([type=hidden]), select, textarea, [role=button], [role=tab], [role=menuitem], [role=treeitem], [tabindex]:not([tabindex="-1"])');
   for (const el of controls) {
     if (el.closest('[inert],[aria-hidden="true"]')) continue;
+    // Inside a closed <details> only the summary is rendered.
+    const closedDetails = el.closest('details:not([open])');
+    if (closedDetails && !el.closest('summary')?.parentElement?.isSameNode(closedDetails)) continue;
     const r = el.getBoundingClientRect();
     if (r.width * r.height < 4) continue; // visually hidden (sr-only, file inputs)
     if (!shown(el)) continue;
@@ -137,7 +147,7 @@ function inspect({ phone, minTarget, surface }) {
   return out;
 }
 
-const server = await startServer(root, { sandbox: false, noExtensions: true }, { entry: path.resolve('cli/dist/pi-outpost.mjs'), env });
+const server = await startServer(root, { sandbox: false, noExtensions: true, terminal: { enabled: true } }, { entry: path.resolve('cli/dist/pi-outpost.mjs'), env });
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH });
 const results = [];
 let failed = false;
@@ -161,10 +171,104 @@ try {
 
     const check = async (name, surface = null) => {
       const found = await page.evaluate(inspect, { phone, minTarget: MIN_TARGET, surface });
+      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, `${viewport.width}-${name.replace(/[^a-z0-9]+/gi, '-')}.png`) });
       results.push({ width: viewport.width, surface: name, ...found, errors: [...errors] });
       errors.length = 0;
     };
     await check('chat');
+
+    /** A broken expectation about the shell, reported like any other violation. */
+    const expect = (name, ok, message) => {
+      if (!ok) results.push({ width: viewport.width, surface: name, overflow: null, offscreen: [], covered: [], small: [], behindSurface: 0, errors: [], broken: [message] });
+    };
+    const nav = page.getByRole('navigation', { name: 'Primary' });
+    const navButton = (name) => nav.getByRole('button', { name, exact: false });
+    const noPhoneSheets = async (name) => {
+      const left = await page.evaluate(() => [...document.querySelectorAll('[data-testid^="phone-"][data-testid$="-sheet"], [data-testid="compact-header-more"]')].map((n) => n.dataset.testid));
+      expect(name, left.length === 0, `sheets left open: ${left.join(', ')}`);
+    };
+
+    if (phone) {
+      expect('shell', await nav.isVisible(), 'no bottom navigation on a phone');
+      const header = page.getByTestId('compact-header');
+      const headerBox = await header.boundingBox();
+      expect('shell', headerBox && headerBox.height <= 45, `phone header ${headerBox?.height}px tall, expected one 44px row`);
+      expect('shell', (await navButton('Chat').getAttribute('aria-current')) === 'page', 'Chat is not the current surface');
+
+      // The overflow sheet, and Settings opened in place inside it.
+      await page.getByRole('button', { name: 'More controls' }).click();
+      const more = page.getByTestId('compact-header-more');
+      await more.waitFor();
+      await check('overflow menu', '[data-testid="compact-header-more"]');
+      await more.getByRole('button', { name: 'Settings' }).click();
+      await page.waitForTimeout(200);
+      await check('overflow menu: settings', '[data-testid="compact-header-more"]');
+      await page.keyboard.press('Escape');
+      if (await more.isVisible()) await more.getByRole('button', { name: 'Close' }).first().click();
+      await noPhoneSheets('overflow menu closed');
+
+      // Files, then a file pushed over it, and back.
+      await navButton('Files').click();
+      const files = page.getByTestId('phone-files-sheet');
+      await files.waitFor();
+      await files.getByText('README.md', { exact: true }).waitFor();
+      await check('files', '[data-testid="phone-files-sheet"]');
+      await files.getByText('README.md', { exact: true }).click();
+      const viewer = page.getByTestId('phone-viewer-sheet');
+      await viewer.getByText('Responsive fixture', { exact: false }).first().waitFor();
+      await check('file viewer', '[data-testid="phone-viewer-sheet"]');
+      await viewer.getByRole('button', { name: 'Back to files' }).click();
+      await viewer.waitFor({ state: 'detached' });
+      expect('file viewer back', await files.isVisible(), 'back from the viewer did not return to Files');
+      await files.getByRole('button', { name: 'Close' }).last().click();
+      await noPhoneSheets('files closed');
+
+      await navButton('Sessions').click();
+      const sessionsSheet = page.getByTestId('phone-sessions-sheet');
+      await sessionsSheet.getByText(SESSION_TITLE, { exact: true }).waitFor();
+      await check('sessions sheet', '[data-testid="phone-sessions-sheet"]');
+      await sessionsSheet.getByRole('button', { name: 'Close' }).click();
+      await noPhoneSheets('sessions closed');
+
+      await navButton('Plan').click();
+      await page.getByRole('complementary', { name: 'Work Plan' }).waitFor();
+      await check('plan', 'aside[aria-label="Work Plan"]');
+      await navButton('Chat').click();
+      expect('plan closed', !(await page.getByRole('complementary', { name: 'Work Plan' }).isVisible()), 'Chat did not close the Work Plan');
+
+      if (await navButton('Terminal').isVisible()) {
+        await navButton('Terminal').click();
+        const terminal = page.getByTestId('terminal-sheet');
+        await terminal.waitFor();
+        await page.waitForTimeout(500);
+        const scroll = await page.evaluate(() => ({ doc: document.documentElement.scrollHeight - window.innerHeight, top: window.scrollY }));
+        expect('terminal', scroll.doc <= 1 && scroll.top === 0, `page scrolls under the terminal (${scroll.doc}px)`);
+        await check('terminal', '[data-testid="terminal-sheet"]');
+        await terminal.getByRole('button', { name: 'Close Terminal' }).click();
+        await terminal.waitFor({ state: 'hidden' });
+      } else {
+        console.log(`NOTE ${viewport.width}px terminal: not enabled in this build's fixture, skipped`);
+      }
+      await check('chat after surfaces');
+      await context.close();
+      continue;
+    }
+
+    if (viewport.width >= 1024) {
+      expect('desktop shell', !(await nav.count()), 'bottom navigation shown on a desktop');
+      expect('desktop shell', !(await page.getByTestId('compact-header').count()), 'compact header shown on a desktop');
+      const row = await page.evaluate(() => {
+        const header = document.querySelector('header');
+        const kids = [...(header?.querySelectorAll('button') ?? [])].filter((b) => b.getBoundingClientRect().height > 0);
+        const tops = new Set(kids.map((b) => Math.round(b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)));
+        return { height: header?.getBoundingClientRect().height ?? 0, rows: tops.size, labels: kids.map((b) => (b.textContent || '').trim()) };
+      });
+      expect('desktop shell', row.height < 60 && row.rows === 1, `desktop header ${row.height}px over ${row.rows} rows`);
+      for (const label of ['◨ files', 'sessions']) {
+        expect('desktop shell', row.labels.includes(label), `desktop header lost "${label}"`);
+      }
+      expect('desktop shell', await page.getByRole('button', { name: 'Terminal sessions' }).isVisible(), 'desktop lost Terminal sessions');
+    }
 
     // Work Plan: the opposite of its default state at this width, then back.
     const openPlan = page.getByRole('button', { name: 'Open Work Plan' });
@@ -224,6 +328,7 @@ for (const r of results) {
     ...r.offscreen.map((v) => `offscreen: ${v}`),
     ...r.covered.map((v) => `covered: ${v}`),
     ...r.errors.map((v) => `page error: ${v}`),
+    ...(r.broken ?? []).map((v) => `shell: ${v}`),
     ...(strictTouch ? r.small.map((v) => `hit area: ${v}`) : []),
   ];
   if (violations.length) failed = true;

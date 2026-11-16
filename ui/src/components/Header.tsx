@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { PiPackageInfo, Theme } from "@pi-outpost/shared";
 import type { AgentState } from "../useAgent";
 import { MIN_SESSION_QUERY_LENGTH, type AgentResourceInventory, type GitUnavailable, type SessionSummary, type TreeNode, type WorkspaceInfo } from "@pi-outpost/shared";
@@ -20,6 +20,7 @@ import { SettingsMenu } from "./SettingsMenu";
 import type { PiPackageEdits } from "./PiPackages";
 import { TreeMenu } from "./TreeMenu";
 import { HEADER_CONTROL } from "./headerControl";
+import { Sheet } from "./Sheet";
 
 interface HeaderProps {
   credentials?: AgentState["credentials"];
@@ -159,6 +160,16 @@ interface HeaderProps {
   gitSelectedPath: string | null;
   terminalOpen?: boolean;
   onToggleTerminal?: () => void;
+  /**
+   * The phone layout: one row (project, session title, `⋯`) with the secondary
+   * controls in a bottom sheet. Files, sessions and the terminal are reached from
+   * the bottom navigation instead, so they are not in it.
+   */
+  compact?: boolean;
+  /** The current session's name, the compact bar's title. */
+  sessionName?: string | null;
+  /** Opens the CLI sessions panel; offered in the compact bar's sheet only. */
+  onOpenCliSessions?: () => void;
 }
 
 const SESSION_SEARCH_DEBOUNCE_MS = 200;
@@ -174,7 +185,11 @@ function RenameField({ initial, onCommit, onCancel }: { initial: string; onCommi
       onBlur={onCancel}
       onKeyDown={(event) => {
         if (event.key === "Enter") onCommit(value);
-        else if (event.key === "Escape") onCancel();
+        else if (event.key === "Escape") {
+          // Cancelling the rename is all this Escape means: a sheet holding the list stays.
+          event.preventDefault();
+          onCancel();
+        }
       }}
       placeholder="Session name (empty to clear)"
       aria-label="Session name"
@@ -374,37 +389,44 @@ function SessionBranch({
   );
 }
 
-/**
- * Saved sessions: named (the agent titles a session after its first exchange, the
- * user renames with ✎) and searchable — the query is matched server-side against
- * the whole transcript, so a session is findable by anything ever said in it.
- */
-function SessionMenu({
-  sessions,
-  sessionSearch,
-  sessionId,
-  onSwitchSession,
-  onDeleteSession,
-  onListSessions,
-  onRenameSession,
-  onSearchSessions,
-  onClearSessionSearch,
-}: Pick<
+type SessionListProps = Pick<
   HeaderProps,
   | "sessions"
   | "sessionSearch"
   | "sessionId"
   | "onSwitchSession"
   | "onDeleteSession"
-  | "onListSessions"
   | "onRenameSession"
   | "onSearchSessions"
   | "onClearSessionSearch"
->) {
-  const [open, setOpen] = useState(false);
+> & {
+  /** Leave the list: a session was chosen. */
+  onClose: () => void;
+  /** Class of the scrolling region; the dropdown caps its height, a sheet does not. */
+  scrollClassName?: string;
+};
+
+/**
+ * The saved sessions with their search, as shown while open.
+ *
+ * Mounted only while open, so every opening starts from an empty query and no
+ * rename in progress. The header's dropdown and the phone's Sessions sheet both
+ * render this one list.
+ */
+export function SessionList({
+  sessions,
+  sessionSearch,
+  sessionId,
+  onSwitchSession,
+  onDeleteSession,
+  onRenameSession,
+  onSearchSessions,
+  onClearSessionSearch,
+  onClose,
+  scrollClassName = "min-h-0 overflow-y-auto py-2",
+}: SessionListProps) {
   const [query, setQuery] = useState("");
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
-  const ref = useClickOutside(() => setOpen(false));
 
   const trimmed = query.trim();
   // A single letter would scan every transcript for nothing useful — the server
@@ -413,7 +435,6 @@ function SessionMenu({
 
   // Debounced: every keystroke re-reads every session file on the server
   useEffect(() => {
-    if (!open) return;
     if (!searching) {
       onClearSessionSearch();
       return;
@@ -421,12 +442,7 @@ function SessionMenu({
     const timer = setTimeout(() => onSearchSessions(trimmed), SESSION_SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, trimmed, searching]);
-
-  function close() {
-    setOpen(false);
-    setRenamingPath(null);
-  }
+  }, [trimmed, searching]);
 
   // While an answer is in flight the results are empty but not *known* to be empty:
   // rendering "no matches" there would call every query a miss for a whole round trip.
@@ -435,18 +451,73 @@ function SessionMenu({
   const rows = searching ? (pending ? null : (sessionSearch?.results ?? null)) : sessions;
 
   return (
+    <>
+      <div className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search sessions"
+          aria-label="Search sessions"
+          className="w-full rounded-full border border-zinc-300 bg-transparent px-2 py-1 text-sm outline-none placeholder:text-zinc-400 focus:border-zinc-500 dark:border-zinc-700 dark:placeholder:text-zinc-600 dark:focus:border-zinc-500"
+        />
+        <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
+          Searches Outpost transcripts; available CLI titles and opening messages · ✎ to rename Outpost sessions
+        </p>
+      </div>
+      <div className={scrollClassName}>
+        {rows === null && <div className="px-3 py-2 text-xs text-zinc-500">loading…</div>}
+        {rows?.length === 0 && (
+          <div className="px-3 py-2 text-xs text-zinc-500">{searching ? "no matches" : "no saved sessions"}</div>
+        )}
+        {rows && rows.length > 0 && (
+          <ul aria-label="Saved sessions" className="px-2">
+            {sessionTree(rows).map((node) => (
+              <SessionBranch
+                key={`${trimmed}:${node.session.path}`}
+                node={node}
+                sessionId={sessionId}
+                renamingPath={renamingPath}
+                setRenamingPath={setRenamingPath}
+                onSwitchSession={onSwitchSession}
+                onDeleteSession={onDeleteSession}
+                onRenameSession={onRenameSession}
+                close={onClose}
+                searching={searching}
+                onSearchSessions={onSearchSessions}
+                query={query}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+    </>
+  );
+}
+
+/**
+ * Saved sessions: named (the agent titles a session after its first exchange, the
+ * user renames with ✎) and searchable — the query is matched server-side against
+ * the whole transcript, so a session is findable by anything ever said in it.
+ */
+function SessionMenu({
+  onListSessions,
+  ...list
+}: Omit<SessionListProps, "onClose" | "scrollClassName"> & Pick<HeaderProps, "onListSessions">) {
+  const [open, setOpen] = useState(false);
+  const ref = useClickOutside(() => setOpen(false));
+
+  return (
     <div className="static sm:relative" ref={ref}>
       <button
         type="button"
         onClick={() => {
           if (open) {
-            close();
+            setOpen(false);
             return;
           }
           setOpen(true);
-          setQuery("");
-          setRenamingPath(null);
-          onClearSessionSearch();
+          list.onClearSessionSearch();
           onListSessions();
         }}
         className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
@@ -455,45 +526,7 @@ function SessionMenu({
       </button>
       {open && (
         <div className="absolute inset-x-4 top-full z-20 mt-1 flex max-h-96 w-auto max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl sm:left-auto sm:right-0 sm:w-96 dark:border-zinc-700 dark:bg-zinc-900">
-          <div className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search sessions"
-              aria-label="Search sessions"
-              className="w-full rounded-full border border-zinc-300 bg-transparent px-2 py-1 text-sm outline-none placeholder:text-zinc-400 focus:border-zinc-500 dark:border-zinc-700 dark:placeholder:text-zinc-600 dark:focus:border-zinc-500"
-            />
-            <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
-              Searches Outpost transcripts; available CLI titles and opening messages · ✎ to rename Outpost sessions
-            </p>
-          </div>
-          <div className="min-h-0 overflow-y-auto py-2">
-            {rows === null && <div className="px-3 py-2 text-xs text-zinc-500">loading…</div>}
-            {rows?.length === 0 && (
-              <div className="px-3 py-2 text-xs text-zinc-500">{searching ? "no matches" : "no saved sessions"}</div>
-            )}
-            {rows && rows.length > 0 && (
-              <ul aria-label="Saved sessions" className="px-2">
-                {sessionTree(rows).map((node) => (
-                  <SessionBranch
-                    key={`${trimmed}:${node.session.path}`}
-                    node={node}
-                    sessionId={sessionId}
-                    renamingPath={renamingPath}
-                    setRenamingPath={setRenamingPath}
-                    onSwitchSession={onSwitchSession}
-                    onDeleteSession={onDeleteSession}
-                    onRenameSession={onRenameSession}
-                    close={close}
-                    searching={searching}
-                    onSearchSessions={onSearchSessions}
-                    query={query}
-                  />
-                ))}
-              </ul>
-            )}
-          </div>
+          <SessionList {...list} onClose={() => setOpen(false)} />
         </div>
       )}
     </div>
@@ -736,16 +769,8 @@ export function Header(props: HeaderProps) {
   // which runs before a parent's ref is attached — a ref would still be empty then.
   const [bar, setBar] = useState<HTMLElement | null>(null);
 
-  return (
-    // `relative z-30`: the dropdowns below (sessions, tree, git) are absolutely
-    // positioned and spill over the content area. Without a stacking context of its
-    // own, the header competes there on DOM order alone — and the open FileViewer,
-    // declared after it, wins. The menus would open *behind* the file preview.
-    <header ref={setBar} className="relative z-30 flex min-w-0 flex-wrap items-center gap-1.5 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
-      {/* The workspace affordance comes first: it scopes everything else in this
-          bar. Which one appears is the deployment's choice; the project selector
-          still renders nothing while a single project is open or on a pinned
-          server, and `none` is an embed that offers neither. */}
+  const workspaceAffordance = (
+    <>
       {props.workspaceControl === "projects" && (
         <ProjectMenu
           workspace={props.workspace}
@@ -769,6 +794,136 @@ export function Header(props: HeaderProps) {
           onSelect={props.rootControl.onSelect}
         />
       )}
+    </>
+  );
+  const outcomeButton = (onClick: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={props.outcomeOpen}
+      title="Review structured workspace Outcome"
+      className={`${HEADER_CONTROL} ${
+        props.outcomeOpen
+          ? "border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
+          : props.workspace?.activity === "ready-for-review"
+            ? "border-amber-400 text-amber-700 dark:text-amber-300"
+            : "border-zinc-300 text-zinc-500 hover:border-zinc-400 dark:border-zinc-800 dark:text-zinc-400"
+      }`}
+    >
+      Outcome{props.workspace?.activity === "ready-for-review" ? " •" : ""}
+    </button>
+  );
+  const gitMenu = props.gitAvailable ? (
+    <GitMenu
+      status={props.gitStatus}
+      selected={props.gitSelectedPath}
+      log={props.gitLog}
+      onFetchLog={props.onFetchGitLog}
+      onCloseLog={props.onCloseGitLog}
+      onShowCommit={props.onShowCommit}
+    />
+  ) : null;
+  const exportButton = props.onExportConversation ? (
+    <button
+      type="button"
+      onClick={props.onExportConversation}
+      disabled={Boolean(props.exportProgress)}
+      aria-busy={Boolean(props.exportProgress)}
+      title="Save the whole conversation as one HTML file"
+      aria-label="Export the conversation as HTML"
+      className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 disabled:cursor-progress disabled:opacity-60 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
+    >
+      {props.exportProgress ?? "↓ html"}
+    </button>
+  ) : null;
+  const themeToggle = props.showThemeToggle ? <ThemeToggle theme={props.theme} preference={props.themePreference} onSetTheme={props.onSetTheme} onToggle={props.onToggleTheme} /> : null;
+  const newSessionButton = (onClick: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      title="new session"
+      className={`${HEADER_CONTROL} border-emerald-300 text-emerald-700 hover:border-emerald-500 hover:text-emerald-600 dark:border-emerald-900 dark:text-emerald-400 dark:hover:border-emerald-600 dark:hover:text-emerald-300`}
+    >
+      + new
+    </button>
+  );
+  const treeMenu = (onNavigate: (entryId: string) => void, onFork: (entryId: string) => void) => (
+    <TreeMenu
+      tree={props.tree}
+      isStreaming={isStreaming}
+      onListTree={props.onListTree}
+      onNavigate={onNavigate}
+      onFork={onFork}
+    />
+  );
+  const settingsMenu = (
+    <SettingsMenu
+      credentials={props.credentials}
+      login={props.login}
+      onStartLogin={props.onStartLogin}
+      onAnswerLogin={props.onAnswerLogin}
+      onCancelLogin={props.onCancelLogin}
+      onDismissLogin={props.onDismissLogin}
+      onLogoutProvider={props.onLogoutProvider}
+      gitHostCredential={props.gitHostCredential ?? null}
+      {...(props.onSetGitHostCredential ? { onSetGitHostCredential: props.onSetGitHostCredential } : {})}
+      {...(props.onRemoveGitHostCredential ? { onRemoveGitHostCredential: props.onRemoveGitHostCredential } : {})}
+      extensionPaths={props.extensionPaths}
+      configuredExtensionPaths={props.configuredExtensionPaths}
+      userExtensionPaths={props.userExtensionPaths}
+      extensionLock={props.extensionLock}
+      piPackages={props.piPackages ?? null}
+      piPackageUpdate={props.piPackageUpdate ?? null}
+      {...(props.piPackageEdits ? { piPackageEdits: props.piPackageEdits } : {})}
+      canRestartServer={props.canRestartServer ?? false}
+      serverRestarting={props.serverRestarting ?? false}
+      {...(props.onCheckPiPackages ? { onCheckPiPackages: props.onCheckPiPackages } : {})}
+      {...(props.onUpdatePiPackage ? { onUpdatePiPackage: props.onUpdatePiPackage } : {})}
+      {...(props.onRestartServer ? { onRestartServer: props.onRestartServer } : {})}
+      restartNeeded={props.restartNeeded ?? []}
+      tools={props.tools ?? []}
+      commands={props.commands ?? []}
+      sandbox={props.sandbox}
+      // The roots are shown where the interface is about one project; with several
+      // offered and open, Settings is about the agent's permissions.
+      showRoots={!(props.workspaceControl === "projects" && props.workspaces.filter((w) => !w.sideOf).length > 1)}
+      gitUnavailable={props.gitUnavailable}
+      userSkillPaths={props.userSkillPaths}
+      serverBrowse={props.serverBrowse}
+      applyState={props.settingsApply}
+      agentResources={props.agentResources}
+      agentResourceOperations={props.agentResourceOperations}
+      versions={props.versions}
+      onBrowseServerPath={props.onBrowseServerPath}
+      onCloseServerBrowser={props.onCloseServerBrowser}
+      pickerBlocked={props.settingsPickerBlocked}
+      onPickerOpened={props.onSettingsPickerOpened}
+      onRestartSession={props.onRestartSession}
+      onUpdateConfig={props.onUpdateConfig}
+      onSuggestAgentResourceClonePath={props.onSuggestAgentResourceClonePath}
+      onCloneAgentResourceRepository={props.onCloneAgentResourceRepository}
+      onEnrollAgentResourceRepository={props.onEnrollAgentResourceRepository}
+      onSetAgentResourceSkills={props.onSetAgentResourceSkills}
+      onRemoveAgentResourceRepository={props.onRemoveAgentResourceRepository}
+      onRefreshAgentResourceRepositories={props.onRefreshAgentResourceRepositories}
+      onUpdateAgentResourceRepository={props.onUpdateAgentResourceRepository}
+    />
+  );
+  const filterMenu = <ConversationFilterMenu filters={props.filters} onFilterChange={props.onFilterChange} />;
+
+  if (props.compact) return <CompactHeader {...props} parts={{ workspaceAffordance, outcomeButton, gitMenu, exportButton, themeToggle, newSessionButton, treeMenu, settingsMenu, filterMenu }} />;
+
+  return (
+    // `relative z-30`: the dropdowns below (sessions, tree, git) are absolutely
+    // positioned and spill over the content area. Without a stacking context of its
+    // own, the header competes there on DOM order alone — and the open FileViewer,
+    // declared after it, wins. The menus would open *behind* the file preview.
+    <header ref={setBar} className="relative z-30 flex min-w-0 flex-wrap items-center gap-1.5 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
+      {/* The workspace affordance comes first: it scopes everything else in this
+          bar. Which one appears is the deployment's choice; the project selector
+          still renders nothing while a single project is open or on a pinned
+          server, and `none` is an embed that offers neither. */}
+      {workspaceAffordance}
       {/* File/repo controls live on the left, the side their panel opens on */}
       <button
         type="button"
@@ -783,31 +938,8 @@ export function Header(props: HeaderProps) {
       >
         {props.sidebarOpen ? "◧" : "◨"} files
       </button>
-      <button
-        type="button"
-        onClick={props.onToggleOutcome}
-        aria-pressed={props.outcomeOpen}
-        title="Review structured workspace Outcome"
-        className={`${HEADER_CONTROL} ${
-          props.outcomeOpen
-            ? "border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
-            : props.workspace?.activity === "ready-for-review"
-              ? "border-amber-400 text-amber-700 dark:text-amber-300"
-              : "border-zinc-300 text-zinc-500 hover:border-zinc-400 dark:border-zinc-800 dark:text-zinc-400"
-        }`}
-      >
-        Outcome{props.workspace?.activity === "ready-for-review" ? " •" : ""}
-      </button>
-      {props.gitAvailable && (
-        <GitMenu
-          status={props.gitStatus}
-          selected={props.gitSelectedPath}
-          log={props.gitLog}
-          onFetchLog={props.onFetchGitLog}
-          onCloseLog={props.onCloseGitLog}
-          onShowCommit={props.onShowCommit}
-        />
-      )}
+      {outcomeButton(props.onToggleOutcome)}
+      {gitMenu}
 
       {/* The title gives way first: it names the deployment, which the reader knows,
           while the project and the branch beside it say where the agent works. */}
@@ -822,20 +954,8 @@ export function Header(props: HeaderProps) {
       <ExtensionStatuses statuses={props.statuses} bar={bar} />
 
       <div className="ml-auto flex w-full max-w-full shrink-0 flex-wrap items-center gap-1 sm:w-auto sm:gap-1.5">
-        <ConversationFilterMenu filters={props.filters} onFilterChange={props.onFilterChange} />
-        {props.onExportConversation && (
-          <button
-            type="button"
-            onClick={props.onExportConversation}
-            disabled={Boolean(props.exportProgress)}
-            aria-busy={Boolean(props.exportProgress)}
-            title="Save the whole conversation as one HTML file"
-            aria-label="Export the conversation as HTML"
-            className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 disabled:cursor-progress disabled:opacity-60 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
-          >
-            {props.exportProgress ?? "↓ html"}
-          </button>
-        )}
+        {filterMenu}
+        {exportButton}
         {props.onToggleTerminal && (
           <button
             type="button"
@@ -851,22 +971,9 @@ export function Header(props: HeaderProps) {
             &gt;_ terminal
           </button>
         )}
-        {props.showThemeToggle && <ThemeToggle theme={props.theme} preference={props.themePreference} onSetTheme={props.onSetTheme} onToggle={props.onToggleTheme} />}
-        <button
-          type="button"
-          onClick={props.onNewSession}
-          title="new session"
-          className={`${HEADER_CONTROL} border-emerald-300 text-emerald-700 hover:border-emerald-500 hover:text-emerald-600 dark:border-emerald-900 dark:text-emerald-400 dark:hover:border-emerald-600 dark:hover:text-emerald-300`}
-        >
-          + new
-        </button>
-        <TreeMenu
-          tree={props.tree}
-          isStreaming={isStreaming}
-          onListTree={props.onListTree}
-          onNavigate={props.onNavigateTree}
-          onFork={props.onForkSession}
-        />
+        {themeToggle}
+        {newSessionButton(props.onNewSession)}
+        {treeMenu(props.onNavigateTree, props.onForkSession)}
         <SessionMenu
           sessions={props.sessions}
           sessionSearch={props.sessionSearch}
@@ -878,62 +985,106 @@ export function Header(props: HeaderProps) {
           onSearchSessions={props.onSearchSessions}
           onClearSessionSearch={props.onClearSessionSearch}
         />
-        <SettingsMenu
-          credentials={props.credentials}
-          login={props.login}
-          onStartLogin={props.onStartLogin}
-          onAnswerLogin={props.onAnswerLogin}
-          onCancelLogin={props.onCancelLogin}
-          onDismissLogin={props.onDismissLogin}
-          onLogoutProvider={props.onLogoutProvider}
-          gitHostCredential={props.gitHostCredential ?? null}
-          {...(props.onSetGitHostCredential ? { onSetGitHostCredential: props.onSetGitHostCredential } : {})}
-          {...(props.onRemoveGitHostCredential ? { onRemoveGitHostCredential: props.onRemoveGitHostCredential } : {})}
-          extensionPaths={props.extensionPaths}
-          configuredExtensionPaths={props.configuredExtensionPaths}
-          userExtensionPaths={props.userExtensionPaths}
-          extensionLock={props.extensionLock}
-          piPackages={props.piPackages ?? null}
-          piPackageUpdate={props.piPackageUpdate ?? null}
-          {...(props.piPackageEdits ? { piPackageEdits: props.piPackageEdits } : {})}
-          canRestartServer={props.canRestartServer ?? false}
-          serverRestarting={props.serverRestarting ?? false}
-          {...(props.onCheckPiPackages ? { onCheckPiPackages: props.onCheckPiPackages } : {})}
-          {...(props.onUpdatePiPackage ? { onUpdatePiPackage: props.onUpdatePiPackage } : {})}
-          {...(props.onRestartServer ? { onRestartServer: props.onRestartServer } : {})}
-          restartNeeded={props.restartNeeded ?? []}
-          tools={props.tools ?? []}
-          commands={props.commands ?? []}
-          sandbox={props.sandbox}
-          // The roots are shown where the interface is about one project; with several
-          // offered and open, Settings is about the agent's permissions.
-          showRoots={!(props.workspaceControl === "projects" && props.workspaces.filter((w) => !w.sideOf).length > 1)}
-          gitUnavailable={props.gitUnavailable}
-          userSkillPaths={props.userSkillPaths}
-          serverBrowse={props.serverBrowse}
-          applyState={props.settingsApply}
-          agentResources={props.agentResources}
-          agentResourceOperations={props.agentResourceOperations}
-          versions={props.versions}
-          onBrowseServerPath={props.onBrowseServerPath}
-          onCloseServerBrowser={props.onCloseServerBrowser}
-          pickerBlocked={props.settingsPickerBlocked}
-          onPickerOpened={props.onSettingsPickerOpened}
-          onRestartSession={props.onRestartSession}
-          onUpdateConfig={props.onUpdateConfig}
-          onSuggestAgentResourceClonePath={props.onSuggestAgentResourceClonePath}
-          onCloneAgentResourceRepository={props.onCloneAgentResourceRepository}
-          onEnrollAgentResourceRepository={props.onEnrollAgentResourceRepository}
-          onSetAgentResourceSkills={props.onSetAgentResourceSkills}
-          onRemoveAgentResourceRepository={props.onRemoveAgentResourceRepository}
-          onRefreshAgentResourceRepositories={props.onRefreshAgentResourceRepositories}
-          onUpdateAgentResourceRepository={props.onUpdateAgentResourceRepository}
-        />
+        {settingsMenu}
         <span
           className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-500" : "bg-red-500"}`}
           title={connected ? "connected" : "disconnected"}
         />
       </div>
+    </header>
+  );
+}
+
+/**
+ * In the compact sheet the header's dropdowns open in place, under their button,
+ * instead of floating: an absolute panel anchored to a button in a phone-wide sheet
+ * would hang off its edge, and the sheet clips it. These target each dropdown's own
+ * panel (`absolute top-full`, or `absolute right-0` for the filter list).
+ */
+const INLINE_DROPDOWNS = [
+  "[&>*]:max-w-full",
+  "[&_.absolute.top-full]:static [&_.absolute.top-full]:mt-2 [&_.absolute.top-full]:w-[calc(100vw-1.5rem)] [&_.absolute.top-full]:max-w-full [&_.absolute.top-full]:max-h-none [&_.absolute.top-full]:shadow-none",
+  "[&_.absolute.right-0]:static [&_.absolute.right-0]:mt-2 [&_.absolute.right-0]:w-[calc(100vw-1.5rem)] [&_.absolute.right-0]:max-w-full [&_.absolute.right-0]:max-h-none [&_.absolute.right-0]:shadow-none",
+].join(" ");
+
+interface CompactParts {
+  workspaceAffordance: ReactNode;
+  outcomeButton: (onClick: () => void) => ReactNode;
+  gitMenu: ReactNode;
+  exportButton: ReactNode;
+  themeToggle: ReactNode;
+  newSessionButton: (onClick: () => void) => ReactNode;
+  treeMenu: (onNavigate: (entryId: string) => void, onFork: (entryId: string) => void) => ReactNode;
+  settingsMenu: ReactNode;
+  filterMenu: ReactNode;
+}
+
+/**
+ * The phone's header: one 44 px row. The same controls the wide bar shows sit in
+ * the `⋯` sheet; those that open something over the conversation close the sheet
+ * first, so what they open is not hidden behind it.
+ */
+function CompactHeader({ parts, ...props }: HeaderProps & { parts: CompactParts }) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const closing = <T extends unknown[]>(run: (...args: T) => void) => (...args: T) => {
+    setMoreOpen(false);
+    run(...args);
+  };
+  const hasStatuses = Object.values(props.statuses).some((text) => stripAnsi(text).trim() !== "");
+  return (
+    <header
+      data-testid="compact-header"
+      className="relative z-30 box-content flex h-11 min-w-0 shrink-0 items-center gap-1 border-b border-zinc-200 px-2 pt-[env(safe-area-inset-top)] dark:border-zinc-800"
+    >
+      <div className="flex min-w-0 max-w-[45%] shrink-0 items-center">{parts.workspaceAffordance}</div>
+      <span
+        title={props.sessionName ?? undefined}
+        className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-zinc-800 dark:text-zinc-100"
+      >
+        {props.sessionName?.trim() || "New session"}
+      </span>
+      <span
+        className={`h-2 w-2 shrink-0 rounded-full ${props.connected ? "bg-emerald-500" : "bg-red-500"}`}
+        title={props.connected ? "connected" : "disconnected"}
+      />
+      <button
+        type="button"
+        onClick={() => setMoreOpen(true)}
+        aria-label="More controls"
+        aria-haspopup="dialog"
+        aria-expanded={moreOpen}
+        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl leading-none text-zinc-600 transition-colors hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-zinc-300 dark:hover:bg-zinc-800"
+      >
+        <span aria-hidden="true">⋯</span>
+      </button>
+      {moreOpen && (
+        <Sheet variant="bottom" title="Controls" onClose={() => setMoreOpen(false)} testId="compact-header-more">
+          <div className={`flex flex-wrap items-start gap-2 p-3 [&>button]:min-w-11 [&>button]:justify-center [&>div>button]:min-w-11 [&>div>button]:justify-center ${INLINE_DROPDOWNS}`}>
+            {hasStatuses && (
+              <div className="max-w-full overflow-x-auto">
+                <ExtensionStatuses statuses={props.statuses} bar={null} />
+              </div>
+            )}
+            {parts.gitMenu}
+            {parts.filterMenu}
+            {parts.exportButton}
+            {parts.themeToggle}
+            {parts.outcomeButton(closing(props.onToggleOutcome))}
+            {parts.treeMenu(closing(props.onNavigateTree), closing(props.onForkSession))}
+            {parts.newSessionButton(closing(props.onNewSession))}
+            {props.onOpenCliSessions && (
+              <button
+                type="button"
+                onClick={closing(props.onOpenCliSessions)}
+                className={`${HEADER_CONTROL} border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500`}
+              >
+                Terminal sessions
+              </button>
+            )}
+            {parts.settingsMenu}
+          </div>
+        </Sheet>
+      )}
     </header>
   );
 }

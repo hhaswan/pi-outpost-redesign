@@ -115,6 +115,16 @@ const settle = (page) => page.waitForTimeout(450);
 const focusedName = (page) => page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null);
 
 async function openSession(page, title) {
+  // A phone lists sessions from the bottom navigation, in a sheet.
+  const navSessions = page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Sessions' });
+  await page.getByRole('button', { name: 'sessions', exact: true }).or(navSessions).first().waitFor();
+  if (await navSessions.isVisible()) {
+    await navSessions.click();
+    const sheet = page.getByTestId('phone-sessions-sheet');
+    await sheet.getByText(title, { exact: true }).first().click({ timeout: 8000 });
+    await sheet.waitFor({ state: 'detached' });
+    return;
+  }
   const entry = page.getByText(title, { exact: true });
   await page.getByRole('button', { name: 'sessions', exact: true }).waitFor();
   await page.waitForTimeout(300);

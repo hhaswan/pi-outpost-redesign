@@ -8,6 +8,8 @@ import { PanelResizeHandle, useResizablePanelWidth } from "./PanelResizeHandle";
 
 interface SidebarProps {
   hidden?: boolean;
+  /** Fill the container (the phone's Files sheet) instead of a resizable column. */
+  fill?: boolean;
   tree: Record<string, DirState>;
   openFile: OpenFile | null;
   /** Writable zone in the tree; see SessionSnapshot.writableRoot. */
@@ -57,6 +59,7 @@ interface SidebarProps {
 /** Collapsible file-browser sidebar: lazy tree; selecting a file opens the FileViewer overlay. */
 export function Sidebar({
   hidden,
+  fill = false,
   tree,
   openFile,
   writableRoot,
@@ -129,8 +132,8 @@ export function Sidebar({
         event.preventDefault();
         event.stopPropagation();
       }}
-      style={{ width: resize.width, display: hidden ? "none" : undefined }}
-      className="relative flex shrink-0 flex-col border-r border-zinc-200 dark:border-zinc-800"
+      style={{ width: fill ? undefined : resize.width, display: hidden ? "none" : undefined }}
+      className={fill ? "relative flex h-full w-full flex-col" : "relative flex shrink-0 flex-col border-r border-zinc-200 dark:border-zinc-800"}
     >
       <div className="flex items-center border-b border-zinc-200 px-3 py-2 text-xs font-semibold uppercase text-zinc-400 dark:border-zinc-800 dark:text-zinc-600">
         Files
@@ -141,7 +144,7 @@ export function Sidebar({
             aria-pressed={searching}
             title="Search in files"
             aria-label="Search in files"
-            className={`ml-auto rounded-full p-0.5 normal-case hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-400 hover:opacity-80 transition-opacity ${
+            className={`ml-auto rounded-full ${fill ? "inline-flex h-11 w-11 items-center justify-center" : "p-0.5"} normal-case hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-400 hover:opacity-80 transition-opacity ${
               searching ? "text-zinc-700 dark:text-zinc-300" : ""
             }`}
           >
@@ -195,12 +198,14 @@ export function Sidebar({
           created={created}
         />
       </div>
-      <PanelResizeHandle
-        label="Resize Files sidebar"
-        width={resize.width}
-        config={FILES_SIDEBAR_WIDTH}
-        separatorProps={resize.separatorProps}
-      />
+      {!fill && (
+        <PanelResizeHandle
+          label="Resize Files sidebar"
+          width={resize.width}
+          config={FILES_SIDEBAR_WIDTH}
+          separatorProps={resize.separatorProps}
+        />
+      )}
     </aside>
   );
 }
