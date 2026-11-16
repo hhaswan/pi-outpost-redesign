@@ -13,6 +13,7 @@ import { normalizeMathDelimiters } from "../util/markdownMath";
 import { isDrawioFile, isExternalRef, rawFileUrl, resolveRelativeHref } from "../util/workspacePath";
 import { DrawioBlock } from "./DrawioBlock";
 import { CopyButton } from "./CopyButton";
+import { LightboxImage } from "./ImageLightbox";
 
 type AttributeSchema = NonNullable<Schema["attributes"]>;
 type PropertyDefinition = AttributeSchema[string][number];
@@ -157,14 +158,14 @@ export function AssistantMessage({ item, serverUrl = "", token = null, workspace
   // Workspace-relative references in replies: images load through the raw-bytes
   // endpoint, links open the file viewer. External URLs pass through untouched.
   const components = useMemo(() => {
-    function MarkdownImg({ src, alt, ...rest }: React.ImgHTMLAttributes<HTMLImageElement>) {
+    function MarkdownImg({ src, alt }: React.ImgHTMLAttributes<HTMLImageElement>) {
       // A workspace .drawio referenced as a picture is drawn, not fetched as an image
       if (isWorkspaceDrawio(src)) return <DrawioBlock path={workspaceDrawioPath(src)} variant="reply" />;
       const resolved =
         typeof src === "string" && src !== "" && !isExternalRef(src)
           ? rawFileUrl(serverUrl, resolveRelativeHref("", src), token, undefined, workspace)
           : src;
-      return <img {...rest} src={resolved} alt={alt ?? ""} loading="lazy" className="max-h-96 max-w-full rounded-2xl object-contain" />;
+      return <LightboxImage src={typeof resolved === "string" ? resolved : undefined} alt={alt ?? ""} group="conversation" loading="lazy" className="max-h-96 max-w-full rounded-2xl object-contain" />;
     }
 
     function MarkdownLink({ href, children, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement>) {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatItem, WireImage } from "@pi-outpost/shared";
+import { LightboxImage } from "./ImageLightbox";
 
 type UserItem = Extract<ChatItem, { kind: "user" }>;
 
@@ -114,10 +115,11 @@ export function UserMessage({ item, canEdit, onEdit, queued }: UserMessageProps)
         {item.images && item.images.length > 0 && (
           <div className="mb-1.5 flex flex-wrap gap-1.5">
             {item.images.map((image, j) => (
-              <img
+              <LightboxImage
                 key={j}
                 src={`data:${image.mimeType};base64,${image.data}`}
-                alt=""
+                group="conversation"
+                label={`Open attached image ${j + 1}`}
                 className="max-h-48 max-w-full rounded-2xl object-contain"
               />
             ))}

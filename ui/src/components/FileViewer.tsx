@@ -26,6 +26,7 @@ import type { ValidatedStructuredExchange } from "@pi-outpost/shared/structured-
 import { StructuredExchangeDocument } from "../presentations/StructuredExchangeView";
 import type { DocumentExport } from "../presentations/documentExport";
 import { FindBar } from "./FindBar";
+import { LightboxImage } from "./ImageLightbox";
 import { findMatchesInText, highlightMatches, type DomMatch } from "../util/findInPage";
 import type { PdfFindState, PdfViewerHandle } from "./PdfViewer";
 
@@ -767,12 +768,12 @@ export function FileViewer({
                   },
                   // Relative image references resolve against this file's directory
                   // and load through /files/raw (the text protocol refuses binary)
-                  img: ({ src, alt, ...rest }) => {
+                  img: ({ src, alt }) => {
                     const resolved =
                       typeof src === "string" && src !== "" && !/^[a-z][a-z0-9+.-]*:/i.test(src) && !src.startsWith("//")
                         ? rawFileUrl(serverUrl, resolveRelativeHref(file.path, src), token, undefined, workspace)
                         : src;
-                    return <img {...rest} src={resolved} alt={alt ?? ""} loading="lazy" className="max-w-full rounded-2xl" />;
+                    return <LightboxImage src={typeof resolved === "string" ? resolved : undefined} alt={alt ?? ""} group={`file:${file.path}`} loading="lazy" className="max-w-full rounded-2xl" />;
                   },
                 }}
               >
@@ -1146,10 +1147,12 @@ export function FileViewer({
         )}
         {image && edit === null && !showGitDiff && (
           <div className="flex h-full items-center justify-center p-4">
-            <img
+            <LightboxImage
               src={rawFileUrl(serverUrl, file.path, token, rawRevision, workspace)}
               alt={file.path}
+              group={`file:${file.path}`}
               onLoad={() => onImageLoad?.(file.path)}
+              triggerClassName="flex h-full max-h-full max-w-full items-center justify-center"
               className="max-h-full max-w-full rounded-2xl object-contain"
             />
           </div>
