@@ -59,6 +59,7 @@ import { WorkPlanPanel } from "./components/WorkPlanPanel";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { OutcomePanel } from "./components/OutcomePanel";
 import { useAgent } from "./useAgent";
+import { useViewport } from "./useViewport";
 
 export interface AppHandle {
   setTheme(theme: Theme): void;
@@ -354,27 +355,18 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
   // Session analysis drawer: closed until asked for, from the model bar's usage indicator.
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [workPlanOpen, setWorkPlanOpen] = useState(true);
-  const [isNarrowViewport, setIsNarrowViewport] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
+  const viewport = useViewport();
+  const isNarrowViewport = viewport.kind === "phone";
   const [narrowWorkPlanOpen, setNarrowWorkPlanOpen] = useState(false);
   const workPlanDisplayedOpen = isNarrowViewport ? narrowWorkPlanOpen : workPlanOpen;
   const [terminalOpen, setTerminalOpen] = useState(false);
   const terminalEnabled = state.terminal?.enabled ?? false;
 
+  // Arriving at a phone width closes the phone's Work Plan overlay: it would
+  // otherwise cover the conversation the moment the window narrows.
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 767px)");
-    const updateViewport = () => {
-      const nextIsNarrow = media.matches;
-      if (nextIsNarrow) setNarrowWorkPlanOpen(false);
-      setIsNarrowViewport(nextIsNarrow);
-    };
-    updateViewport();
-    media.addEventListener("change", updateViewport);
-    window.addEventListener("resize", updateViewport);
-    return () => {
-      media.removeEventListener("change", updateViewport);
-      window.removeEventListener("resize", updateViewport);
-    };
-  }, []);
+    if (isNarrowViewport) setNarrowWorkPlanOpen(false);
+  }, [isNarrowViewport]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

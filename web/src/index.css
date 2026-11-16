@@ -63,6 +63,14 @@ body,
   height: 100%;
 }
 
+/* The standalone page sizes to the dynamic viewport: on a phone `100%` is the
+   tallest the window can be, so the composer sat under the browser's toolbar.
+   `body > #root` never matches inside the widget's shadow tree (no body there),
+   so a mounted widget keeps filling its host. Browsers without `dvh` keep 100%. */
+body > #root {
+  height: 100dvh;
+}
+
 /* #root is body's equivalent inside the widget's shadow tree (no <body> there) —
    same id as the standalone app's mount point, see embed/src/mount.tsx. */
 body,

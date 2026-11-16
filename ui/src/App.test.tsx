@@ -205,6 +205,60 @@ describe("Workspace Outcome", () => {
   });
 });
 
+describe("Work Plan across viewport classes", () => {
+  const workPlan = {
+    version: 1 as const,
+    id: "p",
+    title: "Viewport plan",
+    updatedAt: "2026-09-01T00:00:00Z",
+    tasks: [{ id: "task", title: "Viewport task", status: "todo" as const, dependsOn: [], resources: [], evidence: [] }],
+  };
+  function stubWidth(initial: number) {
+    let width = initial;
+    const listeners = new Set<() => void>();
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      get matches() {
+        if (query === "(max-width: 767px)") return width <= 767;
+        if (query === "(max-width: 1023px)") return width <= 1023;
+        return false;
+      },
+      media: query,
+      addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+    })));
+    return (next: number) => { width = next; act(() => { for (const listener of [...listeners]) listener(); }); };
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("starts open on a desktop and closed on a phone", () => {
+    stubWidth(1280);
+    mockUseAgent.mockReturnValue(agentApi(agentState({ workPlan })));
+    const desktop = render(<App />);
+    expect(screen.getByRole("complementary", { name: "Work Plan" })).toBeInTheDocument();
+    desktop.unmount();
+
+    stubWidth(390);
+    render(<App />);
+    expect(screen.queryByRole("complementary", { name: "Work Plan" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open Work Plan" })).toBeInTheDocument();
+  });
+
+  it("closes the phone overlay when the window narrows, and restores the desktop state when it widens", () => {
+    const resize = stubWidth(390);
+    mockUseAgent.mockReturnValue(agentApi(agentState({ workPlan })));
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Open Work Plan" }));
+    expect(screen.getByRole("complementary", { name: "Work Plan" })).toBeInTheDocument();
+
+    resize(1280);
+    // The desktop keeps its own open state, which was never closed.
+    expect(screen.getByRole("complementary", { name: "Work Plan" })).toBeInTheDocument();
+
+    resize(390);
+    expect(screen.queryByRole("complementary", { name: "Work Plan" })).toBeNull();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // TokenGate path — authRequired: true
 // ---------------------------------------------------------------------------

@@ -1,10 +1,10 @@
 # Tasks
 
 ## 1. Foundations
-- [ ] 1.1 `useViewport()` hook (phone/tablet/desktop, coarse pointer) with unit tests; replace private narrow checks.
-- [ ] 1.2 `Sheet` component (full and bottom), focus trap, Escape/back close, scroll lock, tests.
-- [ ] 1.3 Viewport meta, `100dvh` shell, safe-area padding utilities.
-- [ ] 1.4 Built-app Playwright gate `scripts/check-responsive.mjs` at 360, 390, 768, 1280: no document overflow, no element beyond viewport, no overlapping controls at button centres, hit areas ≥ 44 px on phones, no page errors. Isolate the bridge registry (`PI_OUTPOST_BRIDGE_DIR`) in the fixture. Add to `update-custom-native.sh`.
+- [x] 1.1 `useViewport()` hook (phone/tablet/desktop, coarse pointer) with unit tests; replace private narrow checks.
+- [x] 1.2 `Sheet` component (full and bottom), focus trap, Escape/back close, scroll lock, tests.
+- [x] 1.3 Viewport meta, `100dvh` shell, safe-area padding utilities.
+- [ ] 1.4 Built-app Playwright gate `scripts/check-responsive.mjs` at 360, 390, 768, 1280: no document overflow, no element beyond viewport, no overlapping controls at button centres, hit areas ≥ 44 px on phones, no page errors. Isolate the bridge registry (`PI_OUTPOST_BRIDGE_DIR`) in the fixture. Add to `update-custom-native.sh`. (Gate written; hit areas report-only until `--strict-touch`; not yet in the updater.)
 
 ## 2. Phone shell
 - [ ] 2.1 One-row header with overflow menu; move secondary controls into it.
