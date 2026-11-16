@@ -33,12 +33,9 @@ At 1024 px and above the layout SHALL remain as before this change.
 - **THEN** they pass unchanged and the header stays on one row
 
 ### Requirement: InteractiveImageLightbox
-Images in the conversation (user attachments, assistant/tool images, markdown images) and in the
-file viewer SHALL open in a full-screen lightbox. The lightbox SHALL support zoom by pinch and
-double tap on touch, by mouse wheel (centred on the cursor), double click and `+`/`-`/`0` keys on
-desktop, panning while zoomed, previous/next among the conversation's images (arrows, swipe), and
-closing by Escape, the close button, the backdrop, or swipe down when not zoomed. Focus SHALL
-return to the opening image.
+Conversation and file-viewer images SHALL open in a full-screen lightbox with zoom (pinch, double
+tap/click, mouse wheel, keys), panning, previous/next, and closing by Escape, button, backdrop or
+swipe down. Focus SHALL return to the opening image.
 
 #### Scenario: ImageOpensAndZooms
 - **GIVEN** a conversation with two images
