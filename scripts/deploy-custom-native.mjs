@@ -84,7 +84,7 @@ async function verifyBrowser(){
  try{const page=await browser.newPage({viewport:{width:390,height:900}});let errors=0;page.on('pageerror',()=>errors++);
  await page.addInitScript(token=>localStorage.setItem('pi-outpost:token',token),config.server.token);
  await page.goto(`http://127.0.0.1:${port}`);await page.getByRole('region',{name:'Activity',exact:true}).waitFor({timeout:90000});
- await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();await page.getByRole('dialog',{name:'CLI sessions',exact:true}).waitFor();await page.getByRole('button',{name:'Close CLI sessions'}).click();
+ {const more=page.getByRole('button',{name:'More controls',exact:true});if(await more.isVisible())await more.click();}/* phone: Terminal sessions is in the Controls sheet */await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();await page.getByRole('dialog',{name:'CLI sessions',exact:true}).waitFor();await page.getByRole('button',{name:'Close CLI sessions'}).click();
  const model=page.getByRole('button',{name:'Model',exact:true});await model.click();
  await page.getByRole('combobox',{name:'Search models'}).fill('NO-SUCH-MODEL-DEPLOY');
  await page.getByText('No models found.',{exact:true}).waitFor();await page.keyboard.press('Escape');
