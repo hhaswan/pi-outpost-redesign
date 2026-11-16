@@ -161,10 +161,15 @@ try {
     const box = await img.boundingBox();
     assert.ok(box.width >= 400, `image shown at ${box.width}px, expected its natural size or larger`);
     await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3);
-    await page.mouse.wheel(0, -400);
+    // One mouse notch (deltaY 100) is one gradual step, not a jump to the maximum.
+    await page.mouse.wheel(0, -100);
+    await settle(page);
+    const notch = await scaleOf(page);
+    assert.ok(notch > 1.1 && notch < 1.5, `one wheel notch must zoom gradually, scale ${notch}`);
+    await page.mouse.wheel(0, -100);
     await settle(page);
     const zoomed = await scaleOf(page);
-    assert.ok(zoomed > 1.1, `wheel up must enlarge, scale ${zoomed}`);
+    assert.ok(zoomed > notch + 0.1 && zoomed < 2, `a second notch must zoom a further step, scale ${zoomed}`);
     // Centred on the cursor: the image point under it stays under it.
     const after = await img.boundingBox();
     const fx = (box.x + box.width * 0.3 - after.x) / after.width;

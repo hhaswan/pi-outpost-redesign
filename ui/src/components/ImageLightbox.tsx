@@ -292,7 +292,10 @@ export function ImageLightbox({ group, root, opener, initialId, onClose }: Image
           limitToBounds
           centerZoomedOut
           doubleClick={{ mode: "toggle", step: 1.2 }}
-          wheel={{ step: 0.2 }}
+          // The library adds step × |deltaY| per wheel event (smooth mode). One mouse notch is
+          // deltaY ≈ 100, so 0.2 jumped straight to the maximum. 0.0025 makes a notch +25 %,
+          // while a trackpad's small deltas still zoom finely.
+          wheel={{ step: 0.0025 }}
           panning={{ disabled: !zoomed, velocityDisabled: true }}
           onTransform={(_ref, state) => {
             scaleRef.current = state.scale;

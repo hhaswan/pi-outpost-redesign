@@ -26,16 +26,18 @@ export function UpdateNotice({ notice }: { notice: OutpostUpdateNotice }) {
     <div
       role="status"
       data-testid="update-notice"
-      className="flex items-center gap-2 border-b border-sky-200 bg-sky-50 px-4 py-1.5 text-xs text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-sky-200 bg-sky-50 px-4 py-1.5 text-xs text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200"
     >
-      <span className="min-w-0 flex-1">
-        pi-outpost {notice.latest} is available (you have {notice.running}). {notice.instruction}{" "}
+      {/* Phones get one line: the version and its notes. The instruction and command
+          are for a terminal, which is a wider screen anyway. */}
+      <span className="min-w-0 flex-1 truncate sm:whitespace-normal">
+        pi-outpost {notice.latest} is available<span className="hidden sm:inline"> (you have {notice.running}). {notice.instruction}</span>{" "}
         <a href={notice.releaseNotes} target="_blank" rel="noreferrer" className="font-medium underline underline-offset-2">
           What's new
         </a>
       </span>
-      <code className="shrink-0 rounded-full bg-white/70 px-1.5 py-0.5 font-mono dark:bg-sky-900/40">{notice.copy}</code>
-      <CopyButton text={notice.copy} />
+      <code className="hidden shrink-0 rounded-full bg-white/70 px-1.5 py-0.5 font-mono sm:inline dark:bg-sky-900/40">{notice.copy}</code>
+      <span className="hidden sm:inline-flex"><CopyButton text={notice.copy} /></span>
       <button
         type="button"
         aria-label="Dismiss the update notice"
@@ -47,7 +49,7 @@ export function UpdateNotice({ notice }: { notice: OutpostUpdateNotice }) {
           }
           setDismissed(notice.latest);
         }}
-        className="shrink-0 rounded-full px-1.5 text-sky-700 hover:bg-sky-100 dark:text-sky-300 dark:hover:bg-sky-900/50 hover:opacity-80 transition-opacity"
+        className="shrink-0 rounded-full px-1.5 text-sky-700 hover:bg-sky-100 dark:text-sky-300 dark:hover:bg-sky-900/50 hover:opacity-80 transition-opacity max-sm:-my-1 max-sm:min-h-11 max-sm:min-w-11 max-sm:text-base"
       >
         ×
       </button>
