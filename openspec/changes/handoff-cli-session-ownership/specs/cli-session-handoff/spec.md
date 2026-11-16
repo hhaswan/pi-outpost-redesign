@@ -54,7 +54,8 @@ or a stale claim mutex SHALL fail closed.
 The panel SHALL list handoff state for the current project without exposing private
 owner metadata. Adopted files SHALL remain in the authorized saved-session inventory.
 A server may recover a dead prior web owner's lease under the claim mutex. Enrolled
-CLI startup SHALL refuse files reserved for a handoff.
+CLI startup SHALL refuse files reserved for a handoff. The extension's resume
+veto SHALL apply only to TUI mode, not the authorized web RPC context.
 
 #### Scenario: DiscoverAndContinueReleasedSession
 - **WHEN** an authorized browser refreshes released sessions
@@ -75,3 +76,9 @@ CLI startup SHALL refuse files reserved for a handoff.
 - **GIVEN** an adopted file whose previous main web owner exited
 - **WHEN** a side workspace attempts saved-session restoration or receipt continuation
 - **THEN** it is refused without taking the lease, switching the side runtime or changing the original file
+
+
+#### Scenario: WebLoadedCliBridgeDoesNotVetoHandoff
+- **GIVEN** the bridge extension is also loaded by the web runtime in RPC mode
+- **WHEN** that runtime acquires a valid released-session lease and switches to the original file
+- **THEN** the terminal-only veto does not cancel the web switch, no terminal endpoint is published by web, and TUI resume protection remains active

@@ -52,7 +52,7 @@ async function release(f, cwd = f.cwd) {
   return { ...receipt, bytes: await fs.readFile(sessionFile) };
 }
 
-async function boot(t, f, { sandbox = false, cancel = false, failure = false, lock } = {}) {
+async function boot(t, f, { sandbox = false, cancel = false, failure = false, bridge = false, lock } = {}) {
   const root = await makeWorkspace();
   const audit = path.join(root, "opened.jsonl");
   const veto = path.join(root, "cancel-resume");
@@ -74,7 +74,7 @@ export default function (pi) {
   const server = await startServer(root, {
     cwd: f.cwd, agentDir: path.join(root, "agent"),
     sandbox: sandbox ? { root: f.cwd, allowWrite: true, writableRoot: f.cwd, allowBash: false } : false,
-    noExtensions: false, extensionPaths: [extension], ...(lock ? { [lock]: true } : {}),
+    noExtensions: false, extensionPaths: [extension, ...(bridge ? [path.join(repository, "extensions", "cli-session-bridge.ts")] : [])], ...(lock ? { [lock]: true } : {}),
   }, { entry, env: { PI_OUTPOST_HANDOFF_DIR: f.handoffs, PI_OUTPOST_BRIDGE_DIR: f.bridges, ANTHROPIC_API_KEY: "test-offline-no-model-requests", PI_OFFLINE: "1" } });
   let stopped = false;
   const stop = async () => { if (!stopped) { stopped = true; await server.stop(); } };
@@ -296,4 +296,16 @@ test("FailedSwitchIsNotContinuation: source disappears after lease validation an
   const retrySince = web.client.received.length;
   assert.equal((await request(web.client, { action: "resume", id: receipt.id })).resumed, true);
   await assertContinued(web, receipt, retrySince);
+});
+
+test("WebLoadedCliBridgeDoesNotVetoHandoff: the real bridge loaded in RPC mode allows its authorized web owner to resume", async t => {
+  const f = await fixture(t);
+  const receipt = await release(f);
+  const web = await boot(t, f, { bridge: true });
+  assert.deepEqual(await fs.readdir(f.bridges), [], "web mode must not publish a terminal owner");
+  const since = web.client.received.length;
+  const reply = await request(web.client, { action: "resume", id: receipt.id });
+  assert.equal(reply.resumed, true, JSON.stringify(reply));
+  await assertContinued(web, receipt, since);
+  assert.deepEqual(await fs.readdir(f.bridges), [], "resumed web mode must remain outside CLI enrollment");
 });

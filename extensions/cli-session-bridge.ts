@@ -267,7 +267,8 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
     },
   });
   pi.on("session_before_switch", async (event, context) => {
-    if (event.reason !== "resume" || !event.targetSessionFile) return;
+    // Web also auto-loads this extension; its RPC host already validates the writer lease.
+    if (context.mode !== "tui" || event.reason !== "resume" || !event.targetSessionFile) return;
     try { await assertCliHandoffNotReserved(event.targetSessionFile, handoffDirectory); }
     catch {
       context.ui.notify("This session is reserved for an Outpost handoff. Continue in its web workspace instead.", "error");

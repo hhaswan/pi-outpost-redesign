@@ -60,7 +60,9 @@ can be recovered under the claim mutex. Renaming uses the owning runtime/lease;
 deletion is deliberately refused while a handoff receipt reserves the original file.
 
 Enrolled CLIs refuse normal operation on a reserved file and cancel supported
-runtime resume operations before switching. This is **cooperative protection, not
+runtime resume operations before switching. This veto is TUI-only: when the same
+extension is auto-discovered by the web runtime in RPC mode, it must not reject
+the web owner after the server has validated and acquired the lease. This is **cooperative protection, not
 an OS-wide file lock**. Do not independently launch `pi --session`, `--continue`, an
 unmodified CLI, or extensions that directly write a web-owned file. SDK startup
 loads a selected file before extension startup checks run; an SDK format migration

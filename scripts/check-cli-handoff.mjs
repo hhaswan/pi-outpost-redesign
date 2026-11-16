@@ -11,13 +11,16 @@ import {connect,makeWorkspace,startServer} from '../server/test/harness.mjs';
 assert.equal(process.platform,'linux','This explicit native PTY probe requires Linux and python3');
 await fs.mkdir('.local',{recursive:true,mode:0o700});
 const root=await fs.realpath(await makeWorkspace());
-const home=path.join(root,'home'),agentDir=path.join(home,'.pi','agent');
+const home=path.join(root,'home'),agentDir=path.join(home,'.pi','agent'),webAgentDir=path.join(root,'web-agent');
 const bridgeDirectory=path.join(root,'bridges'),handoffDirectory=path.join(root,'handoffs');
 const events=path.join(root,'events.jsonl'),shutdownStarted=path.join(root,'shutdown-started'),allowExit=path.join(root,'allow-exit');
 const failWebSwitch=path.join(root,'fail-web-switch'),webFault=path.join(root,'web-fault.mjs');
 await fs.writeFile(webFault,`import fs from 'node:fs';export default function(pi){pi.on('session_before_switch',event=>{if(event.reason==='resume'&&fs.existsSync(${JSON.stringify(failWebSwitch)})){fs.renameSync(event.targetSessionFile,event.targetSessionFile+'.unavailable');fs.unlinkSync(${JSON.stringify(failWebSwitch)});}});}`);
 await fs.mkdir(path.join(agentDir,'extensions'),{recursive:true});await fs.mkdir(bridgeDirectory,{mode:0o700});
 await fs.copyFile('cli/dist/extensions/cli-session-bridge.mjs',path.join(agentDir,'extensions','bridge.js'));
+// Production shares globally discovered extensions with the web RPC runtime too.
+await fs.mkdir(path.join(webAgentDir,'extensions'),{recursive:true});
+await fs.copyFile('cli/dist/extensions/cli-session-bridge.mjs',path.join(webAgentDir,'extensions','bridge.js'));
 const manager=SessionManager.create(root,path.join(agentDir,'sessions','external-cli'));
 manager.appendMessage({role:'user',content:[{type:'text',text:'Same-file handoff fixture history'}]});
 const source=manager.getSessionFile(),originalId=manager.getSessionId();
@@ -39,7 +42,7 @@ const wait=async(fn,timeout=20000)=>{const until=Date.now()+timeout;while(Date.n
 let server,browser,observer,secondCli;
 try{
  await wait(async()=>((await fs.readdir(bridgeDirectory)).filter(n=>n.endsWith('.json'))[0]));
- server=await startServer(root,{cwd:root,agentDir:path.join(root,'web-agent'),sandbox:false,noExtensions:false,extensionPaths:[webFault]},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{HOME:home,PI_OUTPOST_BRIDGE_DIR:bridgeDirectory,PI_OUTPOST_HANDOFF_DIR:handoffDirectory,PI_OFFLINE:'1',ANTHROPIC_API_KEY:'fixture-no-model-calls'}});
+ server=await startServer(root,{cwd:root,agentDir:webAgentDir,sandbox:false,noExtensions:false,extensionPaths:[webFault]},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{HOME:home,PI_OUTPOST_BRIDGE_DIR:bridgeDirectory,PI_OUTPOST_HANDOFF_DIR:handoffDirectory,PI_OFFLINE:'1',ANTHROPIC_API_KEY:'fixture-no-model-calls'}});
  observer=connect(server.wsUrl());await observer.waitFor('hello');
  browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
  const page=await browser.newPage({viewport:{width:390,height:900}});const errors=[];page.on('pageerror',e=>errors.push(e.message));

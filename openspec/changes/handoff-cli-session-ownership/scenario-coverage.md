@@ -1,6 +1,6 @@
 # Scenario-to-test matrix
 
-Inventory verified with `rg '^#### Scenario:' openspec/`. The delta contains eleven
+Inventory verified with `rg '^#### Scenario:' openspec/`. The delta contains twelve
 new scenarios plus the two modified main-spec scenarios. Existing bridge scenarios
 remain applicable and are mapped below as well. OpenLore returned no index;
 targeted implementation inspection, full SDK extension documentation and actual
@@ -173,3 +173,21 @@ The real PTY/browser probe injects that same boundary. It requires an explicit
 refusal visible in the main UI even after SDK recovery closes the session panel.
 `useAgent.test.ts`, `handoff failure remains visible when SDK recovery closes the old session panel`,
 protects that feedback. No successful continuation is inferred from panel closure.
+
+
+- **WebLoadedCliBridgeDoesNotVetoHandoff — covered.**
+  `server/test/cli-handoff-wire.test.mjs`,
+  `WebLoadedCliBridgeDoesNotVetoHandoff: the real bridge loaded in RPC mode allows its authorized web owner to resume`,
+  loads the actual bridge into the real web SDK runtime. Before the mode guard fix,
+  it reproduces the user's exact `CLI handoff was not continued` refusal. After the
+  fix, it verifies original SDK file/ID, original-file persistence and no terminal
+  registration from web. Existing TUI refusal tests still pass.
+  The actual PTY/Playwright probe now auto-discovers the bundled bridge in BOTH
+  CLI and web agent directories, matching the deployed shared-extension topology.
+
+Live investigation found a valid private receipt, exited original CLI PID,
+matching namespace/header and a lease held by the live web process. The file was
+not corrupt or unowned: the bridge's unscoped session_before_switch handler vetoed
+its own web owner. No live receipt, claim or conversation was removed to fix this.
+OpenLore orientation was attempted again but npm returned Invalid Version; direct
+source inspection and the red/green SDK-boundary reproduction were used.
