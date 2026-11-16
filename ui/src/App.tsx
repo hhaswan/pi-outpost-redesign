@@ -1288,6 +1288,9 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             compact={isNarrowViewport}
             sessionName={state.sessionName}
             {...(!embedded && !state.workspaceLocked ? { onOpenCliSessions: () => setCliSessionsOpen(true) } : {})}
+            workPlanChip={state.workPlan && !isNarrowViewport && !workPlanDisplayedOpen && (
+              <WorkPlanPanel plan={state.workPlan} open={false} onToggle={toggleWorkPlan} onOpenWorkspace={() => {}} />
+            )}
           />
 
           {/* `z-0` makes this a stacking context, so everything inside it (the file
@@ -1295,8 +1298,8 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
               z-index it asks for. */}
           <div className="relative z-0 flex min-h-0 flex-1 flex-col">
           {/* On a phone the plan is reached from the bottom navigation and opens in a
-              sheet of its own (below): no floating chip, no drawer. */}
-          {state.workPlan && !isNarrowViewport && (
+              sheet of its own (below). Closed, it is a chip in the header. */}
+          {state.workPlan && !isNarrowViewport && workPlanDisplayedOpen && (
             <WorkPlanPanel
               plan={state.workPlan}
               open={workPlanDisplayedOpen}
@@ -1340,10 +1343,6 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
               onClose={() => setAnalysisOpen(false)}
             />
           )}
-          {/* Work Plan floats at the top right — as a chip when closed, a drawer when open; reserve its width. */}
-          {!isNarrowViewport && !embedded && !state.workspaceLocked && <div className={`flex justify-end px-3 py-1 ${analysisOpen ? "md:pr-[26rem]" : state.workPlan ? (workPlanDisplayedOpen ? "md:pr-[23rem]" : "pr-28") : ""}`}>
-            <button type="button" onClick={() => setCliSessionsOpen(true)} className="min-h-9 rounded-full border border-zinc-300 px-3 text-xs text-zinc-700 focus-visible:outline-2 focus-visible:outline-blue-500 dark:border-zinc-700 dark:text-zinc-200">Terminal sessions</button>
-          </div>}
           <ActivityStrip state={state} compact={isNarrowViewport} onSwitchWorkspace={!embedded && !state.workspaceLocked ? switchWorkspace : undefined} />
           {/* The drawer overlays the right side; padding keeps the conversation
               beside it rather than behind it, so a jump lands somewhere visible. */}
@@ -1365,7 +1364,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
                outside this scroller's clipping, and the page grows a second scrollbar. */
             className={`relative flex-1 overflow-y-auto transition-opacity duration-150 ${state.switching ? "opacity-40" : "opacity-100"} ${analysisOpen ? "md:pr-[26rem]" : state.workPlan && workPlanDisplayedOpen ? "md:pr-[23rem]" : ""}`}
           >
-            <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
+            <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6 md:[@media(max-height:900px)]:pt-3">
               {state.items.length === 0 && (
                 <div className="mt-24 text-center text-zinc-500 dark:text-zinc-600">
                   <div className="mb-2 text-4xl">{state.branding.title ?? "π"}</div>
@@ -1622,7 +1621,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             />
           )}
 
-          <footer className="shrink-0 border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
+          <footer className="shrink-0 border-t border-zinc-200 px-4 py-3 dark:border-zinc-800 md:[@media(max-height:900px)]:py-1.5">
             {(question || grant) && (
               <div className="mx-auto max-w-3xl">
                 {question && <ExtensionDialog key={question.id} request={question} onRespond={respondToDialog} />}

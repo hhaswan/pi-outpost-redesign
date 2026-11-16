@@ -103,3 +103,42 @@ test("CliHistoryDetailsAreCached: count and transcript text are read once per fi
   assert.deepEqual(await searchCliHistory(root, cwd, "aardvark"), []);
   assert.equal((await externalCliHistory(root, cwd))[0]?.messageCount, 3);
 });
+
+test("Sub-agent child sessions keep their early name and the prompt after a huge system message", async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "cli-history-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const cwd = path.join(root, "project"), directory = cliSessionDirectory(root, cwd);
+  await mkdir(directory, { recursive: true });
+  const parent = path.join(directory, "parent.jsonl");
+  const prompt = `Repo ${cwd}. Fix the sessions list.`;
+  const child = path.join(directory, "child.jsonl");
+  // Shaped like a real sub-agent file: the system line alone exceeds the 256 KB head window.
+  await writeFile(child, line({ type: "session", version: 3, id: "child", cwd, parentSession: parent }) +
+    line({ type: "model_change", provider: "anthropic", modelId: "m" }) +
+    line({ type: "thinking_level_change", thinkingLevel: "medium" }) +
+    line({ type: "session_info", name: "general-purpose#57816f08" }) +
+    line({ type: "message", message: { role: "system", content: "", sections: { preamble: "y".repeat(300_000) } } }) +
+    line({ type: "message", message: { role: "user", content: [{ type: "text", text: prompt }] } }) +
+    line({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "z".repeat(200_000) }] } }));
+  const [session] = await externalCliHistory(root, cwd);
+  assert.deepEqual(session && { id: session.id, name: session.name, firstMessage: session.firstMessage, parent: session.parentSession },
+    { id: "child", name: "general-purpose#57816f08", firstMessage: prompt, parent });
+  const [found] = await searchCliHistory(root, cwd, "general-purpose");
+  assert.equal(found?.name, "general-purpose#57816f08");
+});
+
+test("Background full read supplies a title renamed between the head and tail windows", async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "cli-history-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const cwd = path.join(root, "project"), directory = cliSessionDirectory(root, cwd);
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, "middle.jsonl"), line({ type: "session", id: "middle", cwd }) +
+    line({ type: "session_info", name: "Old title" }) +
+    line({ type: "message", message: { role: "user", content: "Question" } }) +
+    line({ type: "custom", data: "x".repeat(300_000) }) + line({ type: "session_info", name: "Middle title" }) +
+    line({ type: "custom", data: "x".repeat(100_000) }));
+  await searchCliHistory(root, cwd, "question");
+  const [session] = await externalCliHistory(root, cwd);
+  assert.equal(session?.name, "Middle title");
+  assert.equal(session?.firstMessage, "Question");
+});

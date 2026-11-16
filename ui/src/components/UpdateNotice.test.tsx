@@ -21,7 +21,11 @@ describe("the update notice", () => {
     // ANewerVersionIsAnnouncedInTheInterface
     render(<UpdateNotice notice={notice("0.27.0")} />);
     const shown = screen.getByTestId("update-notice");
-    expect(shown).toHaveTextContent("pi-outpost 0.27.0 is available (you have 0.26.0)");
+    expect(shown).toHaveTextContent("pi-outpost 0.27.0 is available");
+    // The instruction, command and copy control wait behind "details": one line until asked.
+    expect(screen.queryByRole("button", { name: /copy/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "details" }));
+    expect(shown).toHaveTextContent("You have 0.26.0");
     expect(shown).toHaveTextContent("pi-outpost update");
     expect(screen.getByRole("button", { name: /copy/i })).toBeInTheDocument();
   });

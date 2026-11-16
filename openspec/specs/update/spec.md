@@ -199,7 +199,7 @@ When the startup check has found a newer published pi-outpost, the standalone in
 #### Scenario: ANewerVersionIsAnnouncedInTheInterface
 - **GIVEN** a global npm installation running 0.26.0, and a published 0.27.0
 - **WHEN** the standalone interface is opened
-- **THEN** it shows a notice that pi-outpost 0.27.0 is available, running 0.26.0, with `pi-outpost update` and a control that copies it
+- **THEN** it shows a one-line notice that pi-outpost 0.27.0 is available, whose details name the running 0.26.0, with `pi-outpost update` and a control that copies it
 
 #### Scenario: ADismissedNoticeStaysDismissedForThatVersion
 - **GIVEN** a notice for 0.27.0 that the user dismissed

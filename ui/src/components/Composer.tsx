@@ -453,7 +453,7 @@ export function Composer({
         </div>
       )}
 
-      <div className="flex items-end gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-2 focus-within:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:focus-within:border-zinc-600">
+      <div className="flex items-end gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-2 md:[@media(max-height:900px)]:p-1 focus-within:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:focus-within:border-zinc-600">
         <textarea
           ref={textareaRef}
           value={text}

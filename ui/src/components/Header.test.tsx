@@ -382,6 +382,21 @@ describe("Header", () => {
       expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     });
 
+    it("labels sub-agent child sessions readably instead of (empty), with a sub-agent tag", () => {
+      setup({ sessions: [
+        parent,
+        session({ path: "/sessions/agent.jsonl", id: "01a1e665-d6e1", name: "general-purpose#57816f08", parentSession: parent.path,
+          firstMessage: "Repo /root/pi-outpost-redesign. Fix the list\nsecond line" }),
+        session({ path: "/sessions/bare.jsonl", id: "01a1e666-aaaa", parentSession: parent.path, firstMessage: "" }),
+      ] });
+      openSessions();
+      const children = within(screen.getByRole("list", { name: "Children of Parent" }));
+      expect(children.getByText("general-purpose · Repo /root/pi-outpost-redesign. Fix the list")).toBeInTheDocument();
+      expect(children.getByText("Sub-agent · 01a1e666")).toBeInTheDocument();
+      expect(children.getAllByTestId("session-subagent-tag")).toHaveLength(2);
+      expect(screen.queryByText("(empty)")).not.toBeInTheDocument();
+    });
+
     it("keeps orphans, self references, cycles and their descendants reachable once", () => {
       setup({ sessions: [
         { ...parent, parentSession: child.path }, child, grandchild,

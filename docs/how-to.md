@@ -922,7 +922,8 @@ Ambiguous event histories are labeled uncertain and prevent automatic retirement
 they do not prove that every nested or workflow-owned agent has stopped. A saved
 transcript or completed notification is not live activity telemetry.
 
-Use **Terminal sessions** for separately running CLI processes that have loaded
+Use **Terminal sessions** (in the header beside **sessions**; on a phone, under
+**More controls**) for separately running CLI processes that have loaded
 the [opt-in CLI bridge](cli-session-bridge.md). Observation does not create another
 agent. Input requires confirmation in that terminal and remains disabled when
 the owner is busy, unreachable, or has not granted permission. A submission receipt

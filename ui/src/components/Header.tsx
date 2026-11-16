@@ -7,6 +7,7 @@ import { ProjectMenu } from "./ProjectMenu";
 import { WorkspaceRootControl, type WorkspaceRootSandbox } from "./WorkspaceRootControl";
 import type { AgentResourceOperationState, GitHostCredentialState, GitLogState, GitStatusState, ServerBrowseState, SessionSearch, SettingsApplyState } from "../useAgent";
 import { stripAnsi } from "../util/ansi";
+import { sessionLabel } from "../util/sessionLabel";
 import { AnsiText } from "./AnsiText";
 import { useClickOutside } from "../util/clickOutside";
 import {
@@ -169,8 +170,10 @@ interface HeaderProps {
   compact?: boolean;
   /** The current session's name, the compact bar's title. */
   sessionName?: string | null;
-  /** Opens the CLI sessions panel; offered in the compact bar's sheet only. */
+  /** Opens the CLI sessions panel: beside sessions in the wide bar, in the compact bar's sheet. */
   onOpenCliSessions?: () => void;
+  /** The closed Work Plan chip, shown beside sessions in the wide bar. */
+  workPlanChip?: React.ReactNode;
 }
 
 const SESSION_SEARCH_DEBOUNCE_MS = 200;
@@ -234,8 +237,11 @@ function SessionRow({
       }`}
     >
       <button type="button" onClick={onSwitch} aria-current={isCurrent ? "true" : undefined} className="min-w-0 flex-1 rounded-xl px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-        <div className="truncate text-zinc-700 dark:text-zinc-300">
-          {session.name || session.firstMessage || "(empty)"}
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate text-zinc-700 dark:text-zinc-300">{sessionLabel(session)}</span>
+          {session.parentSession && (
+            <span data-testid="session-subagent-tag" className="shrink-0 rounded-full bg-zinc-100 px-1.5 text-[10px] leading-4 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">sub-agent</span>
+          )}
         </div>
         {/* Why this session matched: the excerpt is only sent for search results */}
         {session.snippet && (
@@ -330,7 +336,7 @@ function SessionBranch({
         {children.length > 0 && (
           <button
             type="button"
-            aria-label={`Child sessions of ${session.name || session.firstMessage || "(empty)"}`}
+            aria-label={`Child sessions of ${sessionLabel(session)}`}
             aria-expanded={expanded}
             onClick={() => setExpanded((value) => !value)}
             className="mt-2 rounded-full px-1.5 text-xs text-zinc-500"
@@ -361,7 +367,7 @@ function SessionBranch({
         </div>
       </div>
       {expanded && children.length > 0 && (
-        <ul aria-label={`Children of ${session.name || session.firstMessage || "(empty)"}`} className="ml-4 border-l border-zinc-200 pl-2 dark:border-zinc-700">
+        <ul aria-label={`Children of ${sessionLabel(session)}`} className="ml-4 border-l border-zinc-200 pl-2 dark:border-zinc-700">
           {children.map((child) => (
             <SessionBranch
               key={child.session.path}
@@ -913,7 +919,7 @@ export function Header(props: HeaderProps) {
     // positioned and spill over the content area. Without a stacking context of its
     // own, the header competes there on DOM order alone — and the open FileViewer,
     // declared after it, wins. The menus would open *behind* the file preview.
-    <header ref={setBar} className="relative z-30 flex min-w-0 flex-wrap items-center gap-1.5 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
+    <header ref={setBar} className="relative z-30 flex min-w-0 flex-wrap items-center gap-1.5 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800 md:[@media(max-height:900px)]:py-1">
       {/* The workspace affordance comes first: it scopes everything else in this
           bar. Which one appears is the deployment's choice; the project selector
           still renders nothing while a single project is open or on a pinned
@@ -980,6 +986,16 @@ export function Header(props: HeaderProps) {
           onSearchSessions={props.onSearchSessions}
           onClearSessionSearch={props.onClearSessionSearch}
         />
+        {props.onOpenCliSessions && (
+          <button
+            type="button"
+            onClick={props.onOpenCliSessions}
+            className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
+          >
+            Terminal sessions
+          </button>
+        )}
+        {props.workPlanChip}
         {settingsMenu}
         <span
           className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-500" : "bg-red-500"}`}

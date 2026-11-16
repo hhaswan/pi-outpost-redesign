@@ -83,7 +83,7 @@ function UsageIndicator({
       )}
     </>
   );
-  const base = "flex min-h-11 min-w-0 max-w-full flex-wrap items-center max-md:shrink-0 max-md:flex-nowrap max-md:whitespace-nowrap gap-1.5 rounded-full border px-2 py-1 font-mono text-xs text-zinc-500 dark:text-zinc-400 hover:opacity-80 transition-opacity sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900";
+  const base = "flex min-h-11 min-w-0 max-w-full flex-wrap items-center max-md:shrink-0 max-md:flex-nowrap max-md:whitespace-nowrap gap-1.5 rounded-full border px-2 py-1 font-mono text-xs text-zinc-500 dark:text-zinc-400 hover:opacity-80 transition-opacity sm:min-h-0 [@media(pointer:coarse)]:sm:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900";
 
   if (!onToggleAnalysis) {
     return (
@@ -198,7 +198,7 @@ function ThinkingControl({
         title="thinking level"
         aria-haspopup="true"
         aria-expanded={open}
-        className={`flex min-h-11 items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-xs max-md:min-w-11 max-md:justify-center disabled:opacity-50 hover:opacity-80 transition-opacity sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900 ${
+        className={`flex min-h-11 items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-xs max-md:min-w-11 max-md:justify-center disabled:opacity-50 hover:opacity-80 transition-opacity sm:min-h-0 [@media(pointer:coarse)]:sm:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900 ${
           active
             ? "border-amber-300 text-amber-700 hover:border-amber-400 dark:border-amber-900 dark:text-amber-400 dark:hover:border-amber-700"
             : "border-zinc-300 text-zinc-500 hover:border-zinc-400 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600"
@@ -249,7 +249,7 @@ export function ModelBar(props: ModelBarProps) {
   return (
     // On a phone the bar is one row: the model chip takes the room left and truncates,
     // and the other controls shrink to their glyphs (their words stay for screen readers).
-    <div data-testid="model-bar" className="mt-2 flex min-w-0 flex-wrap items-center gap-2 max-md:mt-1.5 max-md:flex-nowrap max-md:gap-1.5">
+    <div data-testid="model-bar" className="mt-2 flex min-w-0 flex-wrap items-center gap-2 md:[@media(max-height:900px)]:mt-1 max-md:mt-1.5 max-md:flex-nowrap max-md:gap-1.5">
       <ModelPicker model={model} models={models} disabled={isStreaming} onSetModel={props.onSetModel} />
 
       {modelSupportsReasoning && (
@@ -276,7 +276,7 @@ export function ModelBar(props: ModelBarProps) {
             ? `${contextUsage.tokens.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens — click to compact`
             : "Click to compact the conversation context"
         }
-        className={`${props.shellConfinement ? "" : "ml-auto "}flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border max-md:min-w-11 max-md:justify-center border-zinc-300 px-2 py-1 font-mono text-xs text-zinc-500 hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 hover:opacity-80 transition-opacity sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900`}
+        className={`${props.shellConfinement ? "" : "ml-auto "}flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border max-md:min-w-11 max-md:justify-center border-zinc-300 px-2 py-1 font-mono text-xs text-zinc-500 hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 hover:opacity-80 transition-opacity sm:min-h-0 [@media(pointer:coarse)]:sm:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900`}
       >
         <ContextRing usage={contextUsage} />
         <span className="max-md:sr-only">

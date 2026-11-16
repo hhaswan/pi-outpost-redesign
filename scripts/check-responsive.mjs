@@ -12,6 +12,9 @@
  * Work Plan and the terminal, each from the bottom navigation. At wider widths they are
  * the Work Plan and the sessions dropdown; at 1280 it also asserts the desktop header
  * is still one row with its own controls and that there is no bottom navigation.
+ * At every wide width Terminal sessions is in the header, the activity strip is one slim
+ * line, and on screens up to 900px tall (1133x744 is an iPad in landscape, with touch)
+ * the transcript keeps at least half the viewport height.
  * On phone widths it also opens every menu in the overflow sheet (and the project
  * menu in the header), measures hit areas below 44x44 px, and flags hover-only
  * controls: a control that is transparent on a screen without hover (the phone
@@ -47,6 +50,9 @@ const VIEWPORTS = [
   { width: 360, height: 740 },
   { width: 390, height: 844 },
   { width: 768, height: 1024 },
+  // iPad landscape: wide layout, coarse pointer, short screen.
+  { width: 1133, height: 744, touch: true },
+  { width: 1440, height: 900 },
   { width: 1280, height: 800 },
 ].filter((v) => !widthArg || widthArg.slice('--width='.length).split(',').map(Number).includes(v.width));
 const PHONE_MAX = 767;
@@ -172,7 +178,7 @@ let failed = false;
 try {
   for (const viewport of VIEWPORTS) {
     const phone = viewport.width <= PHONE_MAX;
-    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, hasTouch: phone, isMobile: false });
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, hasTouch: phone || !!viewport.touch, isMobile: false });
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
@@ -188,7 +194,7 @@ try {
     await page.waitForTimeout(400);
 
     const check = async (name, surface = null) => {
-      const found = await page.evaluate(inspect, { phone, minTarget: MIN_TARGET, surface });
+      const found = await page.evaluate(inspect, { phone: phone || !!viewport.touch, minTarget: MIN_TARGET, surface });
       if (shotsDir) await page.screenshot({ path: path.join(shotsDir, `${viewport.width}-${name.replace(/[^a-z0-9]+/gi, '-')}.png`) });
       results.push({ width: viewport.width, surface: name, ...found, errors: [...errors] });
       errors.length = 0;
@@ -319,6 +325,19 @@ try {
       continue;
     }
 
+    // Wide layouts: Terminal sessions sits in the header row, the activity strip is
+    // one slim line, and a short screen still gives the conversation most of its height.
+    {
+      const wide = await page.evaluate(() => ({
+        terminalInHeader: [...document.querySelectorAll('header button')].some((b) => b.textContent.trim() === 'Terminal sessions'),
+        strip: document.querySelector('section[aria-label="Activity"]')?.getBoundingClientRect().height ?? 0,
+        ratio: (document.querySelector('main')?.getBoundingClientRect().height ?? 0) / innerHeight,
+      }));
+      expect('wide shell', wide.terminalInHeader, 'Terminal sessions is not in the header row');
+      expect('wide shell', wide.strip <= 30, `the activity strip takes ${wide.strip}px, expected one slim line`);
+      if (viewport.height <= 900) expect('wide shell', wide.ratio >= 0.5, `the transcript takes ${(wide.ratio * 100).toFixed(1)}% of a ${viewport.width}x${viewport.height} screen, expected at least 50%`);
+      console.log(`INFO ${viewport.width}x${viewport.height} transcript ${(wide.ratio * 100).toFixed(1)}% of the viewport`);
+    }
     if (viewport.width >= 1024) {
       expect('desktop shell', !(await nav.count()), 'bottom navigation shown on a desktop');
       expect('desktop shell', !(await page.getByTestId('compact-header').count()), 'compact header shown on a desktop');
@@ -372,9 +391,9 @@ try {
       await sessions.click({ force: true }).catch(() => {});
     }
     const blindExtra = [];
-    if (viewport.width >= 1024 && (await sessions.isVisible())) {
+    if (viewport.width >= 1024 && !viewport.touch && (await sessions.isVisible())) {
       // Desktop keeps its hover reveal: a session's rename control is hidden until
-      // its row is hovered, then shown.
+      // its row is hovered, then shown. A touch screen has no hover, so it shows.
       await sessions.click();
       const rename = page.getByRole('button', { name: 'Rename session' }).first();
       await rename.waitFor({ state: 'attached' });

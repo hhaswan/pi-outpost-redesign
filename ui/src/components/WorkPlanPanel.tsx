@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState } from "react";
+import { HEADER_CONTROL } from "./headerControl";
 import type { WorkPlan, WorkPlanResource, WorkPlanStatus, WorkPlanTask } from "@pi-outpost/shared";
 
 const STATUS: Record<WorkPlanStatus, { icon: string; label: string; className: string }> = {
@@ -103,8 +104,8 @@ export function WorkPlanPanel({ plan, open, onToggle, onOpenWorkspace, requested
     });
 
   if (!open) return (
-    <div className="absolute right-3 top-3 z-20" onMouseEnter={() => setPreviewVisible(true)} onMouseLeave={() => setPreviewVisible(false)} onFocusCapture={() => setPreviewVisible(true)} onBlurCapture={() => setPreviewVisible(false)}>
-      <button type="button" onClick={() => { setPreviewVisible(false); onToggle(); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs shadow-sm dark:border-zinc-700 dark:bg-zinc-900 hover:opacity-80 transition-opacity" aria-label="Open Work Plan" aria-describedby={previewId}>Plan {done}/{plan.tasks.length}</button>
+    <div className="relative" onMouseEnter={() => setPreviewVisible(true)} onMouseLeave={() => setPreviewVisible(false)} onFocusCapture={() => setPreviewVisible(true)} onBlurCapture={() => setPreviewVisible(false)}>
+      <button type="button" onClick={() => { setPreviewVisible(false); onToggle(); }} className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`} aria-label="Open Work Plan" aria-describedby={previewId}>Plan {done}/{plan.tasks.length}</button>
       <div id={previewId} role="tooltip" className={`absolute right-0 top-full w-72 pt-2 ${previewVisible ? "block" : "hidden"}`}>
         <div className="rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"><ul className="space-y-1">
           {previewTasks.map(({ task, depth }) => <li key={task.id} className="flex min-w-0 items-start gap-1.5 text-xs" style={{ paddingLeft: `${depth * 0.75}rem` }}>
