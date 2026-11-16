@@ -24,6 +24,11 @@
 - [ ] 4.3 File viewer toolbar scrolls or collapses; user bubbles break long words.
 - [ ] 4.4 Composer sticky above keyboard (`visualViewport`); model bar collapses to one chip.
 
+## 4b. Image lightbox
+- [ ] 4b.1 `react-zoom-pan-pinch` lightbox component (pinch, wheel, double tap/click, pan, keys, prev/next, swipe down, focus return).
+- [ ] 4b.2 Wire into user attachments, assistant/tool images, markdown images and file viewer images.
+- [ ] 4b.3 Tests: unit + built-app Playwright at 390 and 1280.
+
 ## 5. Verification
 - [ ] 5.1 Scenario-to-test matrix in `scenario-coverage.md`.
 - [ ] 5.2 Monkey pass: rotate, resize across breakpoints with sheets open, open/close sheets rapidly, switch project/session with a sheet open, send while keyboard open.

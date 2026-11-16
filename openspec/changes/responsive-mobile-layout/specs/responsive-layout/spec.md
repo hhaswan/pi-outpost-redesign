@@ -31,3 +31,21 @@ At 1024 px and above the layout SHALL remain as before this change.
 - **GIVEN** a 1280×800 viewport
 - **WHEN** the existing custom-build and layout gates run
 - **THEN** they pass unchanged and the header stays on one row
+
+### Requirement: InteractiveImageLightbox
+Images in the conversation (user attachments, assistant/tool images, markdown images) and in the
+file viewer SHALL open in a full-screen lightbox. The lightbox SHALL support zoom by pinch and
+double tap on touch, by mouse wheel (centred on the cursor), double click and `+`/`-`/`0` keys on
+desktop, panning while zoomed, previous/next among the conversation's images (arrows, swipe), and
+closing by Escape, the close button, the backdrop, or swipe down when not zoomed. Focus SHALL
+return to the opening image.
+
+#### Scenario: ImageOpensAndZooms
+- **GIVEN** a conversation with two images
+- **WHEN** the first image is clicked and the wheel is scrolled up over it
+- **THEN** a lightbox dialog shows that image enlarged, ArrowRight shows the second image, and Escape closes it and returns focus to the first image
+
+#### Scenario: LightboxOnPhone
+- **GIVEN** a 390 px viewport
+- **WHEN** an image is opened, double-tapped, and closed
+- **THEN** the image fills the viewport without document overflow, double tap zooms in, and the close control is at least 44 px
