@@ -40,13 +40,15 @@ cli.on('error',error=>output+=error.message);
 const write=text=>cli.stdin.write(JSON.stringify({text})+'\n');
 const wait=async(fn,timeout=20000)=>{const until=Date.now()+timeout;while(Date.now()<until){const value=await fn();if(value)return value;await new Promise(r=>setTimeout(r,50));}throw Error('PTY handoff probe timed out: '+output.slice(-700));};
 let server,browser,observer,secondCli,thirdCli;
+// On a phone width Terminal sessions lives in the ⋯ Controls sheet.
+const openTerminalSessions=async page=>{const more=page.getByRole('button',{name:'More controls',exact:true});if(await more.isVisible())await more.click();await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();};
 try{
  await wait(async()=>((await fs.readdir(bridgeDirectory)).filter(n=>n.endsWith('.json'))[0]));
  server=await startServer(root,{cwd:root,agentDir:webAgentDir,sandbox:false,noExtensions:false,extensionPaths:[webFault]},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{HOME:home,PI_OUTPOST_BRIDGE_DIR:bridgeDirectory,PI_OUTPOST_HANDOFF_DIR:handoffDirectory,PI_OUTPOST_RESERVATION_DIR:reservationDirectory,PI_OFFLINE:'1',ANTHROPIC_API_KEY:'fixture-no-model-calls'}});
  observer=connect(server.wsUrl());await observer.waitFor('hello');
  browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
  const page=await browser.newPage({viewport:{width:390,height:900}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto(server.base);await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();
+ await page.goto(server.base);await openTerminalSessions(page);
  const dialog=page.getByRole('dialog',{name:'CLI sessions',exact:true});await dialog.waitFor();
  const beforeReload=(await fs.readdir(bridgeDirectory)).find(name=>name.endsWith('.json'));
  write('/reload\r');
@@ -87,7 +89,7 @@ try{
  assert.equal(await page.getByText('Same-file handoff fixture history',{exact:true}).count(),0);
  assert.equal(await fs.readFile(source+'.unavailable','utf8'),afterExit);
  await fs.rename(source+'.unavailable',source);
- await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();await dialog.waitFor();
+ await openTerminalSessions(page);await dialog.waitFor();
  await released.getByRole('button',{name:'Continue in web'}).click();
  console.log('PASS FailedSdkSwitchDoesNotHideRefusalAfterPanelCloses');
  const switched=await observer.waitFor(m=>m.type==='session_replaced'&&m.sessionId===originalId);
@@ -100,7 +102,7 @@ try{
  // App closes session-scoped panels when the real session snapshot changes.
  await dialog.waitFor({state:'hidden'});
  await page.getByText('Same-file handoff fixture history',{exact:true}).waitFor();
- await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();
+ await openTerminalSessions(page);
  const retryDialog=page.getByRole('dialog',{name:'CLI sessions',exact:true});await retryDialog.waitFor();
  await retryDialog.getByRole('region',{name:'Released CLI sessions'}).getByRole('button',{name:'Continue in web'}).click();
  await retryDialog.getByText(/Continued in web using the original session file/).waitFor();
@@ -117,7 +119,7 @@ try{
  assert.deepEqual(await fs.readFile(source),beforeReopen);
  console.log('PASS ActualEnrolledCliResumeRefusesWebOwnedFileBeforeLoading');
  // Web to CLI: the same file goes back to a real CLI, then returns to web after that CLI exits.
- await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();
+ await openTerminalSessions(page);
  const back=page.getByRole('dialog',{name:'CLI sessions',exact:true});await back.waitFor();
  await back.getByRole('button',{name:'Hand off to CLI',exact:true}).click();
  await back.getByRole('button',{name:'Confirm hand off',exact:true}).click();
