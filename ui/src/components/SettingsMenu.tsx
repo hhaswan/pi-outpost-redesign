@@ -1,3 +1,4 @@
+import { TOUCH_DESCENDANTS } from "../touch";
 import { Credits } from "./Credits";
 import { useEffect, useRef, useState } from "react";
 import type { PiPackageInfo } from "@pi-outpost/shared";
@@ -336,12 +337,13 @@ export function SettingsMenu({
         onClick={() => { setCreditsOpen(false); if (open) close(); else setOpen(true); }}
         title="Settings"
         aria-label="Settings"
+        aria-expanded={open}
         className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
       >
         ⚙
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 flex max-h-[80vh] w-[380px] flex-col rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div className={`absolute right-0 top-full z-20 mt-1 flex max-h-[80vh] w-[380px] max-w-[calc(100vw-1rem)] flex-col rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 ${TOUCH_DESCENDANTS}`}>
           <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
             {creditsOpen && <button type="button" onClick={() => setCreditsOpen(false)} className="mb-2 text-xs text-zinc-600 hover:underline dark:text-zinc-400">← Back to settings</button>}
             <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{creditsOpen ? "Credits" : "Settings"}</h2>

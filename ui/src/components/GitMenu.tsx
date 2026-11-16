@@ -1,3 +1,4 @@
+import { TOUCH_DESCENDANTS } from "../touch";
 import { useEffect, useMemo, useState } from "react";
 import type { GitRepoStatus } from "@pi-outpost/shared";
 import type { GitLogState, GitStatusState } from "../useAgent";
@@ -103,6 +104,7 @@ export function GitMenu({ status, selected, log, onFetchLog, onCloseLog, onShowC
           setOpen(true);
           onFetchLog(current.repo);
         }}
+        aria-expanded={open}
         title={current === null ? "no repository selected" : `git history — ${current.repo === "" ? "this project" : current.repo}`}
         className={`${HEADER_CONTROL_SHRINKS} max-w-full border-zinc-300 font-mono text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 disabled:cursor-default disabled:hover:border-zinc-300 disabled:hover:text-zinc-500 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200 dark:disabled:hover:border-zinc-800 dark:disabled:hover:text-zinc-400`}
       >
@@ -112,7 +114,7 @@ export function GitMenu({ status, selected, log, onFetchLog, onCloseLog, onShowC
         {counts}
       </button>
       {open && current !== null && (
-        <div className="absolute left-0 top-full z-20 mt-1 max-h-96 w-[26rem] max-w-[80vw] overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div className={`absolute left-0 top-full z-20 mt-1 max-h-96 w-[26rem] max-w-[80vw] overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 ${TOUCH_DESCENDANTS}`}>
           {failure !== null && (
             <div role="alert" className="px-3 py-2 text-xs text-red-600 dark:text-red-400">
               history unavailable: {failure}

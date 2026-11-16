@@ -1,3 +1,4 @@
+import { TOUCH_DESCENDANTS } from "../touch";
 import { useEffect, useMemo, useState } from "react";
 import type { TreeNode } from "@pi-outpost/shared";
 import { Rail } from "./graph/Rail";
@@ -98,7 +99,7 @@ function Chip({ children, tone }: { children: React.ReactNode; tone: "current" |
 }
 
 const ACTION_CLASS =
-  "shrink-0 rounded px-1.5 py-0.5 text-xs text-zinc-400 opacity-0 hover:bg-zinc-200 hover:text-zinc-700 focus-visible:opacity-100 group-hover:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200";
+  "shrink-0 rounded px-1.5 py-0.5 text-xs text-zinc-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200";
 
 function GraphRowView({
   row,
@@ -223,13 +224,14 @@ export function TreeMenu({ tree, isStreaming, onListTree, onNavigate, onFork }: 
             onListTree();
           }
         }}
+        aria-expanded={open}
         title="conversation tree: go back to an earlier point or fork"
         className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
       >
         tree
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 flex max-h-[70vh] w-[32rem] max-w-[90vw] flex-col rounded-lg border border-zinc-200 bg-white shadow-xl [--tree-off:#e4e4e7] dark:border-zinc-700 dark:bg-zinc-900 dark:[--tree-off:#3f3f46]">
+        <div className={`absolute right-0 top-full z-20 mt-1 flex max-h-[70vh] w-[32rem] max-w-[90vw] flex-col rounded-lg border border-zinc-200 bg-white shadow-xl [--tree-off:#e4e4e7] dark:border-zinc-700 dark:bg-zinc-900 dark:[--tree-off:#3f3f46] ${TOUCH_DESCENDANTS}`}>
           {tree === null && <div className="px-3 py-2 text-xs text-zinc-500">loading…</div>}
           {tree?.length === 0 && <div className="px-3 py-2 text-xs text-zinc-500">no messages yet</div>}
           {tree && tree.length > 0 && graph && (

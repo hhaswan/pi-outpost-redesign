@@ -83,7 +83,7 @@ function UsageIndicator({
       )}
     </>
   );
-  const base = "flex min-h-11 min-w-0 max-w-full flex-wrap items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-xs text-zinc-500 dark:text-zinc-400 hover:opacity-80 transition-opacity sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900";
+  const base = "flex min-h-11 min-w-0 max-w-full flex-wrap items-center max-md:shrink-0 max-md:flex-nowrap max-md:whitespace-nowrap gap-1.5 rounded-full border px-2 py-1 font-mono text-xs text-zinc-500 dark:text-zinc-400 hover:opacity-80 transition-opacity sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900";
 
   if (!onToggleAnalysis) {
     return (
@@ -198,17 +198,17 @@ function ThinkingControl({
         title="thinking level"
         aria-haspopup="true"
         aria-expanded={open}
-        className={`flex min-h-11 items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-xs disabled:opacity-50 hover:opacity-80 transition-opacity sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900 ${
+        className={`flex min-h-11 items-center gap-1.5 rounded-full border px-2 py-1 font-mono text-xs max-md:min-w-11 max-md:justify-center disabled:opacity-50 hover:opacity-80 transition-opacity sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900 ${
           active
             ? "border-amber-300 text-amber-700 hover:border-amber-400 dark:border-amber-900 dark:text-amber-400 dark:hover:border-amber-700"
             : "border-zinc-300 text-zinc-500 hover:border-zinc-400 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600"
         }`}
       >
         <span aria-hidden className={`text-sm leading-none ${active ? "" : "opacity-40 grayscale"}`}>🧠</span>
-        {thinkingLevel}
+        <span className="max-md:sr-only">{thinkingLevel}</span>
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 z-20 mb-1 w-48 rounded-2xl border border-zinc-200 bg-white p-3 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="absolute bottom-full left-0 z-20 mb-1 w-48 max-md:left-auto max-md:right-0 rounded-2xl border border-zinc-200 bg-white p-3 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
           <div className="mb-1 flex items-baseline justify-between text-xs">
             <span className="text-zinc-500 dark:text-zinc-400">thinking</span>
             <span className="font-mono text-zinc-700 dark:text-zinc-200">{thinkingLevel}</span>
@@ -247,7 +247,9 @@ export function ModelBar(props: ModelBarProps) {
     props;
 
   return (
-    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+    // On a phone the bar is one row: the model chip takes the room left and truncates,
+    // and the other controls shrink to their glyphs (their words stay for screen readers).
+    <div data-testid="model-bar" className="mt-2 flex min-w-0 flex-wrap items-center gap-2 max-md:mt-1.5 max-md:flex-nowrap max-md:gap-1.5">
       <ModelPicker model={model} models={models} disabled={isStreaming} onSetModel={props.onSetModel} />
 
       {modelSupportsReasoning && (
@@ -260,8 +262,8 @@ export function ModelBar(props: ModelBarProps) {
       )}
 
       {props.shellConfinement && (
-        <span className="ml-auto min-w-0 max-w-full [&>span]:whitespace-normal [&>span]:rounded-full">
-          <ConfinementLock verdict={props.shellConfinement} surface="shell" grants={props.shellGrants} />
+        <span className="ml-auto min-w-0 max-w-full [&>span]:whitespace-normal [&>span]:rounded-full max-md:shrink-0 max-md:[&>span]:inline-flex max-md:[&>span]:h-11 max-md:[&>span]:min-w-11 max-md:[&>span]:items-center max-md:[&>span]:justify-center">
+          <ConfinementLock verdict={props.shellConfinement} surface="shell" grants={props.shellGrants} textClassName="max-md:sr-only" />
         </span>
       )}
 
@@ -274,10 +276,12 @@ export function ModelBar(props: ModelBarProps) {
             ? `${contextUsage.tokens.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens — click to compact`
             : "Click to compact the conversation context"
         }
-        className={`${props.shellConfinement ? "" : "ml-auto "}flex min-h-11 items-center gap-1.5 rounded-full border border-zinc-300 px-2 py-1 font-mono text-xs text-zinc-500 hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 hover:opacity-80 transition-opacity sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900`}
+        className={`${props.shellConfinement ? "" : "ml-auto "}flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border max-md:min-w-11 max-md:justify-center border-zinc-300 px-2 py-1 font-mono text-xs text-zinc-500 hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 hover:opacity-80 transition-opacity sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900`}
       >
         <ContextRing usage={contextUsage} />
-        {isCompacting ? "compacting…" : contextUsage?.percent != null ? `${Math.round(contextUsage.percent)}%` : "context"}
+        <span className="max-md:sr-only">
+          {isCompacting ? "compacting…" : contextUsage?.percent != null ? `${Math.round(contextUsage.percent)}%` : "context"}
+        </span>
       </button>
       <UsageIndicator
         usage={sessionUsage}

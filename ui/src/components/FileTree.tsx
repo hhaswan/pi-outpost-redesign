@@ -19,6 +19,7 @@ import {
   ROW_ACTION_SYMBOL,
 } from "./fileTreeModel";
 import { RowMenu } from "./RowMenu";
+import { TOUCH_ROW, TOUCH_TARGET } from "../touch";
 
 const FILE_DRAG_TYPE = "application/x-pi-outpost-file";
 const FILE_COPY_DRAG_TYPE = "application/x-pi-outpost-read-only-file";
@@ -30,7 +31,7 @@ const SELECTION_DRAG_TYPE = "application/x-pi-outpost-selection";
  */
 const REVEALED_ON_HOVER =
   "group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:hover)]:opacity-0";
-const MORE_CLASS = `mr-1 shrink-0 rounded px-1 text-xs leading-none text-zinc-400 hover:bg-zinc-200 dark:text-zinc-600 dark:hover:bg-zinc-700 ${REVEALED_ON_HOVER}`;
+const MORE_CLASS = `mr-1 shrink-0 rounded px-1 text-xs leading-none ${TOUCH_TARGET} text-zinc-400 hover:bg-zinc-200 dark:text-zinc-600 dark:hover:bg-zinc-700 ${REVEALED_ON_HOVER}`;
 const SELECTED_ROW = "bg-blue-50 dark:bg-blue-950/40";
 type UndoKind = "move" | "rename" | "delete";
 const UNDONE: Record<UndoKind, string> = { move: "Move undone.", rename: "Rename undone.", delete: "Deletion undone." };
@@ -380,7 +381,7 @@ function ReferenceToggle({ name, path, props }: { name: string; path: string; pr
       title={attached ? "Remove from the prompt" : "Reference in the prompt"}
       aria-label={attached ? `Remove ${name} from the prompt` : `Reference ${name} in the prompt`}
       aria-pressed={attached}
-      className={`mr-1 shrink-0 rounded px-1 font-mono text-xs hover:bg-zinc-200 dark:hover:bg-zinc-700 ${
+      className={`mr-1 shrink-0 rounded px-1 font-mono text-xs hover:bg-zinc-200 dark:hover:bg-zinc-700 ${TOUCH_TARGET} ${
         attached ? "font-bold text-blue-600 dark:text-blue-400" : `text-zinc-400 dark:text-zinc-600 ${REVEALED_ON_HOVER}`
       }`}
     >
@@ -518,7 +519,7 @@ function TreeNode({
             }}
             onKeyDown={(event) => ui?.rowKeyDown(fullPath, event)}
             style={{ paddingLeft: depth * 12 }}
-            className="flex min-w-0 flex-1 items-center gap-1 rounded py-0.5 text-left"
+            className={`flex min-w-0 flex-1 items-center gap-1 rounded py-0.5 text-left ${TOUCH_ROW}`}
           >
             <span className="w-3 shrink-0 text-xs text-zinc-400 dark:text-zinc-600">{open ? "▾" : "▸"}</span>
             <span
@@ -541,7 +542,7 @@ function TreeNode({
               type="button"
               onClick={() => ui?.pick(fullPath)}
               aria-label={`Move here: ${entry.name}`}
-              className="mr-1 shrink-0 rounded border border-blue-300 px-1.5 text-[11px] text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/50"
+              className="mr-1 shrink-0 rounded border border-blue-300 px-1.5 text-[11px] [@media(pointer:coarse)]:min-h-11 max-md:min-h-11 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/50"
             >
               Move here
             </button>
@@ -574,7 +575,7 @@ function TreeNode({
         }}
         onKeyDown={(event) => ui?.rowKeyDown(fullPath, event)}
         style={{ paddingLeft: depth * 12 + 16 }}
-        className="flex min-w-0 flex-1 items-center py-0.5 text-left disabled:cursor-default"
+        className={`flex min-w-0 flex-1 items-center py-0.5 text-left disabled:cursor-default ${TOUCH_ROW}`}
       >
         <span
           title={entry.name}
@@ -590,7 +591,7 @@ function TreeNode({
           onClick={() => (props.onSelectDiff ?? props.onSelectFile)(fullPath)}
           title="Show uncommitted diff"
           aria-label={`Show diff of ${entry.name}`}
-          className={`mr-1 shrink-0 rounded px-1 font-mono text-xs font-bold hover:bg-zinc-200 dark:hover:bg-zinc-700 ${GIT_BADGE[gitState].className}`}
+          className={`mr-1 shrink-0 rounded px-1 font-mono text-xs font-bold hover:bg-zinc-200 dark:hover:bg-zinc-700 ${TOUCH_TARGET} ${GIT_BADGE[gitState].className}`}
         >
           {GIT_BADGE[gitState].label}
         </button>
@@ -1279,7 +1280,7 @@ export function FileTree(props: TreeProps) {
               title={action.label}
               disabled={pendingOff.has(action.id)}
               onClick={() => runAction(action.id, selectionPaths)}
-              className={`flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-blue-100 disabled:opacity-40 dark:hover:bg-blue-900/60 ${action.danger ? "text-red-700 dark:text-red-300" : ""}`}
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 ${TOUCH_TARGET} hover:bg-blue-100 disabled:opacity-40 dark:hover:bg-blue-900/60 ${action.danger ? "text-red-700 dark:text-red-300" : ""}`}
             >
               <span aria-hidden className="font-mono">{ROW_ACTION_SYMBOL[action.id]}</span>
               {BAR_LABEL[action.id] ?? action.label}
@@ -1293,7 +1294,7 @@ export function FileTree(props: TreeProps) {
               setSelected(new Set());
               anchorRef.current = null;
             }}
-            className="ml-auto rounded px-1.5 py-0.5 hover:bg-blue-100 dark:hover:bg-blue-900/60"
+            className={`ml-auto rounded px-1.5 py-0.5 ${TOUCH_TARGET} hover:bg-blue-100 dark:hover:bg-blue-900/60`}
           >
             ✕
           </button>
@@ -1373,7 +1374,7 @@ export function FileTree(props: TreeProps) {
               onClick={() => creation.start("", "file")}
               aria-label="New file in the workspace root"
               title="New file in the workspace root"
-              className="rounded px-1 py-0.5 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-400"
+              className={`rounded px-1 py-0.5 text-xs ${TOUCH_TARGET} text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-400`}
             >
               + file
             </button>
@@ -1384,7 +1385,7 @@ export function FileTree(props: TreeProps) {
               onClick={() => creation.start("", "directory")}
               aria-label="New folder in the workspace root"
               title="New folder in the workspace root"
-              className="rounded px-1 py-0.5 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-400"
+              className={`rounded px-1 py-0.5 text-xs ${TOUCH_TARGET} text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-400`}
             >
               + folder
             </button>
@@ -1399,7 +1400,7 @@ export function FileTree(props: TreeProps) {
               // row and would drown the tree, this one is a single control for the
               // whole panel — and it is the way out of a tree that has gone stale,
               // which is not a state you can see before you look for the way out.
-              className="ml-auto rounded px-1 py-0.5 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-400"
+              className={`ml-auto rounded px-1 py-0.5 text-xs ${TOUCH_TARGET} text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-400`}
             >
               ↻
             </button>

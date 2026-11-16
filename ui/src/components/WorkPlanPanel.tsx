@@ -19,6 +19,11 @@ interface WorkPlanPanelProps {
   requestedTaskId?: string | null;
   /** Called once the request above has been applied, so it is not replayed. */
   onTaskRequestHandled?(): void;
+  /**
+   * Rendered inside a phone sheet: it fills the sheet instead of floating over the
+   * conversation, and leaves closing to the sheet bar, whose close control is touch-sized.
+   */
+  inSheet?: boolean;
 }
 
 function workspacePath(resource: WorkPlanResource): string | null {
@@ -32,7 +37,7 @@ function workspacePath(resource: WorkPlanResource): string | null {
   return candidate;
 }
 
-export function WorkPlanPanel({ plan, open, onToggle, onOpenWorkspace, requestedTaskId, onTaskRequestHandled }: WorkPlanPanelProps) {
+export function WorkPlanPanel({ plan, open, onToggle, onOpenWorkspace, requestedTaskId, onTaskRequestHandled, inSheet = false }: WorkPlanPanelProps) {
   const previewId = useId();
   const [previewVisible, setPreviewVisible] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -88,7 +93,7 @@ export function WorkPlanPanel({ plan, open, onToggle, onOpenWorkspace, requested
       const status = STATUS[task.status];
       return [
         <button key={task.id} type="button" role="treeitem" aria-level={depth + 1} aria-selected={selectedId === task.id} onClick={() => setSelectedId(task.id)} aria-current={task.status === "in_progress" ? "step" : undefined}
-          className={`flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 ${selectedId === task.id ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
+          className={`flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-sm [@media(pointer:coarse)]:min-h-11 max-md:min-h-11 hover:bg-zinc-100 dark:hover:bg-zinc-800 ${selectedId === task.id ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
           style={{ paddingLeft: `${0.5 + depth * 0.85}rem` }}>
           <span className={`mt-px w-4 shrink-0 text-center font-semibold ${status.className}`} aria-label={status.label}>{status.icon}</span>
           <span className={task.status === "done" ? "text-zinc-500 line-through" : "text-zinc-800 dark:text-zinc-200"}>{task.title}</span>
@@ -114,9 +119,9 @@ export function WorkPlanPanel({ plan, open, onToggle, onOpenWorkspace, requested
   );
 
   return (
-    <aside aria-label="Work Plan" className="absolute inset-y-0 right-0 z-10 flex w-full flex-col border-l border-zinc-200 bg-white/95 shadow-lg backdrop-blur md:w-[23rem] dark:border-zinc-800 dark:bg-zinc-950/95">
+    <aside aria-label="Work Plan" className={inSheet ? "flex h-full flex-col" : "absolute inset-y-0 right-0 z-10 flex w-full flex-col border-l border-zinc-200 bg-white/95 shadow-lg backdrop-blur md:w-[23rem] dark:border-zinc-800 dark:bg-zinc-950/95"}>
       <header className="border-b border-zinc-200 px-3 py-3 dark:border-zinc-800">
-        <div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Work Plan</div><h2 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{plan.title}</h2></div><button type="button" onClick={onToggle} className="rounded-full px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:opacity-80 transition-opacity" aria-label="Close Work Plan">×</button></div>
+        <div className="flex items-start justify-between gap-2"><div className="min-w-0">{!inSheet && <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Work Plan</div>}<h2 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{plan.title}</h2></div>{!inSheet && <button type="button" onClick={onToggle} className="inline-flex shrink-0 items-center justify-center rounded-full px-2 py-1 text-xs text-zinc-500 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:opacity-80 transition-opacity" aria-label="Close Work Plan">×</button>}</div>
         <div className="mt-2 text-xs text-zinc-500">Progress: {done} / {plan.tasks.length}</div>
         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800" aria-hidden><div className="h-full bg-emerald-500" style={{ width: `${plan.tasks.length === 0 ? 0 : (done / plan.tasks.length) * 100}%` }} /></div>
       </header>
@@ -127,7 +132,7 @@ export function WorkPlanPanel({ plan, open, onToggle, onOpenWorkspace, requested
         {selected.description && <p className="mt-2 whitespace-pre-wrap text-zinc-600 dark:text-zinc-300">{selected.description}</p>}
         {selected.statusReason && <p className="mt-2 rounded bg-zinc-100 p-2 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">{selected.statusReason}</p>}
         {selected.dependsOn.length > 0 && <div className="mt-3"><span className="font-semibold">Depends on:</span> {selected.dependsOn.map((id) => byId.get(id)?.title ?? id).join(", ")}</div>}
-        {selected.resources.length > 0 && <div className="mt-3 space-y-1"><div className="font-semibold">Resources</div>{selected.resources.map((resource) => { const target = workspacePath(resource); const label = resource.label ?? resource.uri; if (target !== null) return <button key={resource.uri} type="button" className="block max-w-full truncate text-left text-blue-600 hover:underline dark:text-blue-400" onClick={() => onOpenWorkspace(target)}>{label}</button>; if (/^https?:/i.test(resource.uri)) return <a key={resource.uri} href={resource.uri} target="_blank" rel="noreferrer" className="block truncate text-blue-600 hover:underline dark:text-blue-400">{label}</a>; return <span key={resource.uri} className="block truncate text-zinc-500" title="No navigator is available for this resource">{label}</span>; })}</div>}
+        {selected.resources.length > 0 && <div className="mt-3 space-y-1"><div className="font-semibold">Resources</div>{selected.resources.map((resource) => { const target = workspacePath(resource); const label = resource.label ?? resource.uri; if (target !== null) return <button key={resource.uri} type="button" className="block max-w-full truncate text-left [@media(pointer:coarse)]:min-h-11 max-md:min-h-11 text-blue-600 hover:underline dark:text-blue-400" onClick={() => onOpenWorkspace(target)}>{label}</button>; if (/^https?:/i.test(resource.uri)) return <a key={resource.uri} href={resource.uri} target="_blank" rel="noreferrer" className="block truncate text-blue-600 hover:underline dark:text-blue-400">{label}</a>; return <span key={resource.uri} className="block truncate text-zinc-500" title="No navigator is available for this resource">{label}</span>; })}</div>}
       </section>}
     </aside>
   );

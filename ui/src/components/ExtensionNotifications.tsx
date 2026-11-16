@@ -39,7 +39,7 @@ function NotificationToast({ notification, onDismiss }: { notification: Extensio
         type="button"
         aria-label="Dismiss notification"
         onClick={() => dismiss.current()}
-        className="-mr-1 shrink-0 rounded px-1 leading-5 opacity-60 transition-opacity hover:opacity-100 focus-visible:opacity-100"
+        className="-mr-1 shrink-0 rounded px-1 leading-5 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 opacity-60 transition-opacity hover:opacity-100 focus-visible:opacity-100"
       >
         ×
       </button>
@@ -57,7 +57,7 @@ export function ExtensionNotifications({
 }) {
   if (notifications.length === 0) return null;
   return (
-    <div className="fixed right-4 top-16 z-40 flex w-80 flex-col gap-2">
+    <div className="fixed right-4 top-16 z-40 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2">
       {notifications.map((n) => (
         <NotificationToast key={n.id} notification={n} onDismiss={() => onDismiss(n.id)} />
       ))}

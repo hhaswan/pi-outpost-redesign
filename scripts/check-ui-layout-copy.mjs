@@ -32,16 +32,21 @@ try{for(const width of [1280,390]){
   await page.getByTestId('compact-header-more').getByRole('button',{name:'Terminal sessions'}).waitFor();
   await page.keyboard.press('Escape');await page.getByTestId('compact-header-more').waitFor({state:'detached'});
   const onTop=async(locator,label)=>{const box=await locator.boundingBox();const hit=await page.evaluate(([x,y])=>{const el=document.elementFromPoint(x,y);return el?.closest('button')?.textContent??null},[box.x+box.width/2,box.y+box.height/2]);assert.equal(hit,await locator.textContent(),`${label} not on top`)};
-  for(let i=0;i<7;i++){await navButton(/Plan/).click();}
-  await page.getByRole('complementary',{name:'Work Plan'}).waitFor();await onTop(navButton(/Plan/),'Plan nav with the drawer open');
-  await navButton('Chat').click();await page.getByRole('complementary',{name:'Work Plan'}).waitFor({state:'detached'});
+  // The plan opens as a full sheet over the nav; stale taps on the covered nav must not stack or break it.
+  await navButton(/Plan/).click();for(let i=0;i<6;i++){await navButton(/Plan/).evaluate(b=>b.click());}
+  const planSheet=page.getByTestId('phone-plan-sheet');
+  if(!(await planSheet.isVisible())) await navButton(/Plan/).click();
+  await planSheet.getByRole('complementary',{name:'Work Plan'}).waitFor();
+  await onTop(planSheet.getByRole('button',{name:'Close Work Plan'}),'Plan sheet close');
+  await planSheet.getByRole('button',{name:'Close Work Plan'}).click();await planSheet.waitFor({state:'detached'});
+  await onTop(navButton(/Plan/),'Plan nav after the sheet closes');
   await page.evaluate(()=>{window.__copied=null;document.addEventListener('copy',e=>{window.__copied=document.getSelection()?.toString()??null})});
   const copy=page.getByRole('button',{name:'Copy code'});await copy.click();await copy.click({force:true}).catch(()=>{});
   await page.getByRole('button',{name:'Copied'}).first().waitFor();
   assert.match(await page.evaluate(()=>window.__copied),/migrate\.sh version/);
   await page.getByRole('button',{name:/Copy code|Copied|Copy failed/}).first().dblclick();await page.waitForTimeout(1700);
   assert.equal(await page.getByRole('button',{name:'Copy code'}).count(),1,'copy button returns to idle after double click');
-  assert.deepEqual(errors,[]);console.log(`PASS width ${width}: nothing floats on the phone, Plan in the nav, copy works on insecure HTTP`);await ctx.close();continue;
+  assert.deepEqual(errors,[]);console.log(`PASS width ${width}: nothing floats on the phone, Plan in the nav opens a sheet, copy works on insecure HTTP`);await ctx.close();continue;
  }
  await page.getByRole('button',{name:'sessions',exact:true}).click();await page.getByText('Copy fixture',{exact:true}).click();
  const term=page.getByRole('button',{name:'Terminal sessions'});await term.waitFor();

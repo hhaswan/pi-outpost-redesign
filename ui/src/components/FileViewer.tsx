@@ -932,7 +932,13 @@ export function FileViewer({
 
   return (
     <div className="absolute inset-0 z-20 flex flex-col bg-white dark:bg-zinc-950">
-      <div className="flex items-center gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+      {/* On a phone the toolbar scrolls sideways (snapping control to control)
+          rather than clipping its last controls, and every control in it has a
+          touch-sized hit area; the sheet around it already names the file. */}
+      <div
+        data-testid="file-viewer-toolbar"
+        className="flex items-center gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800 max-md:snap-x max-md:snap-mandatory max-md:overflow-x-auto max-md:overscroll-x-contain max-md:[scrollbar-width:none] max-md:[&>*]:snap-start max-md:[&_button]:min-h-11 max-md:[&_button]:min-w-11 [@media(pointer:coarse)]:[&_button]:min-h-11 [@media(pointer:coarse)]:[&_button]:min-w-11"
+      >
         {/* Three modes rather than two, and only for a document with a rendering to
             sit beside: revising a model by hand means reading the picture and
             changing the text in one motion, which a toggle makes a round trip. */}
@@ -990,8 +996,9 @@ export function FileViewer({
             ⎇ history
           </button>
         )}
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-500 dark:text-zinc-400" title={file.path}>
-          {file.path}
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-500 dark:text-zinc-400 max-md:shrink-0 max-md:flex-none" title={file.path}>
+          {/* The phone sheet names the file in its bar: only the unsaved mark stays. */}
+          <span className="max-md:sr-only">{file.path}</span>
           {unsaved && <span className="ml-1 text-amber-500">●</span>}
         </span>
         {/* Offered whatever the view mode and whatever the writable zone says: it
@@ -1078,7 +1085,8 @@ export function FileViewer({
           onClick={requestClose}
           title="Close (Esc)"
           aria-label="Close file viewer"
-          className="shrink-0 px-1 text-sm text-zinc-400 hover:text-zinc-600 dark:text-zinc-600 dark:hover:text-zinc-300"
+          // On a phone the sheet holding the viewer has the close control.
+          className="shrink-0 max-md:hidden px-1 text-sm text-zinc-400 hover:text-zinc-600 dark:text-zinc-600 dark:hover:text-zinc-300"
         >
           ✕
         </button>

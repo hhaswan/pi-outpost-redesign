@@ -74,9 +74,11 @@ export function UserMessage({ item, canEdit, onEdit, queued }: UserMessageProps)
   }
 
   const actionClass =
-    "mt-1.5 shrink-0 rounded-full px-1 py-0.5 text-xs text-zinc-400 opacity-0 hover:bg-zinc-200 hover:text-zinc-700 focus-visible:opacity-100 group-hover:opacity-100 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200 hover:opacity-80 transition-opacity";
+    "mt-1.5 max-md:mt-0 shrink-0 rounded-full px-1 py-0.5 text-xs text-zinc-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200 hover:opacity-80 transition-opacity";
   return (
-    <div className="group ml-auto flex max-w-[85%] items-start gap-1.5" {...(queued ? { "data-queued-prompt": item.entryId } : {})}>
+    // On a phone the actions (always shown there) go on a row under the bubble rather
+    // than eating its width beside it.
+    <div className="group ml-auto flex max-w-[85%] items-start gap-1.5 max-md:max-w-[92%] max-md:flex-wrap max-md:justify-end max-md:gap-y-0" {...(queued ? { "data-queued-prompt": item.entryId } : {})}>
       {editable && !editing && (
         <button
           type="button"
@@ -106,8 +108,8 @@ export function UserMessage({ item, canEdit, onEdit, queued }: UserMessageProps)
         className={
           // Waiting, the bubble is the same shape, only paler: no frame or heading to read past.
           queued && !editing
-            ? "min-w-0 flex-1 rounded-2xl bg-blue-50 px-4 py-2 text-[15px] text-blue-950/70 dark:bg-blue-950/25 dark:text-zinc-400"
-            : "min-w-0 flex-1 rounded-2xl bg-blue-100 px-4 py-2 text-[15px] text-blue-950 dark:bg-blue-950/60 dark:text-zinc-100"
+            ? "min-w-0 flex-1 max-md:order-first max-md:basis-full rounded-2xl bg-blue-50 px-4 py-2 text-[15px] text-blue-950/70 dark:bg-blue-950/25 dark:text-zinc-400"
+            : "min-w-0 flex-1 max-md:order-first max-md:basis-full rounded-2xl bg-blue-100 px-4 py-2 text-[15px] text-blue-950 dark:bg-blue-950/60 dark:text-zinc-100"
         }
         {...(queued && !editing ? { title: "queued — the agent has not read it yet" } : {})}
       >
@@ -126,7 +128,7 @@ export function UserMessage({ item, canEdit, onEdit, queued }: UserMessageProps)
           </div>
         )}
         {!editing ? (
-          <div className="whitespace-pre-wrap">{item.text}</div>
+          <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{item.text}</div>
         ) : (
           <div>
             <textarea

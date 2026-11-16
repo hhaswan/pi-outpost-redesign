@@ -212,7 +212,7 @@ export function AssistantMessage({ item, serverUrl = "", token = null, workspace
   return (
     <div className="group max-w-none">
       {fullText && !item.streaming && (
-        <div className="flex justify-end opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="flex justify-end transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
           <CopyButton text={fullText} />
         </div>
       )}

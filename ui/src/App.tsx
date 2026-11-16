@@ -60,6 +60,7 @@ import { TerminalPanel } from "./components/TerminalPanel";
 import { OutcomePanel } from "./components/OutcomePanel";
 import { useAgent } from "./useAgent";
 import { useViewport } from "./useViewport";
+import { useKeyboardInset } from "./useKeyboardInset";
 import { Sheet } from "./components/Sheet";
 import { PhoneNav, type PhoneSurface } from "./components/PhoneNav";
 import { SessionList } from "./components/Header";
@@ -360,6 +361,11 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
   const [workPlanOpen, setWorkPlanOpen] = useState(true);
   const viewport = useViewport();
   const isNarrowViewport = viewport.kind === "phone";
+  // Between phone and desktop the file sidebar overlays the chat as a drawer rather
+  // than pushing a conversation that has no width to spare.
+  const isTabletViewport = viewport.kind === "tablet";
+  // iOS keeps the layout viewport under its keyboard: lift the shell above it.
+  const keyboardInset = useKeyboardInset(isNarrowViewport);
   const [narrowWorkPlanOpen, setNarrowWorkPlanOpen] = useState(false);
   const workPlanDisplayedOpen = isNarrowViewport ? narrowWorkPlanOpen : workPlanOpen;
   const [terminalOpen, setTerminalOpen] = useState(false);
@@ -381,6 +387,17 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
       setSessionsSheetOpen(false);
     }
   }, [isNarrowViewport]);
+
+  // The tablet drawer closes on Escape, as a drawer does — unless something above it
+  // (a menu, a dialog) has already taken the key.
+  useEffect(() => {
+    if (!isTabletViewport || !sidebarOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isTabletViewport, sidebarOpen]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -967,11 +984,14 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
         setDiffOnOpen(false);
         setTreeSelection(path);
         readFile(path);
+        // The tablet drawer covers the viewer it just opened: step aside for it.
+        if (isTabletViewport) setSidebarOpen(false);
       }}
       onSelectDiff={(path) => {
         setDiffOnOpen(true);
         setTreeSelection(path);
         readFile(path);
+        if (isTabletViewport) setSidebarOpen(false);
       }}
       onToggleAttachPath={toggleAttachPath}
       onCreateFile={(path) => {
@@ -1074,6 +1094,8 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
     <DrawioFilesContext.Provider value={drawioFiles}>
       <div
         className="relative flex h-full"
+        data-keyboard-inset={keyboardInset || undefined}
+        style={keyboardInset ? { paddingBottom: keyboardInset } : undefined}
         onDragEnter={(e) => {
           if (e.dataTransfer.types.includes("Files")) setDragDepth((d) => d + 1);
         }}
@@ -1089,7 +1111,20 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             </p>
           </div>
         )}
-        {!isNarrowViewport && (sidebarOpen || sidebarMounted) && renderSidebar(false)}
+        {!isNarrowViewport && (sidebarOpen || sidebarMounted) && (
+          // One tree position at both widths, so crossing 1024 px keeps the sidebar's
+          // state. On a desktop the wrappers are layout-neutral (`contents`); on a
+          // tablet they make it a drawer over the chat, kept mounted while closed.
+          <div
+            className={isTabletViewport ? (sidebarOpen ? "absolute inset-0 z-40 flex" : "hidden") : "contents"}
+            data-testid={isTabletViewport ? "tablet-sidebar-drawer" : undefined}
+          >
+            {isTabletViewport && <div aria-hidden="true" onClick={() => setSidebarOpen(false)} className="absolute inset-0 bg-black/30" />}
+            <div className={isTabletViewport ? "relative flex max-w-[85vw] bg-white shadow-2xl dark:bg-zinc-950" : "contents"}>
+              {renderSidebar(false)}
+            </div>
+          </div>
+        )}
         <div className="flex h-full min-w-0 flex-1 flex-col">
           {/* Choosing a project root reuses the picker the sandbox root already
               uses — the same walk of the server's filesystem, for the same kind of
@@ -1261,8 +1296,9 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
               viewer, a commit view) stays below the header's menus no matter what
               z-index it asks for. */}
           <div className="relative z-0 flex min-h-0 flex-1 flex-col">
-          {/* On a phone the plan is reached from the bottom navigation: no floating chip. */}
-          {state.workPlan && (!isNarrowViewport || narrowWorkPlanOpen) && (
+          {/* On a phone the plan is reached from the bottom navigation and opens in a
+              sheet of its own (below): no floating chip, no drawer. */}
+          {state.workPlan && !isNarrowViewport && (
             <WorkPlanPanel
               plan={state.workPlan}
               open={workPlanDisplayedOpen}
@@ -1310,7 +1346,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
           {!isNarrowViewport && !embedded && !state.workspaceLocked && <div className={`flex justify-end px-3 py-1 ${analysisOpen ? "md:pr-[26rem]" : state.workPlan ? (workPlanDisplayedOpen ? "md:pr-[23rem]" : "pr-28") : ""}`}>
             <button type="button" onClick={() => setCliSessionsOpen(true)} className="min-h-9 rounded-full border border-zinc-300 px-3 text-xs text-zinc-700 focus-visible:outline-2 focus-visible:outline-blue-500 dark:border-zinc-700 dark:text-zinc-200">Terminal sessions</button>
           </div>}
-          <ActivityStrip state={state} onSwitchWorkspace={!embedded && !state.workspaceLocked ? switchWorkspace : undefined} />
+          <ActivityStrip state={state} compact={isNarrowViewport} onSwitchWorkspace={!embedded && !state.workspaceLocked ? switchWorkspace : undefined} />
           {/* The drawer overlays the right side; padding keeps the conversation
               beside it rather than behind it, so a jump lands somewhere visible. */}
           <main
@@ -1653,10 +1689,26 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
         </div>
       </div>
 
-      {/* Phone surfaces. Files first, so a file opened from it is pushed over it. */}
+      {/* Phone surfaces. Files and the Work Plan first, so a file opened from either is pushed over it. */}
       {isNarrowViewport && sidebarOpen && (
         <Sheet variant="full" title="Files" testId="phone-files-sheet" onClose={() => setSidebarOpen(false)}>
           {renderSidebar(true)}
+        </Sheet>
+      )}
+      {isNarrowViewport && state.workPlan && narrowWorkPlanOpen && (
+        <Sheet variant="full" title="Work Plan" testId="phone-plan-sheet" closeLabel="Close Work Plan" onClose={() => setNarrowWorkPlanOpen(false)}>
+          <WorkPlanPanel
+            plan={state.workPlan}
+            open
+            inSheet
+            onToggle={() => setNarrowWorkPlanOpen(false)}
+            onOpenWorkspace={(path) => {
+              setDiffOnOpen(false);
+              readFile(path);
+            }}
+            requestedTaskId={requestedTaskId}
+            onTaskRequestHandled={clearRequestedTask}
+          />
         </Sheet>
       )}
       {isNarrowViewport && viewerOpen && (

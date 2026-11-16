@@ -28,9 +28,14 @@ function activityLabel(state: ActivityState): string {
 }
 
 /** Live transport/workspace state only. Transcript text is not activity telemetry. */
-export function ActivityStrip({ state, onSwitchWorkspace }: {
+export function ActivityStrip({ state, onSwitchWorkspace, compact = false }: {
   state: ActivityState;
   onSwitchWorkspace?: (root: string, id?: string) => void;
+  /**
+   * The phone layout: one slim line. The project and session are already in the
+   * header above it, so they are kept for screen readers only.
+   */
+  compact?: boolean;
 }) {
   const known = state.connected && !state.authRequired;
   const others = known ? state.workspaces.filter((workspace) =>
@@ -42,26 +47,28 @@ export function ActivityStrip({ state, onSwitchWorkspace }: {
   const lastError = state.errors.at(-1);
 
   return (
-    <section aria-label="Activity" className="min-w-0 shrink-0 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
-      <div className="mx-auto flex max-w-3xl min-w-0 flex-col gap-1 rounded-xl bg-zinc-100 px-3 py-2 text-xs text-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-        <div role="status" aria-live="polite" aria-atomic="true" className="min-w-0">
+    <section aria-label="Activity" data-compact={compact || undefined} className={`min-w-0 shrink-0 border-b border-zinc-200 dark:border-zinc-800 ${compact ? "px-3 py-1" : "px-3 py-2"}`}>
+      <div className={compact
+        ? "mx-auto flex max-w-3xl min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap text-xs text-zinc-700 [scrollbar-width:none] dark:text-zinc-200"
+        : "mx-auto flex max-w-3xl min-w-0 flex-col gap-1 rounded-xl bg-zinc-100 px-3 py-2 text-xs text-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"}>
+        <div role="status" aria-live="polite" aria-atomic="true" className={compact ? "flex shrink-0 items-center gap-1 [&>p]:inline" : "min-w-0"}>
           <p className="font-semibold">{activityLabel(state)}</p>
           {known && state.workspace?.backgroundAgents && (!state.workspace.backgroundAgents.known || state.workspace.backgroundAgents.running + state.workspace.backgroundAgents.queued > 0) && (
             <p>{state.workspace.backgroundAgents.known
               ? `Background agents: ${state.workspace.backgroundAgents.running} running · ${state.workspace.backgroundAgents.queued} queued`
               : "Background agent activity uncertain"}</p>
           )}
-          <p className="break-words text-zinc-600 [overflow-wrap:anywhere] dark:text-zinc-400">
+          <p className={compact ? "sr-only" : "break-words text-zinc-600 [overflow-wrap:anywhere] dark:text-zinc-400"}>
             {state.switching || !known ? "Last viewed: " : ""}{project} · {session}
           </p>
         </div>
         {others.length > 0 && (
-          <div aria-label="Other project activity" className="flex min-w-0 flex-wrap items-center gap-1">
+          <div aria-label="Other project activity" className={`flex min-w-0 items-center gap-1 ${compact ? "shrink-0" : "flex-wrap"}`}>
             <span>Other projects / sessions:</span>
             {others.map((workspace) => {
               const identity = workspaceKey(workspace);
               const text = `${workspace.name}${workspace.label ? ` · ${workspace.label}` : ""} · ${labels[workspace.activity]}`;
-              const classes = "max-w-full rounded-full border border-zinc-300 px-2 py-1 text-left [overflow-wrap:anywhere] dark:border-zinc-700";
+              const classes = `max-w-full rounded-full border border-zinc-300 px-2 py-1 text-left [overflow-wrap:anywhere] dark:border-zinc-700 ${compact ? "min-h-11 shrink-0" : ""}`;
               return onSwitchWorkspace ? (
                 <button key={identity} type="button" disabled={state.switching} title={identity}
                   aria-label={`${text} (${identity})`} onClick={() => onSwitchWorkspace(workspace.root, workspace.id)}
@@ -73,7 +80,7 @@ export function ActivityStrip({ state, onSwitchWorkspace }: {
           </div>
         )}
         {lastError && !state.switching && (
-          <p title={lastError} className="truncate text-amber-700 dark:text-amber-400">Last error: {lastError}</p>
+          <p title={lastError} className={`truncate text-amber-700 dark:text-amber-400 ${compact ? "min-w-0" : ""}`}>Last error: {lastError}</p>
         )}
       </div>
     </section>

@@ -64,7 +64,7 @@ export function ModelPicker({ model, models, disabled, onSetModel }: ModelPicker
   return (
     <div
       ref={root}
-      className="relative w-full min-w-0 max-w-full sm:w-auto sm:max-w-64"
+      className="relative w-full min-w-0 max-w-full sm:w-auto sm:max-w-64 max-md:w-auto max-md:flex-1"
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) close();
       }}

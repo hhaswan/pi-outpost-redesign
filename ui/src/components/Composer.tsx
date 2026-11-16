@@ -3,6 +3,7 @@ import type { CommandInfo, FileSearchEntry, WireImage } from "@pi-outpost/shared
 import { composePrompt, mentionedPaths, type Attachment } from "../attachments";
 import type { FileSearch } from "../useAgent";
 import { eventHitsNode } from "../util/clickOutside";
+import { useViewport } from "../useViewport";
 
 /** A guard on DOM size, not a limit on what a reader may find. The list scrolls. */
 const MAX_COMMAND_SUGGESTIONS = 100;
@@ -79,6 +80,7 @@ export function Composer({
   onDraftChange,
 }: ComposerProps) {
   const [text, setText] = useState(initialDraft ?? "");
+  const phone = useViewport().kind === "phone";
   /**
    * Hand the draft up on every keystroke so it survives a project switch.
    *
@@ -394,7 +396,7 @@ export function Composer({
                 type="button"
                 onClick={() => onRemoveAttachment(i)}
                 title="remove attachment"
-                className="rounded px-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                className="rounded px-1 text-zinc-400 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
               >
                 ✕
               </button>
@@ -415,7 +417,7 @@ export function Composer({
                   data-selected={i === selected}
                   onMouseEnter={() => setSelected(i)}
                   onClick={() => pick(command)}
-                  className={`flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm ${
+                  className={`flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm [@media(pointer:coarse)]:min-h-11 max-md:min-h-11 ${
                     i === selected ? "bg-zinc-100 dark:bg-zinc-800" : ""
                   }`}
                 >
@@ -438,7 +440,7 @@ export function Composer({
                   data-selected={i === selected}
                   onMouseEnter={() => setSelected(i)}
                   onClick={() => pickFile(entry)}
-                  className={`flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm ${
+                  className={`flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm [@media(pointer:coarse)]:min-h-11 max-md:min-h-11 ${
                     i === selected ? "bg-zinc-100 dark:bg-zinc-800" : ""
                   }`}
                 >
@@ -468,7 +470,10 @@ export function Composer({
               ? "connecting…"
               : isStreaming
                 ? "steer the agent… (Enter to send)"
-                : "message pi… (/ for commands, @ for files, Enter to send, Shift+Enter for newline)"
+                : phone
+                  // One line on a phone: a wrapped hint grows the field and hides the conversation.
+                  ? "message pi… (/ commands, @ files)"
+                  : "message pi… (/ for commands, @ for files, Enter to send, Shift+Enter for newline)"
           }
           disabled={!connected}
           rows={1}
@@ -480,7 +485,7 @@ export function Composer({
             onClick={onAbort}
             title="stop"
             aria-label="Stop the agent"
-            className="rounded-full bg-red-100 p-2 text-red-700 hover:bg-red-200 dark:bg-red-900/60 dark:text-red-200 dark:hover:bg-red-900 hover:opacity-80 transition-opacity"
+            className="inline-flex shrink-0 items-center justify-center rounded-full bg-red-100 p-2 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 text-red-700 hover:bg-red-200 dark:bg-red-900/60 dark:text-red-200 dark:hover:bg-red-900 hover:opacity-80 transition-opacity"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className="h-4 w-4">
               <rect x="6" y="6" width="12" height="12" rx="2" />
@@ -493,7 +498,7 @@ export function Composer({
           disabled={!connected}
           title="attach files"
           aria-label="Attach files"
-          className="rounded-full p-2 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-700 disabled:opacity-30 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 hover:opacity-80 transition-opacity"
+          className="inline-flex shrink-0 items-center justify-center rounded-full p-2 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-700 disabled:opacity-30 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 hover:opacity-80 transition-opacity"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden className="h-4 w-4">
             <path
@@ -519,7 +524,7 @@ export function Composer({
           disabled={!connected || uploading || (!text.trim() && attachments.length === 0)}
           title={uploading ? "waiting for an attachment to finish uploading" : isStreaming ? "steer" : "send"}
           aria-label={isStreaming ? "Steer the agent" : "Send message"}
-          className="rounded-full bg-zinc-900 p-2 text-zinc-100 hover:bg-zinc-800 disabled:opacity-30 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white hover:opacity-80 transition-opacity"
+          className="inline-flex shrink-0 items-center justify-center rounded-full bg-zinc-900 p-2 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 text-zinc-100 hover:bg-zinc-800 disabled:opacity-30 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white hover:opacity-80 transition-opacity"
         >
           {isStreaming ? (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden className="h-4 w-4">

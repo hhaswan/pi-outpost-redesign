@@ -409,6 +409,73 @@ describe("Phone shell", () => {
     expect(navButton(/Chat/)).toHaveAttribute("aria-current", "page");
   });
 
+  it("opens the Work Plan in a sheet with one touch-sized close, and Escape closes it", () => {
+    stubWidth(390);
+    mockUseAgent.mockReturnValue(agentApi(agentState({ workPlan })));
+    render(<App />);
+    fireEvent.click(navButton(/Plan/));
+    const sheet = screen.getByTestId("phone-plan-sheet");
+    expect(within(sheet).getByRole("dialog")).toHaveAttribute("aria-modal", "true");
+    expect(within(sheet).getByRole("complementary", { name: "Work Plan" })).toBeInTheDocument();
+    // The sheet's bar closes it; the drawer's own small close is not drawn as well.
+    const closes = within(sheet).getAllByRole("button", { name: "Close Work Plan" });
+    expect(closes).toHaveLength(1);
+    expect(closes[0]).toHaveClass("h-11", "w-11");
+    expect(navButton(/Plan/)).toHaveAttribute("aria-current", "page");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("phone-plan-sheet")).toBeNull();
+    expect(navButton(/Chat/)).toHaveAttribute("aria-current", "page");
+  });
+
+  it("traps focus in the terminal sheet, leaves Escape to the shell, and returns focus on close", async () => {
+    stubWidth(390);
+    mockUseAgent.mockReturnValue(agentApi(agentState({ terminal: { enabled: true } })));
+    render(<App />);
+    const opener = navButton(/Terminal/);
+    opener.focus();
+    fireEvent.click(opener);
+    const terminal = screen.getByTestId("terminal-sheet");
+    await waitFor(() => expect(terminal.contains(document.activeElement)).toBe(true));
+    // Escape belongs to whatever runs in the shell: the sheet stays open and mounted.
+    fireEvent.keyDown(document.activeElement ?? terminal, { key: "Escape" });
+    expect(terminal).not.toHaveClass("hidden");
+    // Tab from the sheet itself enters its first control; Shift+Tab from there wraps
+    // to its last one, never out of the sheet.
+    terminal.focus();
+    fireEvent.keyDown(terminal, { key: "Tab" });
+    const first = document.activeElement as HTMLElement;
+    expect(first).not.toBe(terminal);
+    expect(terminal.contains(first)).toBe(true);
+    fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).not.toBe(first);
+    expect(terminal.contains(document.activeElement)).toBe(true);
+    const close = within(terminal).getByRole("button", { name: "Close Terminal" });
+    fireEvent.click(close);
+    expect(terminal).toHaveClass("hidden");
+    expect(screen.getByTestId("terminal-sheet")).toBe(terminal);
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("overlays the file sidebar as a drawer on a tablet, closed by its backdrop or Escape", () => {
+    const resize = stubWidth(900);
+    mockUseAgent.mockReturnValue(agentApi(agentState({})));
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "◨ files" }));
+    const drawer = screen.getByTestId("tablet-sidebar-drawer");
+    expect(drawer).toHaveClass("absolute", "inset-0");
+    expect(drawer.lastElementChild).toContainElement(screen.getByRole("complementary", { name: "Files" }));
+    // The backdrop closes it.
+    fireEvent.click(drawer.firstElementChild as HTMLElement);
+    expect(drawer).toHaveClass("hidden");
+    fireEvent.click(screen.getByRole("button", { name: "◨ files" }));
+    expect(drawer).toHaveClass("absolute");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(drawer).toHaveClass("hidden");
+    // A desktop pushes the chat as before: no drawer, no backdrop.
+    resize(1280);
+    expect(screen.queryByTestId("tablet-sidebar-drawer")).toBeNull();
+  });
+
   it("switches surfaces one at a time and leaves no phone sheet behind at a desktop width", () => {
     const resize = stubWidth(390);
     mockUseAgent.mockReturnValue(agentApi(agentState({ workPlan })));
@@ -735,7 +802,11 @@ describe("App — panes and handovers", () => {
     fireEvent.click(sidebarToggle());
     const sidebar = screen.getByRole("complementary", { name: "Files" });
     const separator = screen.getByRole("separator", { name: "Resize Files sidebar" });
-    const mainColumn = sidebar.nextElementSibling as HTMLElement;
+    // The sidebar sits in layout-neutral (`display: contents`) wrappers: its layout
+    // sibling is the next element after them.
+    let wrapper: HTMLElement = sidebar;
+    while (!wrapper.nextElementSibling && wrapper.parentElement?.classList.contains("contents")) wrapper = wrapper.parentElement;
+    const mainColumn = wrapper.nextElementSibling as HTMLElement;
 
     fireEvent.pointerDown(separator, { pointerId: 1, clientX: 288, button: 0, isPrimary: true });
     fireEvent.pointerMove(separator, { pointerId: 1, clientX: 416 });

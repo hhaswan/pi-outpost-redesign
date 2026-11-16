@@ -147,7 +147,9 @@ This host-specific flow requires Linux, root, systemd, IPv4 HTTP on an explicit
 configured port, iptables/ip6tables, python3, and Playwright Chromium. It refuses a dirty
 checkout, installs from the lockfile with npm 12.2.2, builds the embedded custom UI,
 and runs the artifact gate, an image decode/resize check and a real browser image-prompt
-probe, a real CLI PTY/browser handoff probe, a disposable
+probe, a built-app responsive layout gate at phone, tablet and desktop widths (strict
+44 px touch targets and no hover-only controls on phones), an image lightbox probe,
+a real CLI PTY/browser handoff probe, a disposable
 native-service deployment probe, and focused update/ownership tests. It does not restart the live service during these checks.
 
 Deployment then runs in `pi-outpost-custom-deploy.service`, outside the live

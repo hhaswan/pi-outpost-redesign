@@ -1,3 +1,4 @@
+import { TOUCH_DESCENDANTS } from "../touch";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { PiPackageInfo, Theme } from "@pi-outpost/shared";
 import type { AgentState } from "../useAgent";
@@ -259,7 +260,7 @@ function SessionRow({
         onClick={onStartRename}
         title="rename session"
         aria-label="Rename session"
-        className="mt-2 rounded-full px-1.5 py-0.5 text-xs text-zinc-400 opacity-0 hover:bg-zinc-200 hover:text-zinc-700 focus-visible:opacity-100 group-hover:opacity-100 dark:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-200 hover:opacity-80 transition-opacity"
+        className="mt-2 shrink-0 rounded-full px-1.5 py-0.5 text-xs text-zinc-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 hover:bg-zinc-200 hover:text-zinc-700 dark:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-200 hover:opacity-80 transition-opacity"
       >
         ✎
       </button>
@@ -269,7 +270,7 @@ function SessionRow({
           onClick={onDelete}
           title="delete session"
           aria-label="Delete session"
-          className="mr-2 mt-2 rounded-full px-1.5 py-0.5 text-xs text-zinc-400 opacity-0 hover:bg-red-100 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-zinc-600 dark:hover:bg-red-950/60 dark:hover:text-red-400 hover:opacity-80 transition-opacity"
+          className="mr-2 mt-2 shrink-0 rounded-full px-1.5 py-0.5 text-xs text-zinc-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 hover:bg-red-100 hover:text-red-600 dark:text-zinc-600 dark:hover:bg-red-950/60 dark:hover:text-red-400 hover:opacity-80 transition-opacity"
         >
           ✕
         </button>
@@ -585,7 +586,7 @@ function ConversationFilterMenu({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-30 mt-1 w-48 rounded-2xl border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          className={`absolute right-0 z-30 mt-1 w-48 rounded-2xl border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 ${TOUCH_DESCENDANTS}`}
         >
           {CONVERSATION_FILTER_KINDS.map((kind) => (
             <button
@@ -752,7 +753,7 @@ function ThemeToggle({ theme, preference = theme, onToggle, onSetTheme }: { them
     >
       {preference === "system" ? "◐" : theme === "dark" ? "☾" : "☀"}
     </button>
-    {open && <div role="menu" aria-label="Theme" className="absolute right-0 top-full z-40 mt-2 min-w-32 rounded-2xl border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+    {open && <div role="menu" aria-label="Theme" className={`absolute right-0 top-full z-40 mt-2 min-w-32 rounded-2xl border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 ${TOUCH_DESCENDANTS}`}>
       {(["light", "dark", "system"] as const).map(value => <button key={value} role="menuitemradio" aria-checked={preference === value} type="button" className="block w-full rounded-full px-3 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800 hover:opacity-80 transition-opacity" onClick={() => {
         if (onSetTheme) onSetTheme(value);
         else if (value !== theme) onToggle();
@@ -1059,7 +1060,7 @@ function CompactHeader({ parts, ...props }: HeaderProps & { parts: CompactParts 
       </button>
       {moreOpen && (
         <Sheet variant="bottom" title="Controls" onClose={() => setMoreOpen(false)} testId="compact-header-more">
-          <div className={`flex flex-wrap items-start gap-2 p-3 [&>button]:min-w-11 [&>button]:justify-center [&>div>button]:min-w-11 [&>div>button]:justify-center ${INLINE_DROPDOWNS}`}>
+          <div className={`flex flex-wrap items-start gap-2 p-3 [&>button]:min-w-11 [&>button]:justify-center [&>div>button]:min-w-11 [&>div>button]:justify-center ${INLINE_DROPDOWNS} ${TOUCH_DESCENDANTS}`}>
             {hasStatuses && (
               <div className="max-w-full overflow-x-auto">
                 <ExtensionStatuses statuses={props.statuses} bar={null} />

@@ -115,4 +115,13 @@ describe("ActivityStrip", () => {
     rerender(<ActivityStrip state={{ ...base, sessionName: null, sessionId: "" }} />);
     expect(status()).toContain("Session not yet available");
   });
+
+  it("is one slim line on a phone, keeping the project and session for screen readers", () => {
+    render(<ActivityStrip state={base} compact />);
+    const region = screen.getByRole("region", { name: "Activity" });
+    expect(region).toHaveAttribute("data-compact", "true");
+    expect(status()).toContain("Idle");
+    // The header above already shows them: present, but not drawn.
+    expect(screen.getByText("Project · Review changes")).toHaveClass("sr-only");
+  });
 });

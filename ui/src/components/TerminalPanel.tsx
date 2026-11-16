@@ -452,14 +452,57 @@ export function TerminalPanel({
     }
   };
 
+  // As a phone sheet the panel is a modal dialog: focus moves into it when it opens
+  // and returns to whatever opened it when it closes. Escape is left to the shell (an
+  // editor in it needs the key), so closing is the bar's button, and the panel stays
+  // mounted: hiding it never ends a shell.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!fill || !open || !hasBeenOpened) return;
+    const root = rootRef.current;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // The shell takes focus itself once it is drawn; the dialog is the fallback.
+    const timer = setTimeout(() => {
+      if (root && !root.contains(document.activeElement)) root.focus();
+    }, 120);
+    return () => {
+      clearTimeout(timer);
+      const active = document.activeElement;
+      const lost = !active || active === document.body || (root?.contains(active) ?? false);
+      if (opener && opener.isConnected && opener !== root && lost) opener.focus();
+    };
+    // `hasBeenOpened`: on the first open the panel renders nothing for one pass.
+  }, [fill, open, hasBeenOpened]);
+  /** Tab cycles inside the sheet. Inside the shell Tab is the shell's (completion). */
+  const trapTab = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!fill || event.key !== "Tab") return;
+    const root = rootRef.current;
+    if (!root || (event.target as HTMLElement).closest?.(".xterm")) return;
+    const focusable = Array.from(
+      root.querySelectorAll<HTMLElement>("button:not([disabled]), select:not([disabled]), input:not([disabled]), textarea, [tabindex]:not([tabindex=\"-1\"])"),
+    ).filter((el) => el !== root && !el.closest(".hidden, [hidden]"));
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || active === root)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || active === root)) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   if (!hasBeenOpened) return null;
 
   return (
     <div
       style={fill ? undefined : { height: isMaximized ? "85vh" : heightResize.width, maxHeight: isMaximized ? "85vh" : "65vh" }}
-      {...(fill ? { role: "dialog", "aria-modal": true, "aria-label": "Terminal", "data-testid": "terminal-sheet" } : {})}
+      ref={rootRef}
+      {...(fill ? { role: "dialog", "aria-modal": true, "aria-label": "Terminal", "data-testid": "terminal-sheet", tabIndex: -1, onKeyDown: trapTab } : {})}
       className={fill
-        ? `fixed inset-0 z-[100] flex-col bg-zinc-100 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] dark:bg-zinc-900 ${open ? "flex" : "hidden"}`
+        ? `fixed inset-0 z-[100] flex-col bg-zinc-100 focus:outline-none pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] dark:bg-zinc-900 ${open ? "flex" : "hidden"}`
         : `flex-col shrink-0 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 ${
         open ? "flex" : "hidden"
       } relative z-20`}
@@ -505,7 +548,7 @@ export function TerminalPanel({
                       role="button"
                       tabIndex={0}
                       aria-label="Close terminal tab"
-                      className="ml-1 hover:text-red-500 rounded p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                      className="ml-1 inline-flex items-center justify-center rounded p-0.5 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 hover:text-red-500 hover:bg-zinc-200 dark:hover:bg-zinc-700"
                     >
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

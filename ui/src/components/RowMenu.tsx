@@ -97,7 +97,7 @@ export function RowMenu({ label, groups, anchor, disabled, onSelect, onClose }: 
                 role="menuitem"
                 disabled={off}
                 onClick={() => onSelect(action.id)}
-                className={`flex w-full items-center gap-2 px-3 py-1 text-left hover:bg-zinc-100 focus:bg-zinc-100 focus:outline-none disabled:opacity-40 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800 ${
+                className={`flex w-full items-center gap-2 px-3 py-1 text-left [@media(pointer:coarse)]:min-h-11 max-md:min-h-11 hover:bg-zinc-100 focus:bg-zinc-100 focus:outline-none disabled:opacity-40 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800 ${
                   action.danger ? "text-red-600 dark:text-red-400" : "text-zinc-700 dark:text-zinc-300"
                 }`}
               >

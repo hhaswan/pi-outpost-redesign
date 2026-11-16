@@ -225,4 +225,20 @@ describe("UserMessage", () => {
       expect(onEdit).not.toHaveBeenCalled();
     });
   });
+
+  it("breaks an unbroken word anywhere, so a long URL cannot widen the bubble", () => {
+    setup({ item: item({ text: "https://example.com/" + "segment".repeat(40) }) });
+    expect(screen.getByText(/^https:\/\/example\.com/)).toHaveClass("[overflow-wrap:anywhere]");
+  });
+
+  it("hides its actions until hover only where there is hover, and gives them touch-sized hit areas", () => {
+    // TouchTargetsAndNoHoverOnlyActions
+    setup();
+    const classes = editButton().className.split(" ");
+    expect(classes).toEqual(expect.arrayContaining([
+      "[@media(hover:hover)]:opacity-0", "[@media(hover:hover)]:group-hover:opacity-100", "focus-visible:opacity-100",
+      "[@media(pointer:coarse)]:min-h-11", "max-md:min-h-11", "max-md:min-w-11",
+    ]));
+    expect(classes).not.toContain("opacity-0");
+  });
 });

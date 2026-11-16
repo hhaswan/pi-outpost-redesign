@@ -15,6 +15,7 @@
  * Absent entirely while a single project is open: nothing new appears in a header
  * that already carries seven controls until there is something to choose.
  */
+import { TOUCH_DESCENDANTS } from "../touch";
 import { useEffect, useRef, useState } from "react";
 import type { WorkspaceActivity, WorkspaceInfo } from "@pi-outpost/shared";
 import { eventHitsNode } from "../util/clickOutside";
@@ -191,7 +192,7 @@ export function ProjectMenu(props: ProjectMenuProps) {
       {open && (
         <div
           role="menu"
-          className="absolute left-0 top-full z-40 mt-1 w-87 rounded-md border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          className={`absolute left-0 top-full z-40 mt-1 w-87 max-w-[calc(100vw-1rem)] rounded-md border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 ${TOUCH_DESCENDANTS}`}
         >
           {ordered(workspaces).map((w) => {
             const key = workspaceKey(w);
@@ -271,7 +272,7 @@ export function ProjectMenu(props: ProjectMenuProps) {
                         if (side) props.onClose(w.root, w.id);
                         else props.onClose(w.root);
                       }}
-                      className="flex h-5 w-5 items-center justify-center rounded border border-transparent text-zinc-400 opacity-0 group-hover:border-zinc-300 group-hover:opacity-100 hover:text-zinc-700 dark:group-hover:border-zinc-600 dark:hover:text-zinc-200"
+                      className="flex h-5 w-5 items-center justify-center rounded border border-transparent text-zinc-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 group-hover:border-zinc-300 hover:text-zinc-700 dark:group-hover:border-zinc-600 dark:hover:text-zinc-200"
                     >
                       <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                         <path d="M18 6 6 18" />

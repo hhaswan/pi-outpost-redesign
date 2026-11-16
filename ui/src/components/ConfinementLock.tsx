@@ -92,7 +92,14 @@ export function grantsDescription(grants: SandboxGrantSet): string[] {
   return lines.length ? ["Granted by you for this session:", ...lines] : [];
 }
 
-export function ConfinementLock({ verdict, surface, root, grants }: { verdict: ConfinementVerdict; surface: "shell" | "terminal"; root?: string; grants?: SandboxGrantSet }) {
+export function ConfinementLock({ verdict, surface, root, grants, textClassName }: {
+  verdict: ConfinementVerdict;
+  surface: "shell" | "terminal";
+  root?: string;
+  grants?: SandboxGrantSet;
+  /** Classes for the words beside the icon: a compact layout may keep them for screen readers only. */
+  textClassName?: string;
+}) {
   const where = root ? ` to ${root}` : "";
   // The verdict is the canary's, of the base policy: grants are said beside it, never folded into it.
   const granted = grants ? grants.hosts.length + grants.directories.length : 0;
@@ -123,8 +130,17 @@ export function ConfinementLock({ verdict, surface, root, grants }: { verdict: C
       title={[confinementDescription(verdict, surface), ...(grants ? grantsDescription(grants) : [])].join("\n")}
       className={`shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 font-sans text-[11px] ${look.tone}`}
     >
-      {look.icon} {surface === "shell" ? `shell ${look.text}` : look.text}
-      {withGrants}
+      {textClassName ? (
+        <>
+          {look.icon}
+          <span className={textClassName}> {surface === "shell" ? `shell ${look.text}` : look.text}{withGrants}</span>
+        </>
+      ) : (
+        <>
+          {look.icon} {surface === "shell" ? `shell ${look.text}` : look.text}
+          {withGrants}
+        </>
+      )}
     </span>
   );
 }

@@ -1,3 +1,4 @@
+import { TOUCH_DESCENDANTS } from "../touch";
 import { useEffect, useRef, useState } from "react";
 import { ServerPathPicker } from "./ServerPathPicker";
 import type { ServerBrowseState, SettingsApplyState } from "../useAgent";
@@ -97,6 +98,7 @@ export function WorkspaceRootControl(props: WorkspaceRootControlProps) {
         type="button"
         disabled={locked}
         aria-label={locked ? `Sandbox root: ${sandbox.root} (locked)` : `Sandbox root: ${sandbox.root}`}
+        aria-expanded={picking}
         title={locked ? `${sandbox.root} — locked by the server's configuration` : sandbox.root}
         onClick={() => {
           props.onOpened();
@@ -118,7 +120,7 @@ export function WorkspaceRootControl(props: WorkspaceRootControlProps) {
           of every control inside them. The effect stays, because the state still
           has to converge; this only stops the overlap being observable. */}
       {picking && !blocked && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-[380px] rounded-lg border border-zinc-200 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div className={`absolute left-0 top-full z-20 mt-1 w-[380px] max-w-[calc(100vw-1rem)] rounded-lg ${TOUCH_DESCENDANTS} border border-zinc-200 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900`}>
           {applyState?.status === "error" && (
             <p role="alert" className="mb-2 text-xs text-red-600 dark:text-red-400">
               {applyState.message}

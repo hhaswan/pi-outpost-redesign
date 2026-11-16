@@ -294,7 +294,7 @@ function Cap({ label, className }: { label: string; className: string }) {
 }
 
 const ACTION_CLASS =
-  "shrink-0 rounded px-1 py-0.5 text-[10px] text-zinc-400 opacity-0 hover:bg-zinc-200 hover:text-zinc-700 focus-visible:opacity-100 group-hover:opacity-100 aria-disabled:cursor-default aria-disabled:opacity-30 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200";
+  "shrink-0 rounded px-1 py-0.5 text-[10px] text-zinc-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 max-md:min-h-11 max-md:min-w-11 hover:bg-zinc-200 hover:text-zinc-700 aria-disabled:cursor-default aria-disabled:opacity-30 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200";
 
 interface HistoryRowProps {
   row: FileGraphRow;

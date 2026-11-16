@@ -111,4 +111,19 @@ describe("WorkPlanPanel", () => {
     await waitFor(() => expect(screen.getByRole("treeitem", { name: /Publish/ })).toHaveAttribute("aria-selected", "true"));
     expect(screen.getByRole("treeitem", { name: /Build UI/ })).toHaveAttribute("aria-selected", "false");
   });
+
+  it("fills a phone sheet and leaves closing to the sheet", () => {
+    render(<WorkPlanPanel plan={plan} open inSheet onToggle={() => {}} onOpenWorkspace={() => {}} />);
+    const aside = screen.getByRole("complementary", { name: "Work Plan" });
+    expect(aside).toHaveClass("h-full");
+    expect(aside).not.toHaveClass("absolute");
+    expect(screen.queryByRole("button", { name: "Close Work Plan" })).toBeNull();
+    // Task rows are touch-sized on a phone.
+    expect(screen.getByRole("treeitem", { name: /Build UI/ })).toHaveClass("max-md:min-h-11");
+  });
+
+  it("keeps a touch-sized close of its own as a drawer", () => {
+    render(<WorkPlanPanel plan={plan} open onToggle={() => {}} onOpenWorkspace={() => {}} />);
+    expect(screen.getByRole("button", { name: "Close Work Plan" })).toHaveClass("max-md:min-h-11", "max-md:min-w-11", "[@media(pointer:coarse)]:min-h-11");
+  });
 });

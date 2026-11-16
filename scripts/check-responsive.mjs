@@ -12,9 +12,14 @@
  * Work Plan and the terminal, each from the bottom navigation. At wider widths they are
  * the Work Plan and the sessions dropdown; at 1280 it also asserts the desktop header
  * is still one row with its own controls and that there is no bottom navigation.
- * On phone widths it also measures hit areas below 44x44 px. That list is printed
- * only, unless `--strict-touch` is given: later phases of responsive-mobile-layout
- * make it pass.
+ * On phone widths it also opens every menu in the overflow sheet (and the project
+ * menu in the header), measures hit areas below 44x44 px, and flags hover-only
+ * controls: a control that is transparent on a screen without hover (the phone
+ * contexts emulate touch, so `(hover: none)` and `(pointer: coarse)` match) cannot be
+ * found there. Small hit areas are printed only, unless `--strict-touch` is given.
+ * Controls under an open sheet are neither measured nor flagged: they cannot be hit.
+ * At 1280 it checks the other side of the hover gate: a session's rename control is
+ * hidden until its row is hovered, as before.
  *
  * Usage: node scripts/check-responsive.mjs [--report] [--strict-touch] [--width=360,...] [--shots=dir]
  *   --report        print every violation and exit 0 (a broken fixture still exits 1)
@@ -81,7 +86,8 @@ await fs.writeFile(m.getSessionFile() + '.work-plan.json', JSON.stringify({
 function inspect({ phone, minTarget, surface }) {
   const vw = document.documentElement.clientWidth;
   const vh = window.innerHeight;
-  const out = { overflow: null, offscreen: [], covered: [], small: [], behindSurface: 0 };
+  const out = { overflow: null, offscreen: [], covered: [], small: [], hoverOnly: [], behindSurface: 0 };
+  const noHover = window.matchMedia('(hover: none)').matches;
   // The surface the probe opened (a drawer, a dropdown): controls under it are meant
   // to be covered by it. Its nearest positioned ancestor is the layer that floats.
   let layer = surface ? document.querySelector(surface) : null;
@@ -96,9 +102,13 @@ function inspect({ phone, minTarget, surface }) {
   const shown = (el) => {
     for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
       const cs = getComputedStyle(n);
-      if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return false;
+      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
     }
     return true;
+  };
+  const transparent = (el) => {
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) if (Number(getComputedStyle(n).opacity) === 0) return true;
+    return false;
   };
   // The part of the element its scrolling ancestors leave visible. The document
   // itself is not a clip here: a control pushed past the viewport edge is the defect.
@@ -128,19 +138,29 @@ function inspect({ phone, minTarget, surface }) {
     const c = clipped(el);
     if (c.width <= 0.5 || c.height <= 0.5) continue; // scrolled out of its container
     const label = describe(el);
+    if (transparent(el)) {
+      // Where there is no hover, a transparent control is an invisible tap target —
+      // unless a surface covers it anyway. xterm's input is transparent by design:
+      // the terminal it sits in is what shows.
+      const hit = document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2);
+      const behind = hit && layer && layer.contains(hit) && !layer.contains(el);
+      if (noHover && !behind && !el.closest('.xterm')) out.hoverOnly.push(label);
+      continue;
+    }
     if (c.left < -0.5 || c.top < -0.5 || c.right > vw + 0.5 || c.bottom > vh + 0.5) {
       out.offscreen.push(`${label} at x=${Math.round(c.left)}..${Math.round(c.right)} y=${Math.round(c.top)}..${Math.round(c.bottom)}`);
       continue;
     }
     const isButton = el.matches('button, [role=button]');
+    let behind = false;
     if (isButton && getComputedStyle(el).pointerEvents !== 'none') {
       const x = c.left + c.width / 2;
       const y = c.top + c.height / 2;
       const hit = document.elementFromPoint(x, y);
-      if (hit && layer && layer.contains(hit) && !layer.contains(el)) out.behindSurface += 1;
+      if (hit && layer && layer.contains(hit) && !layer.contains(el)) { out.behindSurface += 1; behind = true; }
       else if (hit && hit !== el && !el.contains(hit)) out.covered.push(`${label} covered by ${describe(hit)} at (${Math.round(x)},${Math.round(y)})`);
     }
-    if (phone && isButton && (r.width < minTarget - 0.5 || r.height < minTarget - 0.5)) {
+    if (phone && isButton && !behind && (r.width < minTarget - 0.5 || r.height < minTarget - 0.5)) {
       out.small.push(`${label} ${Math.round(r.width)}x${Math.round(r.height)}`);
     }
   }
@@ -179,7 +199,7 @@ try {
 
     /** A broken expectation about the shell, reported like any other violation. */
     const expect = (name, ok, message) => {
-      if (!ok) results.push({ width: viewport.width, surface: name, overflow: null, offscreen: [], covered: [], small: [], behindSurface: 0, errors: [], broken: [message] });
+      if (!ok) results.push({ width: viewport.width, surface: name, overflow: null, offscreen: [], covered: [], small: [], hoverOnly: [], behindSurface: 0, errors: [], broken: [message] });
     };
     const nav = page.getByRole('navigation', { name: 'Primary' });
     const navButton = (name) => nav.getByRole('button', { name, exact: false });
@@ -194,15 +214,49 @@ try {
       const headerBox = await header.boundingBox();
       expect('shell', headerBox && headerBox.height <= 45, `phone header ${headerBox?.height}px tall, expected one 44px row`);
       expect('shell', (await navButton('Chat').getAttribute('aria-current')) === 'page', 'Chat is not the current surface');
+      const modelBar = await page.getByTestId('model-bar').boundingBox();
+      expect('shell', modelBar && modelBar.height <= 46, `the model bar takes ${modelBar?.height}px, expected one row`);
+      const strip = await page.getByRole('region', { name: 'Activity' }).boundingBox();
+      expect('shell', strip && strip.height <= 30, `the activity strip takes ${strip?.height}px, expected one slim line`);
+
+      // The project control in the header and the menu it opens.
+      const projectControl = header.locator('button').first();
+      if ((await projectControl.getAttribute('aria-expanded')) !== null || (await projectControl.getAttribute('aria-haspopup')) !== null) {
+        await projectControl.click();
+        await page.waitForTimeout(200);
+        await check('project menu', '[data-testid="compact-header"]');
+        if ((await projectControl.getAttribute('aria-expanded')) === 'true') await projectControl.click();
+        else await page.keyboard.press('Escape');
+      }
 
       // The overflow sheet, and Settings opened in place inside it.
       await page.getByRole('button', { name: 'More controls' }).click();
       const more = page.getByTestId('compact-header-more');
       await more.waitFor();
       await check('overflow menu', '[data-testid="compact-header-more"]');
+      // Every menu the sheet holds, each opened in place and closed again.
+      const menuSelector = 'button[aria-haspopup]:not([aria-haspopup="dialog"]), button[aria-expanded]';
+      const menus = await more.locator(menuSelector).evaluateAll((list) =>
+        list.map((b) => b.getAttribute('aria-label') || b.getAttribute('title') || b.textContent.trim()));
+      expect('overflow menu', menus.length >= 3, `only ${menus.length} menus found in the overflow sheet: ${menus.join(', ')}`);
+      // The sheet is back in the same state after each round, so the nth trigger stays the nth.
+      for (const [index, name] of menus.entries()) {
+        const trigger = more.locator(menuSelector).nth(index);
+        await trigger.click();
+        await page.waitForTimeout(200);
+        await check(`overflow menu: ${name.slice(0, 40)}`, '[data-testid="compact-header-more"]');
+        // Some menus close themselves on a choice; only close what is still open.
+        if (await more.isVisible() && (await trigger.getAttribute('aria-expanded')) === 'true') await trigger.click();
+        expect(`overflow menu: ${name}`, await more.isVisible(), `opening and closing "${name}" closed the overflow sheet`);
+      }
+      // Settings opened in place, then closed with Escape.
       await more.getByRole('button', { name: 'Settings' }).click();
       await page.waitForTimeout(200);
       await check('overflow menu: settings', '[data-testid="compact-header-more"]');
+      // Its folded sections too (accounts with their API key buttons, tools, extensions).
+      await more.locator('details:not([open]) > summary').evaluateAll((list) => list.forEach((s) => s.click()));
+      await page.waitForTimeout(300);
+      await check('overflow menu: settings expanded', '[data-testid="compact-header-more"]');
       await page.keyboard.press('Escape');
       if (await more.isVisible()) await more.getByRole('button', { name: 'Close' }).first().click();
       await noPhoneSheets('overflow menu closed');
@@ -217,6 +271,14 @@ try {
       const viewer = page.getByTestId('phone-viewer-sheet');
       await viewer.getByText('Responsive fixture', { exact: false }).first().waitFor();
       await check('file viewer', '[data-testid="phone-viewer-sheet"]');
+      // The toolbar scrolls sideways rather than clipping: its last control can be reached.
+      const toolbar = viewer.getByTestId('file-viewer-toolbar');
+      await toolbar.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
+      await page.waitForTimeout(150);
+      const edit = viewer.getByRole('button', { name: /edit/ }).last();
+      const editBox = await edit.boundingBox();
+      expect('file viewer toolbar', editBox && editBox.x >= 0 && editBox.x + editBox.width <= viewport.width + 0.5, `the toolbar's last control is out of reach (${JSON.stringify(editBox)})`);
+      await check('file viewer: toolbar scrolled', '[data-testid="phone-viewer-sheet"]');
       await viewer.getByRole('button', { name: 'Back to files' }).click();
       await viewer.waitFor({ state: 'detached' });
       expect('file viewer back', await files.isVisible(), 'back from the viewer did not return to Files');
@@ -231,10 +293,15 @@ try {
       await noPhoneSheets('sessions closed');
 
       await navButton('Plan').click();
-      await page.getByRole('complementary', { name: 'Work Plan' }).waitFor();
-      await check('plan', 'aside[aria-label="Work Plan"]');
-      await navButton('Chat').click();
-      expect('plan closed', !(await page.getByRole('complementary', { name: 'Work Plan' }).isVisible()), 'Chat did not close the Work Plan');
+      const planSheet = page.getByTestId('phone-plan-sheet');
+      await planSheet.getByRole('complementary', { name: 'Work Plan' }).waitFor();
+      await check('plan', '[data-testid="phone-plan-sheet"]');
+      await planSheet.getByRole('button', { name: 'Close Work Plan' }).click();
+      await noPhoneSheets('plan closed');
+      await navButton('Plan').click();
+      await planSheet.waitFor();
+      await page.keyboard.press('Escape');
+      expect('plan closed', !(await planSheet.isVisible()), 'Escape did not close the Work Plan sheet');
 
       if (await navButton('Terminal').isVisible()) {
         await navButton('Terminal').click();
@@ -270,6 +337,22 @@ try {
       expect('desktop shell', await page.getByRole('button', { name: 'Terminal sessions' }).isVisible(), 'desktop lost Terminal sessions');
     }
 
+    if (viewport.width < 1024) {
+      // Tablet: the file sidebar overlays the chat as a drawer instead of pushing it.
+      const filesToggle = page.getByRole('button', { name: '◨ files' });
+      if (await filesToggle.isVisible()) {
+        const mainBefore = await page.locator('main').boundingBox();
+        await filesToggle.click();
+        const drawer = page.getByTestId('tablet-sidebar-drawer');
+        await drawer.getByText('README.md', { exact: true }).waitFor();
+        const mainAfter = await page.locator('main').boundingBox();
+        expect('tablet drawer', mainBefore && mainAfter && Math.abs(mainBefore.width - mainAfter.width) < 1, `the sidebar pushed the chat (${mainBefore?.width} to ${mainAfter?.width}px)`);
+        await check('files drawer', '[data-testid="tablet-sidebar-drawer"]');
+        await page.keyboard.press('Escape');
+        expect('tablet drawer', !(await drawer.getByText('README.md', { exact: true }).isVisible()), 'Escape did not close the tablet drawer');
+      }
+    }
+
     // Work Plan: the opposite of its default state at this width, then back.
     const openPlan = page.getByRole('button', { name: 'Open Work Plan' });
     if (await openPlan.isVisible()) {
@@ -290,6 +373,20 @@ try {
       await check('sessions', 'input[aria-label="Search sessions"]');
       await sessions.click({ force: true }).catch(() => {});
     }
+    const blindExtra = [];
+    if (viewport.width >= 1024 && (await sessions.isVisible())) {
+      // Desktop keeps its hover reveal: a session's rename control is hidden until
+      // its row is hovered, then shown.
+      await sessions.click();
+      const rename = page.getByRole('button', { name: 'Rename session' }).first();
+      await rename.waitFor({ state: 'attached' });
+      const before = await rename.evaluate((el) => getComputedStyle(el).opacity);
+      await rename.locator('xpath=..').hover();
+      await page.waitForTimeout(250);
+      const after = await rename.evaluate((el) => getComputedStyle(el).opacity);
+      expect('desktop hover reveal', before === '0' && after === '1', `rename control opacity ${before} at rest, ${after} on hover; expected 0 then 1`);
+      await sessions.click({ force: true }).catch(() => {});
+    }
     if (viewport === VIEWPORTS[VIEWPORTS.length - 1]) {
       // The inspector must still see what it exists to see: a wide element, a control
       // past the edge, and a control under another. A gate that went blind passes.
@@ -302,7 +399,15 @@ try {
       });
       const seen = await page.evaluate(inspect, { phone: true, minTarget: MIN_TARGET, surface: null });
       await page.evaluate(() => document.querySelectorAll('[data-probe]').forEach((n) => n.remove()));
+      // ... and a hover-only control, on a screen without hover.
+      const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+      const touchPage = await touch.newPage();
+      await touchPage.setContent('<button style="opacity:0;width:60px;height:44px">hover only</button>');
+      const seenTouch = await touchPage.evaluate(inspect, { phone: true, minTarget: MIN_TARGET, surface: null });
+      await touch.close();
+      if (!seenTouch.hoverOnly.some((v) => v.includes('hover only'))) blindExtra.push('hover-only');
       const blind = [
+        ...blindExtra,
         !seen.overflow && 'overflow',
         !seen.offscreen.some((v) => v.includes('past edge')) && 'offscreen',
         !seen.covered.some((v) => v.includes('"under"')) && 'covered',
@@ -329,6 +434,7 @@ for (const r of results) {
     ...r.covered.map((v) => `covered: ${v}`),
     ...r.errors.map((v) => `page error: ${v}`),
     ...(r.broken ?? []).map((v) => `shell: ${v}`),
+    ...(r.hoverOnly ?? []).map((v) => `hover-only: ${v} is transparent on a screen without hover`),
     ...(strictTouch ? r.small.map((v) => `hit area: ${v}`) : []),
   ];
   if (violations.length) failed = true;
