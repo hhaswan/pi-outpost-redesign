@@ -331,9 +331,9 @@ export interface AgentRuntime {
   /**
    * Re-read the session file after another writer (the Pi CLI) appended to it, so the
    * next entry chains after that writer's. True when something arrived. Between turns
-   * only; absent when the backend cannot (RPC: the child owns its SessionManager).
+   * only. RPC reloads the same file in its child, hence the promise.
    */
-  syncFromFile?(): boolean;
+  syncFromFile?(): boolean | Promise<boolean>;
 
   answerExtensionUI(response: ExtensionUIResponse): void;
   /** Drop every dialog an about-to-be-replaced session left an extension waiting on. */

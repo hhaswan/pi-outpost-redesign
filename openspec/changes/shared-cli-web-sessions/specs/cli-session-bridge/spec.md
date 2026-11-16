@@ -32,3 +32,35 @@ investigation.
 - **WHEN** web requests delete for that file
 - **THEN** the deletion is refused and the file is unchanged, even if the bridge endpoint is unreachable
 - **AND** a rename of the same file goes through
+
+### Requirement: GrantedIdleInput
+
+Remote plain text SHALL be granted by default when the bridge loads, and the terminal
+SHALL show once: "Outpost web can send messages to this CLI. /outpost-bridge revoke to
+stop." `/outpost-bridge revoke` SHALL stop web input and web Stop for that CLI process;
+`/outpost-bridge allow` SHALL restore it. No terminal confirmation SHALL be asked.
+A working owner SHALL take the text as a follow-up. Open terminal dialogs, a
+submission made while idle and not yet started, stale-generation and invalid
+duplicate requests SHALL be refused. Submission SHALL deduplicate request IDs.
+Acknowledgments SHALL say submitted, not accepted or completed: terminal extensions
+may transform or reject input. Remote commands, arbitrary tools and terminal-dialog
+answers are unsupported.
+
+#### Scenario: GrantAndSubmit
+- **GIVEN** a CLI has loaded the bridge and its operator has not revoked input
+- **WHEN** an authorized browser submits plain text for the current generation
+- **THEN** the text is submitted to the existing owner only once and the browser reports submission rather than completion
+
+#### Scenario: WebInputGrantedByDefault
+- **GIVEN** a CLI starts with the bridge loaded
+- **WHEN** the operator does nothing, then runs `/outpost-bridge revoke`
+- **THEN** the terminal shows the default-grant notice, web input is accepted without a confirmation, and after the revoke web input and Stop are refused for that process, across conversation changes
+
+#### Scenario: SubmitWhileOwnerRefreshes
+- **GIVEN** an operator has typed a draft and the browser is checking the current CLI owner
+- **WHEN** the operator presses Submit before the check completes
+- **THEN** the browser shows an inline explanation and preserves the draft without sending input or silently discarding the click
+
+#### Scenario: RefuseUnsafeInput
+- **WHEN** remote input is revoked, waiting on a terminal dialog, stale, command-shaped, or oversized
+- **THEN** the owner refuses it without creating an agent or appending directly to its session file

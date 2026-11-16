@@ -12,8 +12,8 @@
 The session menu SHALL list bounded metadata from the Pi CLI's per-cwd directory under
 the configured agent root, alongside the flat directory's sessions. These sessions
 SHALL be openable, renamable and deletable like any session. Search SHALL use their
-available titles and opening messages, not whole transcripts. An unverified old title
-SHALL NOT be shown as current.
+titles, opening messages and cached transcript text. An unverified old title SHALL NOT
+be shown as current.
 
 #### Scenario: CliHistoryIsSelectable
 - **GIVEN** a Pi CLI session saved for the active project in its per-cwd directory
@@ -24,3 +24,14 @@ SHALL NOT be shown as current.
 - **GIVEN** saved CLI sessions in two different project directories
 - **WHEN** the user searches the first project's session menu by name or opening message
 - **THEN** matching CLI history appears without any session from the other project
+
+### Requirement: Pi CLI history details read in the background
+
+The session list SHALL NOT wait for whole Pi CLI transcripts. Their message count and
+transcript text SHALL be read in the background, kept per file version (path, size,
+modification time) in a bounded cache, and used by later lists and searches.
+
+#### Scenario: CliHistoryDetailsAreCached
+- **GIVEN** a Pi CLI session whose transcript contains a word absent from its title and opening message
+- **WHEN** the session menu is listed and then searched for that word
+- **THEN** the search finds it with a snippet, a later list shows its message count, and a changed file is read again

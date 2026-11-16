@@ -457,7 +457,7 @@ export function SessionList({
           className="w-full rounded-full border border-zinc-300 bg-transparent px-2 py-1 text-sm outline-none placeholder:text-zinc-400 focus:border-zinc-500 dark:border-zinc-700 dark:placeholder:text-zinc-600 dark:focus:border-zinc-500"
         />
         <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
-          Searches Outpost transcripts; available CLI titles and opening messages · ✎ to rename Outpost sessions
+          Searches Outpost and Pi CLI transcripts · ✎ to rename Outpost sessions
         </p>
       </div>
       <div className={scrollClassName}>

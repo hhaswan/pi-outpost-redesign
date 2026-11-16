@@ -3,7 +3,7 @@ import { lstat, open, opendir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { request } from "node:http";
-import type { CliBridgeOperation, CliBridgeRegistration, CliBridgeReply, CliBridgeSnapshot } from "../../shared/src/cliBridge.js";
+import type { CliBridgeEvent, CliBridgeOperation, CliBridgeRegistration, CliBridgeReply, CliBridgeSnapshot } from "../../shared/src/cliBridge.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_REGISTRY = 256;
@@ -172,7 +172,8 @@ export async function manageCliBridge(operation: CliBridgeOperation, options: { 
     if (Buffer.byteLength(body) > MAX_FILE) throw invalid();
     const owner = await readRegistration(directory, operation.id);
     const state = await getSnapshot(owner, directory);
-    if (!state.inputGranted || state.activity !== "idle" || state.generation !== operation.generation) throw invalid();
+    // A working CLI queues the text as a follow-up; a terminal dialog keeps it out.
+    if (!state.inputGranted || state.activity === "waiting" || state.generation !== operation.generation) throw invalid();
     const result = await exchange(owner, body);
     if (!object(result) || !keys(result, ["submitted"]) || result.submitted !== true) throw invalid();
     await current(owner, directory);
@@ -191,11 +192,126 @@ async function canonical(file: string): Promise<string> {
 
 /** Unsafe registries throw: callers must refuse mutation, not treat errors as unclaimed. */
 export async function isCliSessionClaimed(sessionFile: string, directory?: string): Promise<boolean> {
+  return (await findCliOwner(sessionFile, directory)) !== undefined;
+}
+
+/** The bridged CLI that has this session file open, compared canonically. Unsafe registries throw. */
+export async function findCliOwner(sessionFile: string, directory?: string): Promise<CliBridgeRegistration | undefined> {
   const owners = await registry(directoryPath(directory));
-  if (!owners.length) return false;
+  if (!owners.length) return undefined;
   const target = await canonical(path.resolve(sessionFile));
   for (const owner of owners) {
-    if (owner.sessionFile && await canonical(owner.sessionFile) === target) return true;
+    if (owner.sessionFile && await canonical(owner.sessionFile) === target) return owner;
   }
-  return false;
+  return undefined;
+}
+
+/** A POST to the owner. `connected` says whether the request may have reached it. */
+function post(owner: CliBridgeRegistration, route: "/submit" | "/abort", body: string): Promise<{ status: number; value: unknown }> {
+  return new Promise((resolve, reject) => {
+    let connected = false;
+    const req = request({ hostname: "127.0.0.1", port: owner.port, path: route, method: "POST", agent: false,
+      headers: { authorization: `Bearer ${owner.token}`, "content-type": "application/json", "content-length": Buffer.byteLength(body) } }, response => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      response.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > MAX_FILE) { fail(); response.destroy(); req.destroy(); return; }
+        chunks.push(chunk);
+      });
+      response.on("error", fail);
+      response.on("end", () => {
+        clearTimeout(timer);
+        let value: unknown;
+        try { value = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { value = undefined; }
+        resolve({ status: response.statusCode ?? 0, value });
+      });
+    });
+    req.on("socket", socket => socket.once("connect", () => { connected = true; }));
+    const timer = setTimeout(() => { fail(); req.destroy(); }, TIMEOUT);
+    function fail() { clearTimeout(timer); reject(Object.assign(new Error("CLI bridge owner is unreachable"), { connected })); }
+    req.on("error", fail);
+    req.end(body);
+  });
+}
+
+export type CliRouteResult = { outcome: "submitted" } | { outcome: "fallback" } | { outcome: "error"; message: string };
+
+/**
+ * Send a web prompt to the bridged CLI that has the session open. `fallback` only when the
+ * owner provably did not take it (gone, unreachable before sending, or revoked); an unknown
+ * outcome is an error and must never be resent elsewhere.
+ */
+export async function routeToCli(owner: CliBridgeRegistration, text: string, inputId: string, directory?: string): Promise<CliRouteResult> {
+  let state: CliBridgeSnapshot;
+  try {
+    state = await getSnapshot(owner, directoryPath(directory));
+  } catch { return { outcome: "fallback" }; }
+  if (!state.inputGranted) return { outcome: "fallback" };
+  if (state.activity === "waiting") return { outcome: "error", message: "The Pi CLI with this conversation is waiting on its terminal; answer there, then send again" };
+  const body = JSON.stringify({ generation: state.generation, inputId, text });
+  if (Buffer.byteLength(body) > MAX_FILE) return { outcome: "fallback" };
+  let reply: { status: number; value: unknown };
+  try {
+    reply = await post(owner, "/submit", body);
+  } catch (error) {
+    if (!(error as { connected?: boolean }).connected) return { outcome: "fallback" };
+    return { outcome: "error", message: "Sent to the Pi CLI, but its answer was lost; check the terminal before sending again" };
+  }
+  if (reply.status === 200 && object(reply.value) && reply.value.submitted === true) return { outcome: "submitted" };
+  if (reply.status === 403) return { outcome: "fallback" };
+  if (object(reply.value) && reply.value.uncertain === true) {
+    return { outcome: "error", message: "The Pi CLI may have received this message; check the terminal before sending again" };
+  }
+  return { outcome: "error", message: "The Pi CLI with this conversation refused the message; it was not sent" };
+}
+
+/** Stop the bridged CLI's running turn. */
+export async function abortCli(owner: CliBridgeRegistration): Promise<boolean> {
+  try {
+    const reply = await post(owner, "/abort", "{}");
+    return reply.status === 200;
+  } catch { return false; }
+}
+
+const MAX_EVENT = 512 * 1024;
+const EVENT_TYPES = new Set(["agent_start", "agent_end", "assistant_start", "block_delta", "assistant_end", "tool_start", "tool_end"]);
+
+function cliEvent(value: unknown): CliBridgeEvent | undefined {
+  if (!object(value) || typeof value.type !== "string" || !EVENT_TYPES.has(value.type)) return undefined;
+  if (value.type === "block_delta" && ((value.block !== "text" && value.block !== "thinking") || !Number.isInteger(value.contentIndex) || typeof value.delta !== "string")) return undefined;
+  if ((value.type === "tool_start" || value.type === "tool_end") && (!string(value.toolCallId, 512) || !string(value.toolName, 256))) return undefined;
+  if (value.type === "tool_end" && typeof value.isError !== "boolean") return undefined;
+  if (value.type === "assistant_end" && !object(value.message)) return undefined;
+  return value as CliBridgeEvent;
+}
+
+/** Follow the owner's live turn events until it closes; `onClose` runs once. */
+export function followCliEvents(owner: CliBridgeRegistration, onEvent: (event: CliBridgeEvent) => void, onClose: () => void): () => void {
+  let closed = false;
+  const done = () => { if (!closed) { closed = true; onClose(); } };
+  const req = request({ hostname: "127.0.0.1", port: owner.port, path: "/events", method: "GET", agent: false,
+    headers: { authorization: `Bearer ${owner.token}` } }, response => {
+    if (response.statusCode !== 200) { response.destroy(); done(); return; }
+    let buffered = "";
+    response.setEncoding("utf8");
+    response.on("data", (chunk: string) => {
+      buffered += chunk;
+      if (buffered.length > MAX_EVENT) { response.destroy(); done(); return; }
+      let newline;
+      while ((newline = buffered.indexOf("\n")) >= 0) {
+        const line = buffered.slice(0, newline);
+        buffered = buffered.slice(newline + 1);
+        if (!line.trim()) continue;
+        let event: CliBridgeEvent | undefined;
+        try { event = cliEvent(JSON.parse(line)); } catch { event = undefined; }
+        if (event && !closed) onEvent(event);
+      }
+    });
+    response.on("error", done);
+    response.on("close", done);
+  });
+  req.on("error", done);
+  req.end();
+  return () => { closed = true; req.destroy(); };
 }

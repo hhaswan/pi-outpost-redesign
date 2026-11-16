@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile, symlink, utimes } from "node:fs/promises
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { cliSessionDirectory, externalCliHistory } from "../src/externalCliHistory.ts";
+import { cliSessionDirectory, externalCliHistory, forgetCliHistory, searchCliHistory } from "../src/externalCliHistory.ts";
 
 const line = (entry: unknown) => `${JSON.stringify(entry)}\n`;
 
@@ -69,4 +69,37 @@ test("External history rejects symlinked per-project directories and absent dire
   await mkdir(path.join(root, "sessions"));
   await symlink(root, cliSessionDirectory(root, cwd));
   assert.deepEqual(await externalCliHistory(root, cwd), []);
+});
+
+// openlore: scenario=CliHistoryDetailsAreCached spec=session-search
+test("CliHistoryDetailsAreCached: count and transcript text are read once per file version, then reused", async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "cli-history-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const cwd = path.join(root, "project"), directory = cliSessionDirectory(root, cwd);
+  await mkdir(directory, { recursive: true });
+  const file = path.join(directory, "s.jsonl");
+  const message = (role: string, text: string) => line({ type: "message", message: { role, content: [{ type: "text", text }] } });
+  const head = line({ type: "session", id: "s", cwd }) + message("user", "opening question");
+  const when = new Date("2026-01-01T00:00:00Z");
+  await writeFile(file, head + message("assistant", "the word is aardvark"));
+  await utimes(file, when, when);
+  assert.equal((await externalCliHistory(root, cwd))[0]?.messageCount, undefined, "the list does not wait for the full read");
+  const hit = await searchCliHistory(root, cwd, "aardvark");
+  assert.equal(hit[0]?.path, file, "the transcript, not only the opening message, is searched");
+  assert.match(hit[0]?.snippet ?? "", /aardvark/);
+  assert.equal((await externalCliHistory(root, cwd))[0]?.messageCount, 2);
+
+  // Same size and mtime: the cached version is used, the file is not read again.
+  await writeFile(file, head + message("assistant", "the word is platypus"));
+  await utimes(file, when, when);
+  forgetCliHistory(root, cwd);
+  assert.equal((await searchCliHistory(root, cwd, "aardvark"))[0]?.path, file);
+  assert.deepEqual(await searchCliHistory(root, cwd, "platypus"), []);
+
+  // Any change of size or mtime is a new version.
+  await writeFile(file, head + message("assistant", "the word is platypus") + message("user", "and more"));
+  forgetCliHistory(root, cwd);
+  assert.equal((await searchCliHistory(root, cwd, "platypus"))[0]?.messageCount, 3);
+  assert.deepEqual(await searchCliHistory(root, cwd, "aardvark"), []);
+  assert.equal((await externalCliHistory(root, cwd))[0]?.messageCount, 3);
 });

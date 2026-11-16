@@ -59,13 +59,21 @@ describe("CliSessions", () => {
     expect(screen.getByRole("button", { name: "Submit to CLI" })).toBeDisabled();
   });
   it.each([
-    { inputGranted: false }, { activity: "working" as const }, { activity: "waiting" as const },
+    { inputGranted: false }, { activity: "waiting" as const },
   ])("RefuseUnsafeInput: disables input for %j", (overrides) => {
     const { read } = setup();
     read(overrides);
     expect(screen.getByLabelText("Message to CLI")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Submit to CLI" })).toBeDisabled();
-    expect(screen.getByText("/outpost-bridge allow")).toBeInTheDocument();
+    expect(screen.getByText("/outpost-bridge revoke")).toBeInTheDocument();
+  });
+  // openlore: scenario=BusyCliQueuesWebPromptAsFollowUp spec=shared-cli-web-sessions
+  it("BusyCliQueuesWebPromptAsFollowUp: a working CLI accepts a message, said to wait for the turn", () => {
+    const { read } = setup();
+    read({ activity: "working" });
+    expect(screen.getByLabelText("Message to CLI")).not.toBeDisabled();
+    expect(screen.getByText("CLI is working. A message waits until its turn ends.")).toBeInTheDocument();
+    expect(screen.queryByText(/allow/)).not.toBeInTheDocument();
   });
   it("UnreachableOwner: disables input when disconnected and does not restore stale permission on reconnect", () => {
     const { read, update } = setup();

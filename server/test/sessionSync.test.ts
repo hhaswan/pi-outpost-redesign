@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -56,6 +56,27 @@ test("SharedFileKeepsNavigation: a leaf moved off the tip stays where the user p
   cli.appendMessage(user("from cli"));
   assert.equal(syncSessionFile(web), 1);
   assert.equal(web.getLeafId(), first);
+});
+
+// openlore: scenario=OtherWritersBranchIsFollowed spec=shared-cli-web-sessions
+test("SharedFileBranch: an append under an older parent is read as a branch, and the next entry chains after the file's last", (t) => {
+  const { web, file } = pair(t);
+  const [question, answer] = web.getEntries().map((entry) => entry.id);
+  web.appendMessage(user("web second"));
+  const webTip = web.appendMessage(assistant("web second answer"));
+  // The other writer had not seen "web second": its turn hangs off the first answer.
+  const branch = { type: "message", id: "cli00001", parentId: answer, timestamp: new Date().toISOString(), message: user("cli on a stale leaf") };
+  appendFileSync(file, `${JSON.stringify(branch)}\n`);
+  assert.equal(syncSessionFile(web), 1);
+  assert.equal(web.getLeafId(), "cli00001", "at the tip, the leaf follows the file's last entry");
+  const children = web.getTree()[0].children[0].children.map((node) => node.entry.id);
+  assert.equal(web.getTree()[0].entry.id, question);
+  assert.equal(children.length, 2, "both branches are in the tree");
+  assert.ok(children.includes("cli00001"));
+  assert.ok(web.getEntry(webTip), "the web branch is kept");
+  const next = web.appendMessage(assistant("web answers the cli branch"));
+  assert.equal(lines(file).find((entry) => entry.id === next).parentId, "cli00001");
+  assert.equal(syncSessionFile(web), 0);
 });
 
 // openlore: scenario=NoSyncDuringATurn spec=shared-cli-web-sessions

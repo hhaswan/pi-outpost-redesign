@@ -13,7 +13,8 @@ test('CLI history appears for its cwd and searches opening messages, isolated pe
  const file=path.join(directory,'cli.jsonl');
  const bytes=[{type:'session',version:3,id:'cli-session',cwd:root,timestamp:'2026-01-01T00:00:00Z'},
    {type:'message',id:'u1',parentId:null,timestamp:'2026-01-01T00:00:01Z',message:{role:'user',content:[{type:'text',text:'Question from earlier terminal'}]}},
-   {type:'session_info',id:'n1',parentId:'u1',timestamp:'2026-01-01T00:00:02Z',name:'CLI private history'}]
+   {type:'session_info',id:'n1',parentId:'u1',timestamp:'2026-01-01T00:00:02Z',name:'CLI private history'},
+   {type:'message',id:'a1',parentId:'n1',timestamp:'2026-01-01T00:00:03Z',message:{role:'assistant',content:[{type:'text',text:'deep in the reply: quokka'}]}}]
   .map(x=>JSON.stringify(x)).join('\n')+'\n';
  await writeFile(file,bytes);
  const other=path.join(root,'other-project');await mkdir(other);
@@ -24,7 +25,14 @@ test('CLI history appears for its cwd and searches opening messages, isolated pe
  const ws=connect(server.wsUrl());t.after(()=>ws.close());await ws.waitFor('hello');
  ws.send({type:'list_sessions'});const listed=await ws.waitFor(m=>m.type==='sessions');
  const entry=listed.sessions.find(s=>s.path===file);
- assert.ok(entry);assert.equal(entry.name,'CLI private history');assert.equal(entry.messageCount,undefined);
+ assert.ok(entry);assert.equal(entry.name,'CLI private history');
+ // openlore: scenario=CliHistoryDetailsAreCached spec=session-search
+ ws.send({type:'search_sessions',query:'quokka',requestId:'deep'});
+ const deep=await ws.waitFor(m=>m.type==='session_search_results'&&m.requestId==='deep');
+ assert.match(deep.sessions.find(s=>s.path===file)?.snippet??'',/quokka/,'the transcript of a CLI-directory session is searched');
+ ws.send({type:'list_sessions'});
+ const warm=await ws.waitFor(m=>m.type==='sessions'&&m!==listed);
+ assert.equal(warm.sessions.find(s=>s.path===file)?.messageCount,2,'the count arrives once the background read is done');
  ws.send({type:'search_sessions',query:'terminal',requestId:'q1'});
  const found=await ws.waitFor(m=>m.type==='session_search_results'&&m.requestId==='q1');
  assert.ok(found.sessions.some(s=>s.path===file));

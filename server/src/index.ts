@@ -6,10 +6,11 @@
  * malicious webpages in the user's own browser — WS is exempt from CORS).
  * The agent has bash/edit/write tools: never weaken either check.
  */
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createSubagentActivityExtension, getSubagentActivity } from "./subagentActivity.ts";
-import { manageCliBridge, isCliSessionClaimed } from "./cliBridge.ts";
-import { cliSessionDirectory, externalCliHistory, forgetCliHistory } from "./externalCliHistory.ts";
+import { abortCli, findCliOwner, followCliEvents, manageCliBridge, isCliSessionClaimed, routeToCli } from "./cliBridge.ts";
+import type { CliBridgeEvent, CliBridgeRegistration } from "../../shared/src/cliBridge.ts";
+import { cliSessionDirectory, externalCliHistory, forgetCliHistory, searchCliHistory } from "./externalCliHistory.ts";
 import { manageMcp } from "./mcpManagement.ts";
 import fs from "node:fs/promises";
 import { watch as watchFile, type FSWatcher } from "node:fs";
@@ -2893,7 +2894,8 @@ function snapshot(workspace: Workspace): SessionSnapshot {
       const levels = acceptedThinkingLevels(workspace);
       return levels ? { thinkingLevels: levels } : {};
     })(),
-    isStreaming: state.isStreaming,
+    // A bridged CLI's turn on this file counts: a client joining mid-turn shows Stop for it.
+    isStreaming: state.isStreaming || cliTurnRunning(workspace, state.sessionFile),
     items: historyToItems(
       state.messages as never,
       state.isStreaming,
@@ -4686,6 +4688,8 @@ async function handlePrompt(workspace: Workspace, text: string, images?: WireIma
   let attempt: PromptAttempt;
   const release = await locked;
   try {
+    // A Pi CLI has this conversation open: it answers, and the file sync shows its entries.
+    if (await promptLiveCli(workspace, text, images)) return;
     // The last word before a turn: whatever path put the session on a model, none runs on
     // one the deployment excluded.
     if (!(await keepToAllowedModel(workspace))) {
@@ -4693,7 +4697,7 @@ async function handlePrompt(workspace: Workspace, text: string, images?: WireIma
       return;
     }
     // What the Pi CLI wrote to this file since: the prompt chains after it, and the model sees it.
-    syncSharedSession(workspace);
+    await syncSharedSession(workspace);
     const source = await promptSource(workspace, text, images);
     attempt = promptOnce(workspace, source);
     await attempt.accepted;
@@ -4788,9 +4792,11 @@ function broadcastQueue(workspace: Workspace): void {
  * Pick up what another writer (the Pi CLI) appended to the live session file, and show
  * it. Between turns only: a running turn is left alone and re-checked once idle.
  */
-function syncSharedSession(workspace: Workspace): void {
+async function syncSharedSession(workspace: Workspace): Promise<void> {
+  // A bridged CLI turn is streaming to the clients: its end re-reads, so the transcript is not replaced mid-stream.
+  if (cliLinks.get(workspace)?.running) return;
   // syncFromFile refuses a streaming or compacting session itself, and is a stat when nothing changed.
-  if (!workspace.started || workspace.replacingSession || !workspace.agent.syncFromFile?.()) return;
+  if (!workspace.started || workspace.replacingSession || !(await workspace.agent.syncFromFile?.())) return;
   const { sessionId, items, olderItems, sessionName, contextUsage } = snapshot(workspace);
   broadcast(workspace, { type: "session_synced", sessionId, items, ...(olderItems === undefined ? {} : { olderItems }), ...(sessionName ? { sessionName } : {}), contextUsage });
   broadcast(workspace, { type: "tree", roots: buildTree(workspace) });
@@ -4805,7 +4811,7 @@ async function syncSharedSessionLocked(workspace: Workspace): Promise<void> {
   syncing.add(workspace);
   const release = await lockQueue(workspace);
   try {
-    syncSharedSession(workspace);
+    await syncSharedSession(workspace);
   } catch (error) {
     reportError(error);
   } finally {
@@ -4827,9 +4833,11 @@ function unwatch(workspace: Workspace): void {
 function followSharedSessions(): void {
   const open = new Set(workspaces.all());
   for (const workspace of sessionWatches.keys()) if (!open.has(workspace) || !workspace.started) unwatch(workspace);
+  for (const workspace of cliLinks.keys()) if (!open.has(workspace) || !workspace.started) unlinkLiveCli(workspace);
   for (const workspace of open) {
     if (!workspace.started || !workspace.agent.syncFromFile) continue;
     const file = workspace.agent.snapshot().sessionFile;
+    void linkLiveCli(workspace, file);
     if (sessionWatches.get(workspace)?.file !== file) unwatch(workspace);
     if (file && !sessionWatches.has(workspace)) {
       try {
@@ -4850,6 +4858,148 @@ function followSharedSessions(): void {
   }
 }
 setInterval(followSharedSessions, 2000).unref();
+
+// --- A live bridged Pi CLI on the same session file ---------------------------------
+
+/** Same policy as the terminal-sessions panel: only with unrestricted host access. */
+function cliBridgeEnabled(workspace: Workspace): boolean {
+  return workspace.settings.sandbox === undefined && !config.extensionLock && !config.workspaceLock;
+}
+
+interface CliLink { owner: CliBridgeRegistration; file: string; running: boolean; close: () => void }
+const cliLinks = new Map<Workspace, CliLink>();
+const cliLinking = new Set<Workspace>();
+
+/**
+ * Route a web prompt to the bridged CLI that has this session open, and say whether it was
+ * handled. Not handled — the web runtime answers — only when the CLI provably did not take it.
+ */
+async function promptLiveCli(workspace: Workspace, text: string, images?: WireImage[]): Promise<boolean> {
+  if (images?.length || !cliBridgeEnabled(workspace) || !workspace.agent.syncFromFile) return false;
+  // A running web turn keeps its prompts: two runtimes would answer at once.
+  const { sessionFile, isStreaming } = workspace.agent.snapshot();
+  if (!sessionFile || isStreaming || /^[/!]/.test(text.trimStart())) return false;
+  let owner: CliBridgeRegistration | undefined;
+  try {
+    owner = await findCliOwner(sessionFile);
+  } catch {
+    return false;
+  }
+  if (!owner) return false;
+  const promptText = await absolutizeMentions(workspace, text);
+  if (promptText.length > 8000) return false;
+  const result = await routeToCli(owner, promptText, randomUUID());
+  if (result.outcome === "fallback") return false;
+  if (result.outcome === "submitted") broadcastUser(workspace, { text, promptText });
+  else broadcast(workspace, { type: "error", message: result.message });
+  return true;
+}
+
+function cliTurnRunning(workspace: Workspace, sessionFile: string | undefined): boolean {
+  const link = cliLinks.get(workspace);
+  return Boolean(link?.running && link.file === sessionFile);
+}
+
+/** Stop a bridged CLI turn streaming to this workspace; false when there is none. */
+async function abortLiveCli(workspace: Workspace): Promise<boolean> {
+  const link = cliLinks.get(workspace);
+  const { sessionFile, isStreaming } = workspace.agent.snapshot();
+  if (!link?.running || isStreaming || sessionFile !== link.file) return false;
+  if (!(await abortCli(link.owner))) broadcast(workspace, { type: "error", message: "The Pi CLI did not stop; stop it in its terminal" });
+  return true;
+}
+
+/** Follow the live turn events of the bridged CLI that has this workspace's session file open. */
+async function linkLiveCli(workspace: Workspace, file: string | undefined): Promise<void> {
+  if (cliLinking.has(workspace)) return;
+  cliLinking.add(workspace);
+  try {
+    let owner: CliBridgeRegistration | undefined;
+    if (file && cliBridgeEnabled(workspace)) owner = await findCliOwner(file).catch(() => undefined);
+    // The conversation may have changed during the lookup: the next sweep links the current one.
+    if (file !== workspace.agent.snapshot().sessionFile) owner = undefined;
+    const link = cliLinks.get(workspace);
+    if (link && (!owner || link.file !== file || (["id", "port", "token", "sessionFile"] as const).some((key) => owner![key] !== link.owner[key]))) unlinkLiveCli(workspace);
+    if (owner && file && !cliLinks.has(workspace) && workspace.started) {
+      const next: CliLink = { owner, file, running: false, close: () => {} };
+      cliLinks.set(workspace, next);
+      next.close = followCliEvents(owner, (event) => onCliEvent(workspace, next, event), () => {
+        if (cliLinks.get(workspace) === next) unlinkLiveCli(workspace);
+      });
+    }
+  } finally {
+    cliLinking.delete(workspace);
+  }
+}
+
+function unlinkLiveCli(workspace: Workspace): void {
+  const link = cliLinks.get(workspace);
+  if (!link) return;
+  cliLinks.delete(workspace);
+  link.close();
+  // A CLI gone mid-turn leaves no turn running here: the file shows what it wrote.
+  if (link.running) {
+    link.running = false;
+    broadcast(workspace, { type: "agent_end" });
+    void syncSharedSessionLocked(workspace);
+  }
+}
+
+/** A bridged CLI's turn, sent as the wire messages the web runtime's own turn produces. */
+function onCliEvent(workspace: Workspace, link: CliLink, event: CliBridgeEvent): void {
+  if (cliLinks.get(workspace) !== link) return;
+  // The web moved to another conversation: this CLI's turn is not on screen there.
+  if (workspace.agent.snapshot().sessionFile !== link.file) {
+    unlinkLiveCli(workspace);
+    return;
+  }
+  // A web turn of its own owns the stream: the CLI's shows through the file sync after it.
+  const webTurn = workspace.agent.snapshot().isStreaming;
+  if (event.type === "agent_start") {
+    if (webTurn) return;
+    link.running = true;
+    broadcast(workspace, { type: "agent_start" });
+    return;
+  }
+  if (event.type === "agent_end") {
+    if (!link.running) return;
+    link.running = false;
+    if (!webTurn) broadcast(workspace, { type: "agent_end" });
+    void syncSharedSessionLocked(workspace);
+    return;
+  }
+  // Mid-turn on connect: wait for the next turn rather than stream half of one.
+  if (!link.running || webTurn) return;
+  switch (event.type) {
+    case "assistant_start":
+      broadcast(workspace, { type: "assistant_start" });
+      break;
+    case "block_delta":
+      broadcast(workspace, { type: "block_delta", block: event.block, contentIndex: event.contentIndex, delta: event.delta });
+      break;
+    case "assistant_end":
+      broadcast(workspace, { type: "assistant_end", item: assistantToItem(event.message as never) });
+      break;
+    case "tool_start": {
+      const callHtml = workspace.renderer.renderToolCallHtml(event.toolCallId, event.toolName, event.args);
+      broadcast(workspace, { type: "tool_start", toolCallId: event.toolCallId, toolName: event.toolName, args: event.args, ...(callHtml ? { callHtml } : {}) });
+      break;
+    }
+    case "tool_end": {
+      const rendered = workspace.renderer.renderToolResultHtml(event.toolCallId, event.toolName, event.content as never, event.details, event.isError);
+      const result = toolResultContent(event.content as never);
+      broadcast(workspace, {
+        type: "tool_end",
+        toolCallId: event.toolCallId,
+        isError: event.isError,
+        text: truncate(result.text),
+        ...(result.images ? { images: result.images } : {}),
+        ...(rendered ? { outputHtml: rendered.expanded, outputHtmlCollapsed: rendered.collapsed } : {}),
+      });
+      break;
+    }
+  }
+}
 
 /** Wait for the workspace's queue to be free; the result releases it. */
 async function lockQueue(workspace: Workspace): Promise<() => void> {
@@ -4939,6 +5089,7 @@ async function stopTurn(workspace: Workspace, timeoutMs = 15_000): Promise<boole
  * it, and only this abort releases that prompt. Past the wait, a plain stop.
  */
 async function abortTurn(workspace: Workspace): Promise<void> {
+  if (await abortLiveCli(workspace)) return;
   const keepQueue = workspace.agent.snapshot().isStreaming && workspace.queuedPrompts.size > 0 && canRewriteQueue(workspace) && !workspace.queuedPrompts.hasForeign;
   if (!keepQueue) {
     await workspace.agent.abort();
@@ -5436,8 +5587,8 @@ function handleHistoryBefore(
 
 async function handleSearchSessions(workspace: Workspace, socket: WebSocket, query: string, requestId: string): Promise<void> {
   const managed = searchSessions(await scanSessions(workspace), query, SESSION_LIST_LIMIT);
-  const external = query.trim().length >= 2 ? (await externalCliHistory(AGENT_DIR, workspace.settings.cwd)).filter(info =>
-    info.name?.toLowerCase().includes(query.trim().toLowerCase()) || info.firstMessage.toLowerCase().includes(query.trim().toLowerCase())) : [];
+  const external = (await searchCliHistory(AGENT_DIR, workspace.settings.cwd, query))
+    .filter((info) => !managed.some((hit) => hit.path === info.path));
   if (clients.get(socket) !== workspace) return;
   send(socket, { type: "session_search_results", requestId, query,
     sessions: [...managed, ...external].sort((a, b) => b.modified.localeCompare(a.modified)).slice(0, SESSION_LIST_LIMIT) });
@@ -7034,7 +7185,7 @@ function handleClientMessage(socket: WebSocket, raw: string): void {
         send(socket, { type: "cli_bridge_result", requestId, error: "Terminal bridge request is too large" });
         return;
       }
-      const result = manageCliBridge(message.operation, { enabled: workspace.settings.sandbox === undefined && !config.extensionLock && !config.workspaceLock });
+      const result = manageCliBridge(message.operation, { enabled: cliBridgeEnabled(workspace) });
       void result
         .then((result) => { if (clients.get(socket) === workspace) send(socket, { type: "cli_bridge_result", requestId, ...result }); })
         .catch(() => { if (clients.get(socket) === workspace) send(socket, { type: "cli_bridge_result", requestId, error: "Terminal bridge request failed; owner state is unknown" }); });

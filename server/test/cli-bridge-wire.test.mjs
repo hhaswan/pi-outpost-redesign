@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
+import http from "node:http";
 import path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { connect, makeWorkspace, startServer } from "./harness.mjs";
 
@@ -49,4 +51,149 @@ test("PrivateBridgeBoundary: sandbox refuses external CLI discovery at the brows
     assert.ok(reply.error);
     assert.equal(reply.sessions, undefined);
   } finally { client.close(); await server.stop(); }
+});
+
+// openlore: scenario=WebPromptRunsInLiveCli spec=shared-cli-web-sessions
+// openlore: scenario=CliTurnStreamsToWeb spec=shared-cli-web-sessions
+// openlore: scenario=WebStopAbortsCliTurn spec=shared-cli-web-sessions
+// openlore: scenario=RefusedRouteFallsBackToWeb spec=shared-cli-web-sessions
+// openlore: scenario=UnknownRouteOutcomeIsNotResent spec=shared-cli-web-sessions
+test("a web prompt goes to the live CLI on the same file, streams back, stops there, and falls back only on a clear refusal", async (t) => {
+  const root = await fs.realpath(await makeWorkspace());
+  const registry = path.join(root, "private-bridges");
+  await fs.mkdir(registry, { mode: 0o700 });
+  const log = path.join(root, "requests.jsonl");
+  const PROVIDER = fileURLToPath(new URL("./fixtures/queued-prompts-provider.mjs", import.meta.url));
+  const MODEL = { provider: "queue-test", id: "queue-test" };
+  const server = await startServer(root, { sandbox: false, extensionPaths: [PROVIDER], allowedModels: [MODEL] }, { env: { PI_OUTPOST_BRIDGE_DIR: registry, QUEUE_LOG: log } });
+  const client = connect(server.wsUrl());
+  const requests = async () => (await fs.readFile(log, "utf8").catch(() => "")).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+  const next = (predicate, timeoutMs = 15_000) => {
+    const seen = client.received.length;
+    const waiting = new Error(`timed out waiting for ${predicate}`);
+    return client.waitFor((message) => client.received.indexOf(message) >= seen && predicate(message), timeoutMs).catch(() => { throw waiting; });
+  };
+  // The fake bridged CLI: the extension's private HTTP contract, recording what it is sent.
+  const calls = [];
+  const listeners = new Set();
+  let post = { status: 200, body: { submitted: true } };
+  let state;
+  const bridge = http.createServer(async (req, res) => {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    calls.push({ url: req.url, body });
+    if (req.url === "/events") {
+      res.writeHead(200, { "content-type": "application/x-ndjson" });
+      res.write("\n");
+      listeners.add(res);
+      res.on("close", () => listeners.delete(res));
+      return;
+    }
+    res.writeHead(req.url === "/snapshot" ? 200 : req.url === "/abort" ? 200 : post.status, { "content-type": "application/json" });
+    res.end(JSON.stringify(req.url === "/snapshot" ? state : req.url === "/abort" ? { aborted: true } : post.body));
+  });
+  const emit = (event) => { for (const res of listeners) res.write(JSON.stringify(event) + "\n"); };
+  t.after(async () => {
+    client.close();
+    bridge.closeAllConnections(); bridge.close();
+    await server.stop();
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
+  await client.open();
+  const hello = await client.waitFor("hello", 30_000);
+  client.send({ type: "set_model", ...MODEL });
+  await client.waitFor("model_changed");
+  client.send({ type: "prompt", text: "first from web" });
+  await next((m) => m.type === "agent_end", 30_000);
+  client.send({ type: "list_sessions" });
+  const file = (await next((m) => m.type === "sessions")).sessions.find((s) => s.id === hello.sessionId).path;
+
+  await new Promise((resolve) => bridge.listen(0, "127.0.0.1", resolve));
+  const id = randomUUID();
+  const token = "t".repeat(64);
+  state = { instanceId: id, generation: "g1", cwd: root, sessionId: hello.sessionId, sessionFile: file, activity: "idle", inputGranted: true, transcript: "", truncated: false };
+  await fs.writeFile(path.join(registry, `${id}.json`), JSON.stringify({ version: 1, id, port: bridge.address().port, token, cwd: root, sessionId: hello.sessionId, sessionFile: file }), { mode: 0o600 });
+  // The server follows the CLI's live events once its sweep finds the registration.
+  const until = Date.now() + 10_000;
+  while (!listeners.size && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(listeners.size, 1, "the server follows the bridged CLI's events");
+
+  // Routed: the CLI gets the text, the web runtime runs nothing, the user bubble shows at once.
+  const before = (await requests()).length;
+  client.send({ type: "prompt", text: "routed to the cli" });
+  const echoed = await next((m) => m.type === "user");
+  assert.equal(echoed.text, "routed to the cli");
+  const submit = calls.find((call) => call.url === "/submit");
+  assert.deepEqual({ ...JSON.parse(submit.body), inputId: "x" }, { generation: "g1", inputId: "x", text: "routed to the cli" });
+  // The CLI answers: streamed live, then the file sync shows what it wrote.
+  emit({ type: "agent_start" });
+  await next((m) => m.type === "agent_start");
+  emit({ type: "assistant_start" });
+  emit({ type: "block_delta", block: "text", contentIndex: 0, delta: "cli says hi" });
+  const delta = await next((m) => m.type === "block_delta");
+  assert.equal(delta.delta, "cli says hi");
+  emit({ type: "tool_start", toolCallId: "c1", toolName: "bash", args: { command: "ls" } });
+  assert.equal((await next((m) => m.type === "tool_start")).toolCallId, "c1");
+  emit({ type: "tool_end", toolCallId: "c1", toolName: "bash", content: [{ type: "text", text: "listing" }], isError: false });
+  assert.equal((await next((m) => m.type === "tool_end")).text, "listing");
+  const cli = SessionManager.open(file);
+  cli.appendMessage({ role: "user", content: [{ type: "text", text: "routed to the cli" }], timestamp: Date.now() });
+  cli.appendMessage({ role: "assistant", content: [{ type: "text", text: "cli says hi" }], api: "x", provider: "x", model: "x", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() });
+  emit({ type: "assistant_end", message: { role: "assistant", content: [{ type: "text", text: "cli says hi" }], stopReason: "stop" } });
+  // Both armed before the end: they may arrive in one read.
+  const ended = next((m) => m.type === "agent_end");
+  const syncing = next((m) => m.type === "session_synced");
+  emit({ type: "agent_end" });
+  await ended;
+  const synced = await syncing;
+  assert.ok(synced.items.some((item) => item.kind === "assistant" && item.blocks.some((b) => b.text === "cli says hi")));
+  assert.equal((await requests()).length, before, "the web runtime ran no turn for the routed prompt");
+
+  // Stop while the CLI runs reaches the CLI, not the idle web runtime.
+  emit({ type: "agent_start" });
+  await next((m) => m.type === "agent_start");
+  client.send({ type: "abort" });
+  const deadline = Date.now() + 5_000;
+  while (!calls.some((call) => call.url === "/abort") && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.ok(calls.some((call) => call.url === "/abort"), "Stop reached the CLI");
+  emit({ type: "agent_end" });
+  await next((m) => m.type === "agent_end");
+
+  // Outcome unknown: an error, never a second send through the web runtime.
+  post = { status: 409, body: { error: "Submission uncertain; inspect terminal", uncertain: true } };
+  client.send({ type: "prompt", text: "maybe received" });
+  assert.match((await next((m) => m.type === "error")).message, /check the terminal/);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal((await requests()).length, before, "no duplicate through the web runtime");
+  assert.equal(calls.filter((call) => call.url === "/submit").length, 2);
+
+  // Monkey: the web starts another conversation mid CLI turn; the CLI's stream does not follow it there.
+  emit({ type: "agent_start" });
+  await next((m) => m.type === "agent_start");
+  client.send({ type: "new_session" });
+  await next((m) => m.type === "session_replaced");
+  const after = client.received.length;
+  emit({ type: "assistant_start" });
+  emit({ type: "block_delta", block: "text", contentIndex: 0, delta: "leaked into the new conversation" });
+  emit({ type: "agent_end" });
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  assert.equal(client.received.slice(after).some((m) => m.type === "block_delta" || m.type === "assistant_start"), false, "no CLI stream in another conversation");
+  client.send({ type: "switch_session", path: file });
+  await next((m) => m.type === "session_replaced");
+  const relink = Date.now() + 10_000;
+  while (listeners.size !== 1 && Date.now() < relink) await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Revoked between snapshot and send: the web runtime answers instead, once.
+  post = { status: 403, body: { error: "Input revoked" } };
+  client.send({ type: "prompt", text: "revoked so web answers" });
+  await next((m) => m.type === "agent_end", 30_000);
+  assert.equal((await requests()).filter((r) => r.users.at(-1).text === "revoked so web answers").length, 1);
+
+  // The CLI closed: the web runtime answers.
+  bridge.closeAllConnections();
+  await new Promise((resolve) => bridge.close(resolve));
+  client.send({ type: "prompt", text: "cli is gone" });
+  await next((m) => m.type === "agent_end", 30_000);
+  assert.equal((await requests()).filter((r) => r.users.at(-1).text === "cli is gone").length, 1);
+  assert.equal(calls.filter((call) => call.url === "/submit").length, 3, "nothing was sent to a closed CLI");
 });

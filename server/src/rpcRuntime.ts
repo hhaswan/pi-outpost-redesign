@@ -25,6 +25,7 @@ import type {
   WireImage,
 } from "@pi-outpost/shared";
 import { normalizeThinkingLevels } from "@pi-outpost/shared";
+import { readFile, stat } from "node:fs/promises";
 import type {
   AgentRuntime,
   PromptDisposition,
@@ -89,6 +90,8 @@ class RpcRuntime implements AgentRuntime {
   /** The levels the current model accepts; undefined when the child has no command for it. */
   private acceptedThinkingLevels: ThinkingLevel[] | undefined;
   private streaming = false;
+  /** The session file as last read with nothing new in it — see syncFromFile. */
+  private unchangedFileKey: string | undefined;
   private messages: unknown[] = [];
   private sessionEntries: RuntimeEntry[] = [];
   private treeRoots: RuntimeTreeNode[] = [];
@@ -819,6 +822,31 @@ class RpcRuntime implements AgentRuntime {
     const cancelled = data?.cancelled === true;
     if (!cancelled) await this.rebootstrap();
     return { cancelled };
+  }
+
+  /**
+   * The child owns its SessionManager, so a file another writer (the Pi CLI) grew is
+   * reloaded by switching the child to that same file. Between turns only. The line
+   * count rule is shared/src/sessionSync.ts's; it needs every entry, so dialects
+   * without `get_tree` (OMP, Prime Agent) are left alone.
+   */
+  async syncFromFile(): Promise<boolean> {
+    const file = this.sessionFile;
+    if (!file || this.failed !== undefined || this.completionEvent !== "agent_settled") return false;
+    // Queued, so the entry count is not one a turn's refresh is about to replace.
+    const grew = await this.queued(async () => {
+      if (this.streaming) return false;
+      // The idle sweep calls this every two seconds: an unchanged file is one stat.
+      const info = await stat(file).catch(() => undefined);
+      const key = info && `${file}:${info.size}:${info.mtimeMs}:${this.sessionEntries.length}`;
+      if (!key || key === this.unchangedFileKey) return false;
+      const text = await readFile(file, "utf8").catch(() => "");
+      const lines = text.slice(0, text.lastIndexOf("\n") + 1).split("\n").filter((line) => line.trim()).length;
+      if (lines > this.sessionEntries.length + 1) return true;
+      this.unchangedFileKey = key;
+      return false;
+    });
+    return grew && !(await this.switchSession(file)).cancelled;
   }
 
   async fork(entryId: string): Promise<{ cancelled: boolean; selectedText?: string }> {

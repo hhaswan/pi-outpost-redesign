@@ -82,7 +82,7 @@ export function CliSessions({ state, connected, onRequest, onClose }: {
   const locked = !connected || pending || Boolean(state?.loading);
   const owner = sessions.find((entry) => entry.id === selected);
   const current = snapshot?.instanceId === selected ? snapshot : null;
-  const canEdit = connected && owner?.activity !== "unreachable" && current?.inputGranted && current.activity === "idle";
+  const canEdit = connected && owner?.activity !== "unreachable" && current?.inputGranted && current.activity !== "waiting";
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={(event) => {
@@ -100,8 +100,8 @@ export function CliSessions({ state, connected, onRequest, onClose }: {
           <button ref={closeButton} type="button" className={button} aria-label="Close CLI sessions" onClick={onClose}>Close</button>
         </header>
         <div className="min-h-0 space-y-4 overflow-y-auto p-4">
-          <p className="text-sm">Opt-in enrolled CLI sessions only, not all OS processes. The CLI remains the sole agent and session writer.</p>
-          <p className="text-xs text-zinc-500">Observation-only by default. The CLI operator grants input with <code>/outpost-bridge allow</code>. Closing this panel does not stop the CLI.</p>
+          <p className="text-sm">Opt-in enrolled CLI sessions only, not all OS processes. Messages run in the CLI, with its user's permissions.</p>
+          <p className="text-xs text-zinc-500">Input is on by default. The CLI operator stops it with <code>/outpost-bridge revoke</code>. Closing this panel does not stop the CLI.</p>
           {!connected && <p role="status">Disconnected. Activity is unknown and input is disabled.</p>}
           {!selected && (pending || state?.loading) && <p role="status">Loading CLI response…</p>}
           {!selected && (formError || state?.error) && <p role="alert" className="break-words rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{formError || state?.error}</p>}
@@ -125,8 +125,9 @@ export function CliSessions({ state, connected, onRequest, onClose }: {
               <p className="break-all text-xs">Session: {current.sessionId} · Activity: {current.activity}</p>
               <pre tabIndex={0} aria-label="CLI transcript" className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-zinc-100 p-3 font-mono text-xs dark:bg-zinc-950">{current.transcript}</pre>
               {current.truncated && <p className="text-xs">Transcript truncated by the CLI owner.</p>}
-              {!current.inputGranted && <p className="text-sm">Observation-only. Input permission has not been granted.</p>}
-              {current.activity !== "idle" && <p className="text-sm">CLI is {current.activity}. Input is disabled; terminal-dialog answers are not supported.</p>}
+              {!current.inputGranted && <p className="text-sm">Observation-only. Input was revoked in the terminal.</p>}
+              {current.activity === "working" && current.inputGranted && <p className="text-sm">CLI is working. A message waits until its turn ends.</p>}
+              {current.activity === "waiting" && <p className="text-sm">CLI is waiting on its terminal. Input is disabled; terminal-dialog answers are not supported.</p>}
             </> : <p className="text-sm">No current snapshot. Refresh the transcript to confirm owner activity and permission.</p>}
             <form className="space-y-2" onSubmit={(event) => {
               event.preventDefault();

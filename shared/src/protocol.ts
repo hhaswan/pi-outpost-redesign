@@ -159,7 +159,7 @@ export interface SessionSummary {
   name?: string;
   firstMessage: string;
   modified: string;
-  /** Absent for the Pi CLI's per-project history: its transcripts are not scanned. */
+  /** Absent for Pi CLI per-project history until its transcript has been read in the background. */
   messageCount?: number;
   /** Excerpt of the transcript around the match — search results only. */
   snippet?: string;

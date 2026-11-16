@@ -10,6 +10,8 @@ import { dirname, join, resolve } from "node:path";
 const MAX_BODY = 16 * 1024;
 const MAX_SNAPSHOT = 512 * 1024;
 const UNCERTAIN_AFTER = 30_000;
+const MAX_EVENT = 256 * 1024;
+const MAX_LISTENERS = 4;
 
 /** Reject unsafe existing paths rather than silently repairing someone else's registry. */
 function privateDirectory(directory: string): void {
@@ -72,8 +74,8 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
   const registrationPath = join(directory, `${instanceId}.json`);
   let ctx: ExtensionContext | undefined;
   let generation = randomUUID();
-  let granted = false;
-  let grantEpoch = 0;
+  // Outpost web may send by default (the user's accepted risk); `/outpost-bridge revoke` stops it for this CLI.
+  let revoked = false;
   let waiting = false;
   let active = false;
   let partial = "";
@@ -129,12 +131,25 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
       sessionFile: ctx.sessionManager.getSessionFile(),
       activity: waiting || (pending && Date.now() - pending.at >= UNCERTAIN_AFTER) ? "waiting" :
         pending || !ctx.isIdle() || ctx.hasPendingMessages() ? "working" : "idle",
-      inputGranted: granted, transcript: lines.join("\n\n").slice(-60_000),
+      inputGranted: !revoked, transcript: lines.join("\n\n").slice(-60_000),
       truncated: entries.length > 100 || lines.join("\n\n").length > 60_000 || lines.some(line => line.length >= 60_000),
     };
     // Check the encoded size too: JSON escaping and metadata count against the wire bound.
     if (Buffer.byteLength(JSON.stringify(result)) > MAX_SNAPSHOT) throw new Error("Snapshot too large");
     return result;
+  }
+  // Live turn events for Outpost web (tau-style mirroring); the session file stays the record.
+  const listeners = new Set<ServerResponse>();
+  function stream(event: Record<string, unknown>): void {
+    if (!listeners.size) return;
+    let line = JSON.stringify(event);
+    if (Buffer.byteLength(line) > MAX_EVENT) {
+      // Too large to stream: the file sync after the turn shows the full content.
+      if (event.type === "tool_start") line = JSON.stringify({ ...event, args: {} });
+      else if (event.type === "tool_end") line = JSON.stringify({ ...event, content: [{ type: "text", text: "(output shown when the turn ends)" }], details: undefined });
+      else return;
+    }
+    for (const res of listeners) res.write(line + "\n");
   }
   function reply(res: ServerResponse, status: number, value: unknown): void {
     res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
@@ -148,6 +163,21 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
     }
     if (req.method === "GET" && req.url === "/snapshot") {
       try { reply(res, 200, snapshot()); } catch { reply(res, 503, { error: "Snapshot unavailable" }); }
+      return;
+    }
+    if (req.method === "GET" && req.url === "/events") {
+      if (listeners.size >= MAX_LISTENERS) { reply(res, 429, { error: "Too many listeners" }); return; }
+      res.writeHead(200, { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" });
+      res.write("\n");
+      listeners.add(res);
+      res.on("close", () => listeners.delete(res));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/abort") {
+      req.resume();
+      if (revoked || !ctx) { reply(res, 403, { error: "Input revoked" }); return; }
+      ctx.abort();
+      reply(res, 200, { aborted: true });
       return;
     }
     if (req.method !== "POST" || req.url !== "/submit") {
@@ -181,27 +211,29 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
       const prior = submissions.get(input.inputId);
       if (prior) {
         reply(res, prior.hash !== hash || prior.uncertain ? 409 : 200,
-          prior.hash !== hash ? { error: "Input ID reused" } : prior.uncertain ? { error: "Submission uncertain; inspect terminal" } : { submitted: true });
+          prior.hash !== hash ? { error: "Input ID reused" } : prior.uncertain ? { error: "Submission uncertain; inspect terminal", uncertain: true } : { submitted: true });
         return;
       }
-      if (!granted) { reply(res, 403, { error: "Input not granted" }); return; }
-      if (waiting || pending || !ctx.isIdle() || ctx.hasPendingMessages()) { reply(res, 409, { error: "Owner not idle" }); return; }
+      if (revoked) { reply(res, 403, { error: "Input revoked" }); return; }
+      // A terminal dialog, or a submission not yet started, would race a second prompt.
+      if (waiting || pending) { reply(res, 409, { error: "Owner is waiting on the terminal" }); return; }
       if (submissions.size >= 4096) { reply(res, 409, { error: "Submission capacity reached; start a new generation" }); return; }
       const record = { hash, uncertain: false };
       submissions.set(input.inputId, record);
-      pending = { at: Date.now(), text: input.text };
+      // While a turn runs the text waits as a follow-up, as if typed in the terminal then.
+      if (ctx.isIdle() && !ctx.hasPendingMessages()) pending = { at: Date.now(), text: input.text };
       try {
-        pi.sendUserMessage(input.text, { expandPromptTemplates: false });
+        pi.sendUserMessage(input.text, { deliverAs: "followUp", expandPromptTemplates: false });
         reply(res, 200, { submitted: true });
       } catch {
         record.uncertain = true;
-        reply(res, 409, { error: "Submission uncertain; inspect terminal" });
+        reply(res, 409, { error: "Submission uncertain; inspect terminal", uncertain: true });
       }
     });
   });
   server.requestTimeout = 5000;
   server.headersTimeout = 5000;
-  server.on("error", () => { active = false; granted = false; });
+  server.on("error", () => { active = false; });
 
   pi.on("session_start", async (_event, context) => {
     ctx = context;
@@ -219,18 +251,15 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
     try { publish(); } catch {
       active = false; server.close(); throw new Error("Bridge registration refused");
     }
-    ctx.ui.notify("Outpost bridge observing. /outpost-bridge allow grants idle text input.", "info");
+    ctx.ui.notify(revoked ? "Outpost web input is revoked for this CLI. /outpost-bridge allow to restore." : "Outpost web can send messages to this CLI. /outpost-bridge revoke to stop.", "info");
   });
   pi.registerCommand("outpost-bridge", {
-    description: "Allow or revoke Outpost idle plain-text input (terminal confirmation required)",
+    description: "Stop (revoke) or restore (allow) Outpost web input to this CLI",
     handler: async (args, context) => {
       if (!active || context.mode !== "tui") return;
-      if (args.trim() === "revoke") { grantEpoch++; granted = false; context.ui.notify("Outpost input revoked.", "info"); return; }
-      if (args.trim() !== "allow") { context.ui.notify("Usage: /outpost-bridge allow | revoke", "info"); return; }
-      const before = generation;
-      const epoch = ++grantEpoch;
-      const confirmed = await context.ui.confirm("Allow Outpost input?", "Authorized web operators may submit plain text while this CLI is idle. Tools may execute with your CLI permissions. Terminal dialogs stay here.");
-      if (active && before === generation && epoch === grantEpoch && confirmed) granted = true;
+      if (args.trim() === "revoke") { revoked = true; context.ui.notify("Outpost web input revoked for this CLI.", "info"); return; }
+      if (args.trim() === "allow") { revoked = false; context.ui.notify("Outpost web can send messages to this CLI. /outpost-bridge revoke to stop.", "info"); return; }
+      context.ui.notify("Usage: /outpost-bridge revoke | allow", "info");
     },
   });
   // Outpost web may append to this same file. Re-read it between turns: the SDK builds each
@@ -270,26 +299,45 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
   pi.on("ui_prompt_end", () => { waiting = false; });
   pi.on("message_start", (event) => {
     if (event.message.role === "user" && pending && readable(event.message) === `user:\n${pending.text}`) pending = undefined;
+    if (event.message.role === "assistant") stream({ type: "assistant_start" });
   });
-  pi.on("message_update", (event) => { partial = readable(event.message); });
+  pi.on("agent_start", () => stream({ type: "agent_start" }));
+  pi.on("agent_end", () => stream({ type: "agent_end" }));
+  pi.on("message_update", (event) => {
+    partial = readable(event.message);
+    const delta = event.assistantMessageEvent;
+    if (delta?.type === "text_delta" || delta?.type === "thinking_delta") {
+      stream({ type: "block_delta", block: delta.type === "text_delta" ? "text" : "thinking", contentIndex: delta.contentIndex, delta: delta.delta });
+    }
+  });
+  pi.on("tool_execution_start", (event) => {
+    if (event.parentToolCallId === undefined) stream({ type: "tool_start", toolCallId: event.toolCallId, toolName: event.toolName, args: event.args ?? {} });
+  });
+  pi.on("tool_execution_end", (event) => {
+    if (event.parentToolCallId === undefined) {
+      stream({ type: "tool_end", toolCallId: event.toolCallId, toolName: event.toolName, content: event.result?.content ?? [], details: event.result?.details, isError: event.isError ?? false });
+    }
+  });
   pi.on("message_end", (event) => {
-    if (event.message.role === "assistant") partial = "";
+    if (event.message.role === "assistant") { partial = ""; stream({ type: "assistant_end", message: event.message }); }
     // A new session may acquire its file only after its first persisted message.
     if (active && ctx && ownedBytes) {
       const previous = JSON.parse(ownedBytes) as CliBridgeRegistration;
       if (previous.sessionFile !== ctx.sessionManager.getSessionFile() || previous.sessionId !== ctx.sessionManager.getSessionId()) {
-        generation = randomUUID(); granted = false;
+        generation = randomUUID();
         try { publish(); } catch { active = false; server.close(); }
       }
     }
   });
   pi.on("agent_settled", () => { pending = undefined; partial = ""; });
   pi.on("session_tree", (_event, context) => {
-    ctx = context; generation = randomUUID(); granted = false; pending = undefined; partial = ""; submissions.clear();
-    try { publish(); } catch { active = false; granted = false; server.close(); }
+    ctx = context; generation = randomUUID(); pending = undefined; partial = ""; submissions.clear();
+    try { publish(); } catch { active = false; server.close(); }
   });
   pi.on("session_shutdown", async () => {
-    active = false; granted = false; ctx = undefined;
+    active = false; ctx = undefined;
+    for (const res of listeners) res.end();
+    listeners.clear();
     clearInterval(poll); followed?.watcher.close(); clearTimeout(followed?.timer); followed = undefined;
     try {
       if (ownedBytes !== undefined && ownsRegistration()) unlinkSync(registrationPath);

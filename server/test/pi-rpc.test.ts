@@ -622,6 +622,33 @@ describe("RpcRuntimeStarts", () => {
     );
   });
 
+  // openlore: scenario=RpcRuntimeReloadsTheSharedFile spec=shared-cli-web-sessions
+  test("RpcRuntimeReloadsTheSharedFile: a file grown by another writer is reloaded into the child before the next prompt", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "pi-outpost-rpc-sync-"));
+    roots.add(root);
+    const file = path.join(root, "shared.jsonl");
+    const first = { type: "message", id: "e1", parentId: null, message: { role: "user", content: "from web" } };
+    const second = { type: "message", id: "e2", parentId: "e1", message: { role: "user", content: "from cli" } };
+    await writeFile(file, `${JSON.stringify({ type: "session", id: "s" })}\n${JSON.stringify(first)}\n`);
+    const { runtime, commandLog } = await startFake({
+      state: { sessionId: "s", sessionFile: file },
+      entries: [first],
+      tree: [{ entry: first, children: [] }],
+      commands_: { switch_session: { replacement: { entries: [first, second], tree: [{ entry: first, children: [{ entry: second, children: [] }] }] } } },
+    });
+    assert.equal(await runtime.syncFromFile?.(), false, "nothing new");
+    await writeFile(file, `${await readFile(file, "utf8")}${JSON.stringify(second)}\n{"type":"mess`);
+    assert.equal(await runtime.syncFromFile?.(), true);
+    const switches = (await commands(commandLog)).filter((command) => command.type === "switch_session");
+    assert.deepEqual(switches.map((command) => command.sessionPath), [file], "the child reloads the same file");
+    assert.deepEqual(runtime.entries().map((entry) => entry.id), ["e1", "e2"]);
+    assert.equal(await runtime.syncFromFile?.(), false, "an unterminated line is a write in progress");
+    assert.equal((await commands(commandLog)).filter((command) => command.type === "switch_session").length, 1);
+    await runtime.prompt("turn");
+    await writeFile(file, `${await readFile(file, "utf8")}ssage"}\n${JSON.stringify({ ...second, id: "e3" })}\n`);
+    assert.equal(await runtime.syncFromFile?.(), false, "never during a turn");
+  });
+
   test("rejects a runtime missing a required bootstrap command", async () => {
     await assert.rejects(
       startFake({ failures: { get_messages: "Unknown command: get_messages" } }),

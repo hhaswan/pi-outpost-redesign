@@ -41,6 +41,12 @@ OpenLore was not available; targeted inspection of the SDK replaced it.
 - Removed: `/outpost-bridge handoff`, the CLI startup and resume vetoes, receipts,
   reservations, adoption, leases, the CLI process scan, the handoff UI sections and
   server actions `resume`, `release`, `reclaim`, `adopt`.
+- Web prompts drive a live CLI (user decision "option A", accepted risk): when a
+  bridged CLI has the web conversation's file open, the composer's plain text goes to
+  that CLI (`pi.sendUserMessage`, follow-up while busy), its turn streams to the web
+  over the bridge's `/events`, and Stop calls its `ctx.abort()`. Input is granted by
+  default; `/outpost-bridge revoke` stops it per CLI. Anyone with the web token can
+  drive the CLI user's tools. Reference design: deflating/tau `mirror-server.ts`.
 - Kept: deleting a file an enrolled CLI has open is refused; one conversation is
   still live in at most one runtime of a server.
 

@@ -5,7 +5,7 @@ import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { manageCliBridge, isCliSessionClaimed } from "../src/cliBridge.ts";
+import { abortCli, findCliOwner, manageCliBridge, isCliSessionClaimed, routeToCli } from "../src/cliBridge.ts";
 import type { CliBridgeOperation } from "../../shared/src/cliBridge.ts";
 
 async function fixture() {
@@ -125,7 +125,7 @@ test("RefuseUnsafeInput: command, oversized UTF-8, stale, busy and ungranted inp
   }
   assert.equal(f.calls.length, 0);
   assert((await f.run({ action: "submit", id: f.id, generation: "stale", inputId: "id", text: "hi" })).error);
-  f.state.activity = "working"; assert((await f.submit()).error);
+  f.state.activity = "waiting"; assert((await f.submit()).error);
   f.state.activity = "idle"; f.state.inputGranted = false; assert((await f.submit()).error);
   assert.equal(f.calls.filter(call => call.url === "/submit").length, 0);
 });
@@ -189,4 +189,44 @@ test("atomic private temporary registrations do not interrupt discovery", async 
   const listed = await f.run({ action: "list" });
   assert.equal(listed.sessions?.length, 1);
   assert.equal(listed.sessions?.[0].id, f.id);
+});
+
+// openlore: scenario=RefusedRouteFallsBackToWeb spec=shared-cli-web-sessions
+// openlore: scenario=UnknownRouteOutcomeIsNotResent spec=shared-cli-web-sessions
+test("routeToCli: fallback only when the owner provably did not take the text", async t => {
+  const f = await fixture(); t.after(f.cleanup);
+  const owner = await findCliOwner(f.owner.sessionFile, f.directory);
+  assert.equal(owner?.id, f.id);
+  const route = () => routeToCli(owner!, "hello", "input-1", f.directory);
+  const posts = () => f.calls.filter(call => call.url === "/submit").length;
+  f.state.activity = "working";
+  assert.deepEqual(await route(), { outcome: "submitted" }, "a working CLI takes it as a follow-up");
+  assert.equal(JSON.parse(f.calls.at(-1)!.body).generation, "generation-1");
+  f.state.activity = "idle";
+  f.setPost({ error: "Input revoked" }, 403);
+  assert.deepEqual(await route(), { outcome: "fallback" });
+  f.setPost({ error: "Submission uncertain; inspect terminal", uncertain: true }, 409);
+  assert.equal((await route()).outcome, "error");
+  f.setPost({ error: "Owner is waiting on the terminal" }, 409);
+  assert.equal((await route()).outcome, "error", "a refusal that is not a revoke never runs the prompt elsewhere");
+  f.setPost(undefined, 200, true);
+  assert.equal((await route()).outcome, "error", "a lost answer is an unknown outcome");
+  const before = posts();
+  f.state.inputGranted = false;
+  assert.deepEqual(await route(), { outcome: "fallback" });
+  f.state.inputGranted = true; f.state.activity = "waiting";
+  assert.equal((await route()).outcome, "error");
+  assert.equal(posts(), before, "revoked or waiting owners are never posted to");
+  f.state.activity = "idle";
+  await f.cleanup();
+  assert.deepEqual(await route(), { outcome: "fallback" }, "a closed CLI is gone");
+  assert.equal(await abortCli(owner!), false);
+});
+
+test("abortCli: posts /abort with the owner credential", async t => {
+  const f = await fixture(); t.after(f.cleanup);
+  f.setPost({ aborted: true });
+  assert.equal(await abortCli(f.owner as never), true);
+  assert.equal(f.calls.at(-1)!.url, "/abort");
+  assert.equal(f.calls.at(-1)!.auth, `Bearer ${f.owner.token}`);
 });

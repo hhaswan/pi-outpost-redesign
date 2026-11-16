@@ -42,3 +42,13 @@ export interface CliBridgeRegistration {
   sessionId: string;
   sessionFile?: string;
 }
+
+/** One live turn event a bridged CLI streams to the server (one NDJSON line each). */
+export type CliBridgeEvent =
+  | { type: "agent_start" }
+  | { type: "agent_end" }
+  | { type: "assistant_start" }
+  | { type: "block_delta"; block: "text" | "thinking"; contentIndex: number; delta: string }
+  | { type: "assistant_end"; message: unknown }
+  | { type: "tool_start"; toolCallId: string; toolName: string; args: unknown }
+  | { type: "tool_end"; toolCallId: string; toolName: string; content: unknown; details?: unknown; isError: boolean };

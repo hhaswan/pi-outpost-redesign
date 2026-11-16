@@ -12,9 +12,21 @@ The build itself installs nothing globally. The extension starts its endpoint on
 
 ## Consent
 
-Observation is enabled by loading the extension. Input is disabled by default. In the terminal, run `/outpost-bridge allow` and confirm the dialog to permit authorized web operators to submit text while the CLI is idle. Run `/outpost-bridge revoke` to withdraw permission. Revocation prevents new submissions, not work already submitted. Grants do not survive runtime replacement or tree navigation.
+Observation is enabled by loading the extension. **Web input is granted by default**: on start the terminal shows `Outpost web can send messages to this CLI. /outpost-bridge revoke to stop.` Run `/outpost-bridge revoke` to stop Outpost web input for that CLI process (it holds across conversations and tree navigation; `/reload` or a restart loads the extension again, granted); `/outpost-bridge allow` restores it. Revocation prevents new submissions, not work already submitted.
 
-Browser disconnects do not stop the CLI. Dialogs, tool approvals, authentication prompts, and custom terminal screens stay in the terminal. Input may cause the agent to execute tools with the CLI user's permissions; granting input is not a sandbox. **Submitted to CLI** means the bridge accepted the text, not that Pi accepted the input or completed a model turn. If nothing appears afterward, check the actual CLI terminal for a provider/authentication error or an extension that handled the input; do not submit again automatically.
+> **Security:** anyone who holds the Outpost web token can drive the CLI user's agent, and so run its tools with that OS user's permissions. Granting input is not a sandbox. Revoke per CLI where that is not wanted, or do not load the bridge.
+
+Browser disconnects do not stop the CLI. Dialogs, tool approvals, authentication prompts, and custom terminal screens stay in the terminal; while one is open, web input is refused. **Submitted to CLI** means the bridge accepted the text, not that Pi accepted the input or completed a model turn. If nothing appears afterward, check the actual CLI terminal for a provider/authentication error or an extension that handled the input; do not submit again automatically.
+
+## Web prompts run in the live CLI
+
+When the conversation open in Outpost web is the same session file a bridged CLI has open, the web composer sends to that CLI instead of the web runtime:
+
+- The CLI runs the turn with its own model, tools and permissions; it is the only writer of that turn. While the CLI is working, the text waits as a follow-up, as if typed in the terminal then.
+- The web shows the message at once and streams the CLI's reply, tool calls and results live; when the turn ends, the file sync replaces the stream with what the CLI wrote.
+- **Stop** in the web aborts the CLI's turn.
+- When the CLI has closed, is unreachable before the text is sent, or has revoked input, the web runtime answers as before. When the outcome is unknown (the CLI may have received the text), the web shows an error and does not resend.
+- Images, `/` commands and `!` shell input, text over 8000 characters, and prompts sent while a web turn runs stay with the web runtime.
 
 ## Shared session files
 
@@ -27,7 +39,9 @@ time. There is no handoff, lock or reservation.
   where they are; nothing is migrated.
 - The Pi CLI history of the project is listed in the web session menu like any
   session: open, rename and delete it from there. Deleting is refused while a
-  bridged CLI has the file open.
+  bridged CLI has the file open. The menu lists it from a quick header read; its
+  message count and transcript text are read in the background, cached per file
+  version, and then shown and searched like Outpost sessions.
 - Each side appends one line per entry. Between turns each side re-reads the file
   when it grew: web on every prompt and when the file changes while idle (a file
   watch, with a two-second poll as fallback); the terminal on every prompt and on
@@ -39,23 +53,28 @@ time. There is no handoff, lock or reservation.
   the conversation tree may branch; the file stays valid and both sides keep working.
 - Two Outpost tabs of one server still cannot have one conversation live in two of
   its sessions at once.
-- Only the default embedded runtime re-reads; under `agentRuntime.mode: "rpc"` web
-  sees CLI turns after reopening the session.
+- Under `agentRuntime.mode: "rpc"` the child process owns the conversation: when the
+  file grew, Outpost switches the child to the same file between turns, so the
+  conversation is reloaded rather than re-read. A navigation away from the tip is not
+  kept there. Pi dialects without `get_tree` (OMP, Prime Agent) do not re-read; they
+  see CLI turns after reopening the session.
 
 ## Private protocol
 
 The registry is `PI_OUTPOST_BRIDGE_DIR`, or `~/.pi/outpost-bridges` by default. Outpost and the CLI must use the same directory and OS account. Each process writes `<instanceId>.json` using the shared `CliBridgeRegistration` contract. Updates use a private temporary file and atomic rename. POSIX directory permissions are 0700 and files are 0600. Existing unsafe ownership, permissions, symlink directories, and unsafe ancestors are refused, not repaired. Root-owned sticky temporary directories are allowed as ancestors. On Windows, Node cannot enforce equivalent POSIX ownership checks; operators must secure the directory with account-only ACLs. Do not place it on a shared or untrusted filesystem.
 
-The HTTP server binds only `127.0.0.1` on an OS-selected port. Both routes require the random bearer credential from the private registration. Origin-bearing requests are refused; this is a server-to-server endpoint, not a browser API. Credentials are never logged or included in snapshots. Transcript text itself may contain sensitive user or tool content; enrollment authorizes its observation and does not redact arbitrary secrets from conversation text.
+The HTTP server binds only `127.0.0.1` on an OS-selected port. Every route requires the random bearer credential from the private registration. Origin-bearing requests are refused; this is a server-to-server endpoint, not a browser API. Credentials are never logged or included in snapshots. Transcript text itself may contain sensitive user or tool content; enrollment authorizes its observation and does not redact arbitrary secrets from conversation text.
 
 - `GET /snapshot`: `CliBridgeSnapshot`, at most 512 KiB of encoded JSON. Reads the active branch through the supported read-only session manager, plus the latest partial assistant message. At most 100 entries and 60,000 transcript characters are returned. Images, thinking, hidden metadata, and tool arguments are omitted. `truncated` marks bounded history. This is a readable excerpt, not a lossless export or terminal screen mirror.
-- `POST /submit`: `{generation,inputId,text}`, at most 16 KiB encoded, text at most 8,000 UTF-16 code units. IDs contain 1–128 ASCII letters, digits, underscores, or hyphens. Blank text and leading whitespace followed by `/` or `!` are refused. The bridge calls `pi.sendUserMessage(text, {expandPromptTemplates:false})`; it does not expose tools, shell commands, or terminal answers. Other installed extensions retain their normal ability to transform or intercept plain text.
+- `POST /submit`: `{generation,inputId,text}`, at most 16 KiB encoded, text at most 8,000 UTF-16 code units. IDs contain 1–128 ASCII letters, digits, underscores, or hyphens. Blank text and leading whitespace followed by `/` or `!` are refused. The bridge calls `pi.sendUserMessage(text, {deliverAs:"followUp", expandPromptTemplates:false})`: a working CLI queues it as a follow-up. It does not expose tools, shell commands, or terminal answers. Other installed extensions retain their normal ability to transform or intercept plain text. A revoked bridge answers 403; an uncertain outcome answers 409 with `uncertain: true`.
+- `POST /abort`: calls `ctx.abort()` on the running turn; 403 when input is revoked.
+- `GET /events`: a long-lived NDJSON stream of the live turn (`agent_start`, `assistant_start`, `block_delta`, `tool_start`, `tool_end`, `assistant_end`, `agent_end`), at most four listeners. A line over 256 KiB has its tool arguments or output replaced, or is dropped; the session file stays the record.
 
 Submission reserves the owner synchronously before calling the SDK. `{submitted:true}` means only that submission was attempted, not that input was accepted, persisted, or completed. Identical IDs and text return the original acknowledgment without sending again; changed text under an existing ID is refused. IDs remain remembered for the generation, up to 4,096 submissions, after which new input fails closed.
 
-Busy owners, queued input, UI prompts, stale generations, and ungranted input are refused. A reservation releases after a matching actual user-message event or `agent_settled`, never merely `agent_end`. If an input extension consumes text without those events, the reservation remains. After 30 seconds its activity becomes `waiting`: the outcome is uncertain, and input remains blocked. There is no automatic timeout release or blind resend. Inspect the terminal; a genuine settled event or an explicit session/tree change establishes a fresh boundary. A synchronous SDK error also leaves the reservation blocked and the ID recorded as uncertain. Transport failures likewise require observation, not a new request ID and automatic resend.
+UI prompts, a not-yet-started submission made while idle, stale generations, and revoked input are refused; a working owner takes the text as a follow-up. A reservation (made only for a submission while idle) releases after a matching actual user-message event or `agent_settled`, never merely `agent_end`. If an input extension consumes text without those events, the reservation remains. After 30 seconds its activity becomes `waiting`: the outcome is uncertain, and input remains blocked. There is no automatic timeout release or blind resend. Inspect the terminal; a genuine settled event or an explicit session/tree change establishes a fresh boundary. A synchronous SDK error also leaves the reservation blocked and the ID recorded as uncertain. Transport failures likewise require observation, not a new request ID and automatic resend.
 
-Runtime replacement closes the old endpoint and creates a new instance and generation. Tree navigation rotates generation and revokes consent. Registration identity is updated atomically, including when the first persisted message creates a session file. Remote consumers must discard cached generations after a change.
+Runtime replacement closes the old endpoint and creates a new instance and generation. Tree navigation rotates generation; a revoke holds for the process. Registration identity is updated atomically, including when the first persisted message creates a session file. Remote consumers must discard cached generations after a change.
 
 ## Shutdown and stale claims
 
@@ -71,7 +90,7 @@ Run the fake-context tests against real loopback HTTP without credentials or mod
 node --import tsx --test extensions/cli-session-bridge.test.ts
 ```
 
-The extension tests cover registration, authentication, limits, consent, revocation and idempotency. `server/test/sessionSync.test.ts` covers re-reading a file another writer appended to, chaining after it, keeping a navigated leaf, and never re-reading mid-turn (web runtime and terminal `input` hook). `server/test/sharedSessionWire.test.mjs` drives a real server with a fake provider: per-project storage, live sync without reload, a chained web prompt the model sees, nothing mid-turn, and opening/renaming CLI history. On Linux with python3 and Playwright Chromium installed, build the CLI and run `node scripts/check-shared-session.mjs`: a real TUI started with `pi -c` and the built web app alternate turns on one file through a local fake Anthropic endpoint (no model spend), the file stays one linear chain, a simultaneous send keeps both sides working, and `/reload` plus **Submit to CLI** still work.
+The extension tests cover registration, authentication, limits, default grant, revocation, busy follow-ups, abort, the event stream and idempotency. `server/test/cli-bridge-wire.test.mjs` drives a real server with a fake bridged CLI: a web prompt is routed to it, its events stream to the browser, Stop reaches it, an uncertain outcome is not resent, and a revoked or closed CLI falls back to the web runtime. `server/test/sessionSync.test.ts` covers re-reading a file another writer appended to, chaining after it, keeping a navigated leaf, and never re-reading mid-turn (web runtime and terminal `input` hook). `server/test/sharedSessionWire.test.mjs` drives a real server with a fake provider: per-project storage, live sync without reload, a chained web prompt the model sees, nothing mid-turn, and opening/renaming CLI history. On Linux with python3 and Playwright Chromium installed, build the CLI and run `node scripts/check-shared-session.mjs`: a real TUI started with `pi -c` and the built web app alternate turns on one file through a local fake Anthropic endpoint (no model spend), the file stays one linear chain, a simultaneous send keeps both sides working, `/reload` plus **Submit to CLI** still work, a web prompt runs in the live CLI (also as a follow-up while it is busy), Stop aborts the CLI turn, and closing the CLI returns prompts to the web runtime.
 
 ## Web access
 

@@ -4,7 +4,7 @@
  * terminal's SDK does; scripts/check-shared-session.mjs drives a real terminal.
  */
 import assert from "node:assert/strict";
-import { readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { appendFile, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -110,4 +110,50 @@ test("a Pi CLI session of the project can be renamed and opened from web", async
   const replaced = await next(client, (m) => m.type === "session_replaced" || m.type === "error").then((m) => { assert.notEqual(m.type, "error", m.message); return m; });
   assert.equal(replaced.sessionId, saved.getSessionId());
   assert.ok(replaced.items.some((item) => item.kind === "user" && item.text === "question asked in the terminal"));
+});
+
+// openlore: scenario=OtherWritersBranchIsFollowed spec=shared-cli-web-sessions
+test("a writer appending under an older entry makes a branch: the file parses, web re-reads it, the tree lists both, the next prompt chains after it", async (t) => {
+  const root = await realpath(await makeWorkspace());
+  const log = path.join(root, "requests.jsonl");
+  const server = await startServer(root, { extensionPaths: [PROVIDER], allowedModels: [MODEL] }, { env: { QUEUE_LOG: log } });
+  const client = connect(server.wsUrl());
+  t.after(async () => {
+    client.close();
+    await server.stop();
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
+  const hello = await client.waitFor("hello", 30_000);
+  client.send({ type: "set_model", ...MODEL });
+  await client.waitFor("model_changed");
+  for (const text of ["one", "two"]) {
+    client.send({ type: "prompt", text });
+    await next(client, (m) => m.type === "agent_end");
+  }
+  client.send({ type: "list_sessions" });
+  const file = (await next(client, (m) => m.type === "sessions")).sessions.find((s) => s.id === hello.sessionId).path;
+  const before = await entries(file);
+  const firstAnswer = before.find((e) => e.type === "message" && e.message.role === "assistant").id;
+
+  // The other writer never saw "two": its turn hangs off the first answer.
+  const at = new Date().toISOString();
+  const branchUser = { type: "message", id: "branch01", parentId: firstAnswer, timestamp: at, message: user("cli on a stale leaf") };
+  const branchAnswer = { type: "message", id: "branch02", parentId: "branch01", timestamp: at, message: assistant("cli branch answer") };
+  await appendFile(file, `${JSON.stringify(branchUser)}\n${JSON.stringify(branchAnswer)}\n`);
+  const synced = await next(client, (m) => m.type === "session_synced", 10_000);
+  assert.deepEqual(synced.items.filter((item) => item.kind === "user").map((item) => item.text), ["one", "cli on a stale leaf"]);
+
+  client.send({ type: "list_tree" });
+  const tree = await next(client, (m) => m.type === "tree");
+  const forks = [];
+  const walk = (nodes) => nodes.forEach((node) => { if (node.children.length > 1) forks.push(node.children.map((child) => child.text)); walk(node.children); });
+  walk(tree.roots);
+  assert.deepEqual(forks.map((texts) => [...texts].sort()), [["cli on a stale leaf", "two"]], "both branches are listed");
+
+  client.send({ type: "prompt", text: "three" });
+  await next(client, (m) => m.type === "agent_end");
+  assert.deepEqual((await requests(log)).at(-1).users.map((u) => u.text), ["one", "cli on a stale leaf", "three"]);
+  const after = await entries(file);
+  assert.equal(after.find((e) => e.type === "message" && e.message.role === "user" && e.message.content[0].text === "three").parentId, "branch02");
+  assert.ok(after.some((e) => e.type === "message" && e.message.role === "user" && e.message.content[0].text === "two"), "the web branch is kept");
 });
