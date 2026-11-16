@@ -47,12 +47,25 @@ describe("CopyButton", () => {
     expect(screen.getByRole("button")).toHaveClass("custom-class");
   });
 
-  it("handles clipboard API errors silently", async () => {
+  it("reports failure when neither clipboard path works", async () => {
     global.navigator.clipboard.writeText = vi.fn(() => Promise.reject(new Error("denied")));
+    document.execCommand = vi.fn(() => false);
     render(<CopyButton text="test text" />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button"));
     });
-    expect(screen.getByRole("button")).toHaveTextContent("copy");
+    expect(screen.getByRole("button")).toHaveTextContent("failed");
+  });
+
+  it("CopyWorksOverPlainHttp: falls back to execCommand when navigator.clipboard is absent", async () => {
+    Object.assign(global.navigator, { clipboard: undefined });
+    const exec = vi.fn(() => true);
+    document.execCommand = exec;
+    render(<CopyButton text="code" iconOnly />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button"));
+    });
+    expect(exec).toHaveBeenCalledWith("copy");
+    expect(screen.getByRole("button")).toHaveAccessibleName("Copied");
   });
 });

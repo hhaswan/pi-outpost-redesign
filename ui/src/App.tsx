@@ -1236,7 +1236,8 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
               onClose={() => setAnalysisOpen(false)}
             />
           )}
-          {!embedded && !state.workspaceLocked && <div className="flex justify-end px-3 py-1">
+          {/* Work Plan floats at the top right — as a chip when closed, a drawer when open; reserve its width. */}
+          {!embedded && !state.workspaceLocked && <div className={`flex justify-end px-3 py-1 ${analysisOpen ? "md:pr-[26rem]" : state.workPlan ? (workPlanDisplayedOpen ? "md:pr-[23rem]" : "pr-28") : ""}`}>
             <button type="button" onClick={() => setCliSessionsOpen(true)} className="min-h-9 rounded-full border border-zinc-300 px-3 text-xs text-zinc-700 focus-visible:outline-2 focus-visible:outline-blue-500 dark:border-zinc-700 dark:text-zinc-200">Terminal sessions</button>
           </div>}
           <ActivityStrip state={state} onSwitchWorkspace={!embedded && !state.workspaceLocked ? switchWorkspace : undefined} />
