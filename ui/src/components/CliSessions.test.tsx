@@ -199,4 +199,30 @@ describe("CLI ownership handoff", () => {
     expect(screen.getByRole("button", { name: "Continue in web" })).toBeDisabled();
     expect(onRequest).toHaveBeenCalledTimes(calls);
   });
+  it("WebToCliHandoffPanel: release needs confirmation, shows a copyable command, and offers take-back while unclaimed", () => {
+    const { update, onRequest } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Hand off to CLI" }));
+    expect(onRequest).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm hand off" }));
+    expect(onRequest).toHaveBeenLastCalledWith({ action: "release" });
+    const released = { id: "r1", sessionId: "web-1", state: "waiting" as const, command: "cd '/p' && pi --session '/p/s.jsonl'" };
+    update({ requestId: "release", released });
+    expect(screen.getByText(released.command)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Take back in web" }));
+    expect(onRequest).toHaveBeenLastCalledWith({ action: "reclaim", id: "r1" });
+    update({ requestId: "list2", sessions, reservations: [{ ...released, state: "claimed" }] });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh list" }));
+    update({ requestId: "list3", sessions, reservations: [{ ...released, state: "claimed" }] });
+    expect(screen.getByText("Open in a running CLI")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Take back in web" })).toBeDisabled();
+  });
+  it("AdoptClosedCliPanel: continuing a closed CLI session requires an explicit closed confirmation", () => {
+    const { update, onRequest } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh list" }));
+    update({ requestId: "list2", sessions: [], closed: [{ path: "/cli/a.jsonl", sessionId: "c1", title: "Old CLI work", modified: new Date().toISOString() }] });
+    fireEvent.click(screen.getByRole("button", { name: "Continue in web" }));
+    expect(onRequest).not.toHaveBeenLastCalledWith(expect.objectContaining({ action: "adopt" }));
+    fireEvent.click(screen.getByRole("button", { name: "The CLI is closed — continue" }));
+    expect(onRequest).toHaveBeenLastCalledWith({ action: "adopt", path: "/cli/a.jsonl" });
+  });
 });

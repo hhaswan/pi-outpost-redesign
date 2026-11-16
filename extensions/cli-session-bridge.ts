@@ -5,7 +5,7 @@ import { createServer, type ServerResponse } from "node:http";
 import { lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { assertCliHandoffNotReserved, createCliHandoff } from "../shared/src/cliHandoffStore.ts";
+import { assertCliHandoffNotReserved, assertCliReservationClaimable, claimCliReservation, createCliHandoff } from "../shared/src/cliHandoffStore.ts";
 
 const MAX_BODY = 16 * 1024;
 const MAX_SNAPSHOT = 512 * 1024;
@@ -68,6 +68,7 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
   const directory = resolve(process.env.PI_OUTPOST_BRIDGE_DIR ?? join(homedir(), ".pi", "outpost-bridges"));
   const registrationPath = join(directory, `${instanceId}.json`);
   const handoffDirectory = resolve(process.env.PI_OUTPOST_HANDOFF_DIR ?? join(homedir(), ".pi", "outpost-handoffs"));
+  const reservationDirectory = resolve(process.env.PI_OUTPOST_RESERVATION_DIR ?? join(homedir(), ".pi", "outpost-cli-reservations"));
   let ctx: ExtensionContext | undefined;
   let generation = randomUUID();
   let granted = false;
@@ -212,6 +213,14 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
       ctx.shutdown();
       return;
     }
+    // A session the web handed off: this CLI becomes its single writer until it exits.
+    try {
+      if (await claimCliReservation(ctx.sessionManager.getSessionFile(), reservationDirectory)) ctx.ui.notify("Continuing a session handed off from Outpost web. The web cannot reopen it until this CLI exits.", "info");
+    } catch {
+      ctx.ui.notify("Outpost web has not finished releasing this session, or another CLI holds it. Close this CLI and retry.", "error");
+      ctx.shutdown();
+      return;
+    }
     generation = randomUUID();
     await new Promise<void>((accept, reject) => {
       server.once("error", reject);
@@ -272,6 +281,11 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
     try { await assertCliHandoffNotReserved(event.targetSessionFile, handoffDirectory); }
     catch {
       context.ui.notify("This session is reserved for an Outpost handoff. Continue in its web workspace instead.", "error");
+      return { cancel: true };
+    }
+    try { await assertCliReservationClaimable(event.targetSessionFile, reservationDirectory); }
+    catch {
+      context.ui.notify("This web session is not released to the CLI, or another CLI holds it.", "error");
       return { cancel: true };
     }
   });

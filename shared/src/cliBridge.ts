@@ -23,7 +23,21 @@ export type CliBridgeOperation =
   | { action: "list" }
   | { action: "read"; id: string }
   | { action: "submit"; id: string; generation: string; inputId: string; text: string }
-  | { action: "resume"; id: string };
+  | { action: "resume"; id: string }
+  /** Release the current web conversation to a CLI (web to CLI handoff). */
+  | { action: "release" }
+  /** Take back a web-to-CLI reservation that no running CLI holds. */
+  | { action: "reclaim"; id: string }
+  /** Continue a closed CLI's history file in web; the operator confirms the CLI is closed. */
+  | { action: "adopt"; path: string };
+
+export interface CliReservationSummary {
+  id: string;
+  sessionId: string;
+  /** Shell command that opens the released file in a CLI. */
+  command: string;
+  state: "releasing" | "waiting" | "claimed" | "stale";
+}
 
 export interface CliHandoffSummary {
   id: string;
@@ -39,6 +53,11 @@ export interface CliBridgeReply {
   submitted?: boolean;
   handoffs?: CliHandoffSummary[];
   resumed?: boolean;
+  reservations?: CliReservationSummary[];
+  /** Recent history of this project's CLI that no enrolled CLI claims; adoptable after the CLI exits. */
+  closed?: Array<{ path: string; sessionId: string; title: string; modified: string }>;
+  released?: CliReservationSummary;
+  reclaimed?: boolean;
   error?: string;
 }
 

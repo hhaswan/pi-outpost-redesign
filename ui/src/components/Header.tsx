@@ -205,7 +205,7 @@ function SessionRow({
   if (session.readOnlyCliHistory) {
     return <div aria-label={`CLI history: ${session.name || session.firstMessage || session.id}`} className="min-w-0 flex-1 rounded-xl px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300">
       <div className="truncate">{session.name || session.firstMessage || session.id}</div>
-      <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{new Date(session.modified).toLocaleString()} · Pi CLI history · read-only; use Terminal sessions after an explicit CLI handoff to continue in web</div>
+      <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{new Date(session.modified).toLocaleString()} · Pi CLI history · read-only here; continue it from Terminal sessions</div>
     </div>;
   }
   if (renaming) {

@@ -12,7 +12,7 @@ assert.equal(process.platform,'linux','This explicit native PTY probe requires L
 await fs.mkdir('.local',{recursive:true,mode:0o700});
 const root=await fs.realpath(await makeWorkspace());
 const home=path.join(root,'home'),agentDir=path.join(home,'.pi','agent'),webAgentDir=path.join(root,'web-agent');
-const bridgeDirectory=path.join(root,'bridges'),handoffDirectory=path.join(root,'handoffs');
+const bridgeDirectory=path.join(root,'bridges'),handoffDirectory=path.join(root,'handoffs'),reservationDirectory=path.join(root,'reservations');
 const events=path.join(root,'events.jsonl'),shutdownStarted=path.join(root,'shutdown-started'),allowExit=path.join(root,'allow-exit');
 const failWebSwitch=path.join(root,'fail-web-switch'),webFault=path.join(root,'web-fault.mjs');
 await fs.writeFile(webFault,`import fs from 'node:fs';export default function(pi){pi.on('session_before_switch',event=>{if(event.reason==='resume'&&fs.existsSync(${JSON.stringify(failWebSwitch)})){fs.renameSync(event.targetSessionFile,event.targetSessionFile+'.unavailable');fs.unlinkSync(${JSON.stringify(failWebSwitch)});}});}`);
@@ -31,7 +31,7 @@ pi.on('session_start',(_event,ctx)=>fs.appendFileSync(${JSON.stringify(events)},
 pi.registerCommand('handoff-reopen-proof',{description:'Isolated ownership regression probe',handler:async(_args,ctx)=>{const result=await ctx.switchSession(${JSON.stringify(source)});fs.appendFileSync(${JSON.stringify(events)},JSON.stringify({type:'reopen-result',cancelled:result.cancelled})+'\\n');}});
 pi.on('session_shutdown',async()=>{if(!fs.existsSync(${JSON.stringify(handoffDirectory)}))return;fs.writeFileSync(${JSON.stringify(shutdownStarted)},'started');let until=Date.now()+20000;while(!fs.existsSync(${JSON.stringify(allowExit)})&&Date.now()<until)await new Promise(r=>setTimeout(r,25));pi.appendEntry('handoff-finalizer',{text:'Late shutdown append before process exit'});});
 }`);
-const env={...process.env,HOME:home,USERPROFILE:home,PI_CODING_AGENT_DIR:agentDir,PI_OUTPOST_BRIDGE_DIR:bridgeDirectory,PI_OUTPOST_HANDOFF_DIR:handoffDirectory,PI_OFFLINE:'1',TERM:'xterm-256color',NO_COLOR:'1'};
+const env={...process.env,HOME:home,USERPROFILE:home,PI_CODING_AGENT_DIR:agentDir,PI_OUTPOST_BRIDGE_DIR:bridgeDirectory,PI_OUTPOST_HANDOFF_DIR:handoffDirectory,PI_OUTPOST_RESERVATION_DIR:reservationDirectory,PI_OFFLINE:'1',TERM:'xterm-256color',NO_COLOR:'1'};
 for(const key of Object.keys(env))if(/API_KEY|TOKEN|SECRET|CREDENTIAL/.test(key))delete env[key];
 const sdkCli=path.join(path.dirname(fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent'))),'cli.js');
 const cli=spawn('python3',[path.resolve('scripts/cli-pty-driver.py'),process.execPath,sdkCli,'--no-skills','--session',source],{cwd:root,env,stdio:['pipe','pipe','pipe']});
@@ -39,10 +39,10 @@ let output='';cli.stdout.on('data',b=>output+=b.toString());cli.stderr.on('data'
 cli.on('error',error=>output+=error.message);
 const write=text=>cli.stdin.write(JSON.stringify({text})+'\n');
 const wait=async(fn,timeout=20000)=>{const until=Date.now()+timeout;while(Date.now()<until){const value=await fn();if(value)return value;await new Promise(r=>setTimeout(r,50));}throw Error('PTY handoff probe timed out: '+output.slice(-700));};
-let server,browser,observer,secondCli;
+let server,browser,observer,secondCli,thirdCli;
 try{
  await wait(async()=>((await fs.readdir(bridgeDirectory)).filter(n=>n.endsWith('.json'))[0]));
- server=await startServer(root,{cwd:root,agentDir:webAgentDir,sandbox:false,noExtensions:false,extensionPaths:[webFault]},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{HOME:home,PI_OUTPOST_BRIDGE_DIR:bridgeDirectory,PI_OUTPOST_HANDOFF_DIR:handoffDirectory,PI_OFFLINE:'1',ANTHROPIC_API_KEY:'fixture-no-model-calls'}});
+ server=await startServer(root,{cwd:root,agentDir:webAgentDir,sandbox:false,noExtensions:false,extensionPaths:[webFault]},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{HOME:home,PI_OUTPOST_BRIDGE_DIR:bridgeDirectory,PI_OUTPOST_HANDOFF_DIR:handoffDirectory,PI_OUTPOST_RESERVATION_DIR:reservationDirectory,PI_OFFLINE:'1',ANTHROPIC_API_KEY:'fixture-no-model-calls'}});
  observer=connect(server.wsUrl());await observer.waitFor('hello');
  browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
  const page=await browser.newPage({viewport:{width:390,height:900}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -116,6 +116,37 @@ try{
  secondCli.stdin.write(JSON.stringify({text:'/quit\r'})+'\n');await wait(()=>secondCli.exitCode!==null);
  assert.deepEqual(await fs.readFile(source),beforeReopen);
  console.log('PASS ActualEnrolledCliResumeRefusesWebOwnedFileBeforeLoading');
+ // Web to CLI: the same file goes back to a real CLI, then returns to web after that CLI exits.
+ await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();
+ const back=page.getByRole('dialog',{name:'CLI sessions',exact:true});await back.waitFor();
+ await back.getByRole('button',{name:'Hand off to CLI',exact:true}).click();
+ await back.getByRole('button',{name:'Confirm hand off',exact:true}).click();
+ const command=await back.getByText(/pi --session '/).textContent();
+ assert.ok(command.includes(`pi --session '${source}'`),command);
+ const leftFor=await observer.waitFor(m=>m.type==='session_replaced'&&m.sessionId!==originalId);
+ assert.notEqual(leftFor.sessionId,originalId);
+ assert.deepEqual((await fs.readdir(handoffDirectory)).filter(n=>n.endsWith('.json')),[],'the adopted receipt is dropped once the web releases the file');
+ const sinceRefusal=observer.received.length;observer.send({type:'switch_session',path:source});
+ assert.ok((await observer.waitFor(m=>observer.received.indexOf(m)>=sinceRefusal&&m.type==='error')).message);
+ const beforeCli=await fs.readFile(source);
+ thirdCli=spawn('python3',[path.resolve('scripts/cli-pty-driver.py'),process.execPath,sdkCli,'--no-skills','--session',source],{cwd:root,env,stdio:['pipe','pipe','pipe']});
+ thirdCli.stdout.on('data',b=>output+=b.toString());thirdCli.stderr.on('data',b=>output+=b.toString());
+ // The real bridge extension claims the reservation for the CLI process at startup.
+ await wait(async()=>{for(const n of (await fs.readdir(reservationDirectory)).filter(n=>n.endsWith('.json'))){const r=JSON.parse(await fs.readFile(path.join(reservationDirectory,n),'utf8'));if(r.sessionFile===source&&r.claimedBy)return true;}return false;});
+ await back.getByRole('button',{name:'Refresh list',exact:true}).click();
+ const handedOff=back.getByRole('list',{name:'Handed off to CLI'});
+ await handedOff.getByText('Open in a running CLI',{exact:true}).waitFor();
+ assert.equal(await handedOff.getByRole('button',{name:'Take back in web'}).isDisabled(),true);
+ thirdCli.stdin.write(JSON.stringify({text:'/name Renamed in CLI after web handoff\r'})+'\n');
+ await wait(async()=>(await fs.readFile(source,'utf8')).includes('Renamed in CLI after web handoff'));
+ assert.ok((await fs.readFile(source)).subarray(0,beforeCli.length).equals(beforeCli),'the CLI appends to the same file');
+ thirdCli.stdin.write(JSON.stringify({text:'/quit\r'})+'\n');await wait(()=>thirdCli.exitCode!==null);
+ await back.getByRole('button',{name:'Refresh list',exact:true}).click();
+ await handedOff.getByText(/The CLI exited/).waitFor();
+ await handedOff.getByRole('button',{name:'Take back in web'}).click();
+ await observer.waitFor(m=>m.type==='session_replaced'&&m.sessionId===originalId,30000);
+ await page.getByText('Same-file handoff fixture history',{exact:true}).waitFor();
+ console.log('PASS ActualWebToCliHandoffAndBackOnTheSameFile');
  const telemetry=(await fs.readFile(events,'utf8')).split(/\r?\n/).filter(Boolean).map(JSON.parse);
  assert.equal(telemetry.filter(e=>e.type==='input'&&e.text==='handoff submit probe').length,1);
  assert.equal(telemetry.some(e=>e.type==='agent_start'),false);
@@ -124,4 +155,4 @@ try{
  const result={result:'passed',checks:['actual CLI submit accepted once with truthful browser feedback','shutdown finalizer can append while web remains blocked','original PID exits before web ownership','same session ID and exact original JSONL file resumed','mobile DOM has no errors or horizontal overflow','no model turn started']};
  await fs.writeFile('.local/cli-handoff-playwright.json',JSON.stringify(result,null,2));
 }catch(error){await fs.writeFile('.local/cli-handoff-failure.log',output);if(server)await fs.writeFile('.local/cli-handoff-server.log',server.log());throw error;}
-finally{if(secondCli&&secondCli.exitCode===null){secondCli.stdin.write(JSON.stringify({stop:true})+'\n');secondCli.stdin.end();await new Promise(resolve=>{secondCli.once('exit',resolve);setTimeout(()=>{secondCli.kill();resolve()},4000)});}observer?.close();await browser?.close();if(cli.exitCode===null){cli.stdin.write(JSON.stringify({stop:true})+'\n');cli.stdin.end();await new Promise(resolve=>{cli.once('exit',resolve);setTimeout(()=>{cli.kill();resolve()},4000)});}await server?.stop();await fs.rm(root,{recursive:true,force:true});}
+finally{if(thirdCli&&thirdCli.exitCode===null){thirdCli.stdin.write(JSON.stringify({stop:true})+'\n');thirdCli.stdin.end();await new Promise(resolve=>{thirdCli.once('exit',resolve);setTimeout(()=>{thirdCli.kill();resolve()},4000)});}if(secondCli&&secondCli.exitCode===null){secondCli.stdin.write(JSON.stringify({stop:true})+'\n');secondCli.stdin.end();await new Promise(resolve=>{secondCli.once('exit',resolve);setTimeout(()=>{secondCli.kill();resolve()},4000)});}observer?.close();await browser?.close();if(cli.exitCode===null){cli.stdin.write(JSON.stringify({stop:true})+'\n');cli.stdin.end();await new Promise(resolve=>{cli.once('exit',resolve);setTimeout(()=>{cli.kill();resolve()},4000)});}await server?.stop();await fs.rm(root,{recursive:true,force:true});}

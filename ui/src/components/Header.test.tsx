@@ -500,7 +500,7 @@ describe("Header", () => {
     const { onSwitchSession, onRenameSession, onDeleteSession } = setup({ sessions: [session(), external] });
     openSessions();
     expect(screen.getByText("Earlier CLI work")).toBeInTheDocument();
-    expect(screen.getByText(/Pi CLI history · read-only; use Terminal sessions after an explicit CLI handoff to continue in web/)).toBeInTheDocument();
+    expect(screen.getByText(/Pi CLI history · read-only here; continue it from Terminal sessions/)).toBeInTheDocument();
     expect(screen.getByLabelText("CLI history: Earlier CLI work").closest("li")!.querySelectorAll("button")).toHaveLength(0);
     expect(screen.queryByText(/undefined messages/)).toBeNull();
     expect(onSwitchSession).not.toHaveBeenCalled();

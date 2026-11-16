@@ -55,6 +55,9 @@ type AssistantItem = Extract<ChatItem, { kind: "assistant" }>;
 type ToolItem = Extract<ChatItem, { kind: "tool" }>;
 
 /** Extension "Custom UI" dialog requests — need a client answer (select/confirm/input/editor). */
+/** Terminal-session operations that replace the conversation; their reply must survive that replacement. */
+const SESSION_CHANGING_CLI_OPERATIONS = new Set<CliBridgeOperation["action"]>(["resume", "release", "reclaim", "adopt"]);
+
 export type DialogRequest = Extract<ExtensionUIRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 export interface ExtensionNotification {
   id: string;
@@ -786,7 +789,7 @@ function applySnapshot(state: AgentState, message: ServerMessage & { sessionId: 
       ? { piPackageLookup: null, piPackageChange: null, piPackageUpdate: null, mcpManagement: null, mcpManagerOpen: false }
       : {}),
     serverRestarting: false,
-    cliBridge: message.type === "session_replaced" && state.cliBridge?.loading && state.cliBridge.operation === "resume" &&
+    cliBridge: message.type === "session_replaced" && state.cliBridge?.loading && SESSION_CHANGING_CLI_OPERATIONS.has(state.cliBridge.operation ?? "list") &&
       message.workspace && state.workspace && workspaceKey(message.workspace) === workspaceKey(state.workspace) ? state.cliBridge : null,
     mcpManagement: null,
     mcpManagerOpen: false,
@@ -1380,7 +1383,7 @@ function reduce(state: AgentState, action: Action): AgentState {
       return {
         ...state,
         // SDK failure recovery can replace the session and close its panel. Do not hide the refusal there.
-        ...(state.cliBridge.operation === "resume" && message.error && state.cliBridge.sessionIdAtRequest !== state.sessionId
+        ...(SESSION_CHANGING_CLI_OPERATIONS.has(state.cliBridge.operation ?? "list") && message.error && state.cliBridge.sessionIdAtRequest !== state.sessionId
           ? { errors: [...state.errors, message.error] } : {}),
         cliBridge: { ...state.cliBridge, ...message, loading: false },
       };

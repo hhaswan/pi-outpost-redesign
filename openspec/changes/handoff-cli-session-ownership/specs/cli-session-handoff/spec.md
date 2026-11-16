@@ -82,3 +82,36 @@ veto SHALL apply only to TUI mode, not the authorized web RPC context.
 - **GIVEN** the bridge extension is also loaded by the web runtime in RPC mode
 - **WHEN** that runtime acquires a valid released-session lease and switches to the original file
 - **THEN** the terminal-only veto does not cancel the web switch, no terminal endpoint is published by web, and TUI resume protection remains active
+
+
+### Requirement: WebToCliHandoff
+An idle main workspace SHALL release its saved conversation to one CLI: reserve the exact file, leave it,
+mark it released, and show a copyable `pi --session` command. One bridged CLI SHALL claim it; others SHALL be
+refused. No web runtime SHALL open, rename or delete it until that CLI exits, unless taken back unclaimed.
+
+#### Scenario: WebToCliHandoff
+- **GIVEN** a saved web conversation open in an idle main workspace
+- **WHEN** the operator confirms Hand off to CLI and a bridged CLI opens the shown file
+- **THEN** the web moves to another conversation, refuses the file while that CLI runs, a second CLI is refused, and the web reopens the same file after the CLI exits
+
+#### Scenario: ReclaimUnclaimedCliHandoff
+- **GIVEN** a released web conversation that no CLI has opened
+- **WHEN** the operator takes it back
+- **THEN** the reservation is removed and the same file is open in web again
+
+#### Scenario: ConcurrentReleaseHasOneOutcome
+- **GIVEN** two simultaneous hand-off requests for one conversation
+- **WHEN** both are processed
+- **THEN** exactly one releases the file and exactly one reservation exists
+
+### Requirement: AdoptClosedCliSession
+Terminal sessions SHALL list recent CLI history of the project that no enrolled CLI claims and SHALL let the
+operator continue one in web after confirming that its CLI is closed. The server SHALL refuse while any Pi
+CLI process runs in the project or names the file (Linux only; other platforms refuse), while the file
+changed in the last five seconds, or while a claim, reservation or receipt names it. Adoption SHALL reuse the
+receipt lease so enrolled CLIs then refuse the file.
+
+#### Scenario: AdoptClosedCliSession
+- **GIVEN** CLI history of the project whose CLI has exited
+- **WHEN** the operator confirms the CLI is closed and continues it in web
+- **THEN** it is refused while a Pi CLI runs in the project, then resumes the original file once none runs, and an enrolled CLI refuses it afterwards

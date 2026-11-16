@@ -8,6 +8,8 @@ import path from "node:path";
 export type CliHandoffReceipt = {
   version: 1; id: string; bridgeId: string; pid: number; cwd: string;
   sessionId: string; sessionFile: string; pidNamespace?: string; owner?: { pid: number; workspace: string };
+  /** Created by the server itself for a CLI the operator closed; that server is the releaser. */
+  adoption?: "closed-cli";
 };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX = 16 * 1024;
@@ -59,14 +61,15 @@ async function safeDirectory(directory: string, create = false): Promise<boolean
   return true;
 }
 function receipt(value: unknown, id: string): CliHandoffReceipt {
-  if (!object(value) || !keys(value, ["version", "id", "bridgeId", "pid", "cwd", "sessionId", "sessionFile", "pidNamespace", "owner"]) ||
+  if (!object(value) || !keys(value, ["version", "id", "bridgeId", "pid", "cwd", "sessionId", "sessionFile", "pidNamespace", "owner", "adoption"]) ||
       value.version !== 1 || !uuid(value.id) || value.id !== id || !uuid(value.bridgeId) || !pid(value.pid) ||
       !absolute(value.cwd) || !uuid(value.sessionId) || !absolute(value.sessionFile) ||
+      (value.adoption !== undefined && value.adoption !== "closed-cli") ||
       (value.pidNamespace !== undefined && (typeof value.pidNamespace !== "string" || !/^pid:\[\d+\]$/.test(value.pidNamespace)))) throw invalid();
   if ("owner" in value && (!object(value.owner) || !keys(value.owner, ["pid", "workspace"]) || !pid(value.owner.pid) || !text(value.owner.workspace))) throw invalid();
   return value as CliHandoffReceipt;
 }
-async function readReceipt(directory: string, id: string): Promise<CliHandoffReceipt> {
+async function readReceipt<T extends { pidNamespace?: string } = CliHandoffReceipt>(directory: string, id: string, validate: (value: unknown, id: string) => T = receipt as never): Promise<T> {
   if (!uuid(id) || !(await safeDirectory(directory))) throw invalid();
   const file = path.join(directory, `${id}.json`);
   const before = await lstat(file);
@@ -85,15 +88,15 @@ async function readReceipt(directory: string, id: string): Promise<CliHandoffRec
       length += bytesRead;
     }
     if (length > MAX) throw invalid();
-    const value = receipt(JSON.parse(buffer.subarray(0, length).toString("utf8")), id);
+    const value = validate(JSON.parse(buffer.subarray(0, length).toString("utf8")), id);
     // A PID in another container's namespace is not evidence of process death here.
     if (value.pidNamespace !== await processNamespace()) throw invalid();
     return value;
   } finally { await handle.close(); }
 }
-async function registry(directory: string): Promise<CliHandoffReceipt[]> {
+async function registry<T extends { sessionFile: string; pidNamespace?: string } = CliHandoffReceipt>(directory: string, validate: (value: unknown, id: string) => T = receipt as never): Promise<T[]> {
   if (!(await safeDirectory(directory))) return [];
-  const result: CliHandoffReceipt[] = [];
+  const result: T[] = [];
   const dir = await opendir(directory);
   let count = 0;
   for await (const entry of dir) {
@@ -114,11 +117,13 @@ async function registry(directory: string): Promise<CliHandoffReceipt[]> {
       continue;
     }
     if (!entry.name.endsWith(".json") || !uuid(entry.name.slice(0, -5))) throw invalid();
-    result.push(await readReceipt(directory, entry.name.slice(0, -5)));
+    result.push(await readReceipt(directory, entry.name.slice(0, -5), validate));
   }
   if (new Set(result.map((record) => record.sessionFile)).size !== result.length) throw invalid();
   return result;
 }
+/** Only a closed-CLI adoption may be claimed while its publisher (this server) is alive. */
+const selfReleased = (value: CliHandoffReceipt) => value.adoption === "closed-cli" && value.pid === process.pid;
 function alive(processId: number): boolean {
   try { process.kill(processId, 0); return true; } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
@@ -155,7 +160,7 @@ async function sessionIdentity(value: Pick<CliHandoffReceipt, "cwd" | "sessionFi
     return file;
   } finally { await handle.close(); }
 }
-async function publish(directory: string, value: CliHandoffReceipt): Promise<void> {
+async function publish(directory: string, value: { id: string }): Promise<void> {
   const data = JSON.stringify(value);
   if (Buffer.byteLength(data) > MAX) throw invalid();
   const temp = path.join(directory, `.${value.id}-${randomUUID()}.tmp`);
@@ -177,11 +182,11 @@ async function publish(directory: string, value: CliHandoffReceipt): Promise<voi
     try { await dir.sync(); } finally { await dir.close(); }
   }
 }
-export async function createCliHandoff(input: { bridgeId: string; cwd: string; sessionId: string; sessionFile: string }, directory?: string): Promise<CliHandoffReceipt> {
+export async function createCliHandoff(input: { bridgeId: string; cwd: string; sessionId: string; sessionFile: string }, directory?: string, adoption?: "closed-cli"): Promise<CliHandoffReceipt> {
   if (!object(input) || !keys(input, ["bridgeId", "cwd", "sessionId", "sessionFile"])) throw invalid();
   const cwd = await canonicalCwd(input.cwd);
   const id = randomUUID();
-  const value = receipt({ ...input, cwd, id, version: 1, pid: process.pid, pidNamespace: await processNamespace() }, id);
+  const value = receipt({ ...input, cwd, id, version: 1, pid: process.pid, pidNamespace: await processNamespace(), ...(adoption ? { adoption } : {}) }, id);
   value.sessionFile = await sessionIdentity(value);
   const dir = directoryPath(directory);
   await safeDirectory(dir, true);
@@ -194,7 +199,7 @@ export async function createCliHandoff(input: { bridgeId: string; cwd: string; s
 export async function listCliHandoffs(cwd: string, directory?: string): Promise<Array<{ id: string; cwd: string; sessionId: string; state: "releasing" | "ready" | "owned" }>> {
   const target = await canonicalCwd(cwd);
   return (await registry(directoryPath(directory))).filter(r => r.cwd === target).map(r => ({
-    id: r.id, cwd: r.cwd, sessionId: r.sessionId, state: alive(r.pid) ? "releasing" : r.owner ? "owned" : "ready",
+    id: r.id, cwd: r.cwd, sessionId: r.sessionId, state: alive(r.pid) && !selfReleased(r) ? "releasing" : r.owner ? "owned" : "ready",
   }));
 }
 export async function claimCliHandoff(id: string, cwd: string, workspace: string, directory?: string): Promise<CliHandoffReceipt> {
@@ -207,7 +212,8 @@ export async function claimCliHandoff(id: string, cwd: string, workspace: string
   try {
     privateStat(await lstat(lock), true);
     const value = await readReceipt(dir, id);
-    if (value.cwd !== target || alive(value.pid)) throw invalid();
+    // A receipt this server created for a closed CLI names itself as releaser.
+    if (value.cwd !== target || (alive(value.pid) && !selfReleased(value))) throw invalid();
     if (await sessionIdentity(value) !== value.sessionFile) throw invalid();
     if (value.owner && alive(value.owner.pid) && (value.owner.pid !== process.pid || value.owner.workspace !== workspace)) throw invalid();
     value.owner = { pid: process.pid, workspace };
@@ -241,4 +247,135 @@ export async function assertCliHandoffNotReserved(sessionFile: string | undefine
   if (sessionFile === undefined) return;
   const target = await canonicalTarget(sessionFile);
   if (records.some(r => r.sessionFile === target && (r.pid !== process.pid || r.owner !== undefined))) throw new Error("CLI session is reserved by an Outpost handoff");
+}
+
+/**
+ * Adopt a CLI history file whose CLI the operator says is closed. This process is the
+ * releaser, so the CLI reservation check refuses any later enrolled CLI on the file.
+ */
+export async function createClosedCliHandoff(input: { cwd: string; sessionId: string; sessionFile: string }, directory?: string): Promise<CliHandoffReceipt> {
+  return createCliHandoff({ ...input, bridgeId: randomUUID() }, directory, "closed-cli");
+}
+
+/** Web-to-CLI reservation: the web released this file; one enrolled CLI may claim it. */
+export type CliReservation = {
+  version: 1; id: string; cwd: string; sessionId: string; sessionFile: string; pidNamespace?: string;
+  releasedBy: number; phase: "releasing" | "released"; claimedBy?: number;
+};
+const reservationDirectory = (directory?: string) => path.resolve(directory ?? process.env.PI_OUTPOST_RESERVATION_DIR ?? path.join(homedir(), ".pi", "outpost-cli-reservations"));
+function reservation(value: unknown, id: string): CliReservation {
+  if (!object(value) || !keys(value, ["version", "id", "cwd", "sessionId", "sessionFile", "pidNamespace", "releasedBy", "phase", "claimedBy"]) ||
+      value.version !== 1 || !uuid(value.id) || value.id !== id || !absolute(value.cwd) || !uuid(value.sessionId) || !absolute(value.sessionFile) ||
+      !pid(value.releasedBy) || (value.phase !== "releasing" && value.phase !== "released") || (value.claimedBy !== undefined && !pid(value.claimedBy)) ||
+      (value.pidNamespace !== undefined && (typeof value.pidNamespace !== "string" || !/^pid:\[\d+\]$/.test(value.pidNamespace)))) throw invalid();
+  return value as CliReservation;
+}
+async function withReservationLock<T>(dir: string, id: string, action: (value: CliReservation) => Promise<T>): Promise<T> {
+  if (!uuid(id) || !(await safeDirectory(dir))) throw invalid();
+  const lock = path.join(dir, `.${id}.lock`);
+  await mkdir(lock, { mode: 0o700 }); // Never steal a mutex, even after a crash.
+  try {
+    privateStat(await lstat(lock), true);
+    return await action(await readReceipt(dir, id, reservation));
+  } finally { await rmdir(lock); }
+}
+export type CliReservationState = "releasing" | "waiting" | "claimed" | "stale";
+export function cliReservationState(value: CliReservation): CliReservationState {
+  if (value.claimedBy !== undefined) return alive(value.claimedBy) ? "claimed" : "stale";
+  if (value.phase === "releasing") return alive(value.releasedBy) ? "releasing" : "stale";
+  return "waiting";
+}
+export async function listCliReservations(cwd: string, directory?: string): Promise<Array<CliReservation & { state: CliReservationState }>> {
+  const target = await canonicalCwd(cwd);
+  return (await registry(reservationDirectory(directory), reservation)).filter(r => r.cwd === target).map(r => ({ ...r, state: cliReservationState(r) }));
+}
+export async function findCliReservation(sessionFile: string, directory?: string): Promise<CliReservation | undefined> {
+  const target = await canonicalTarget(sessionFile);
+  return (await registry(reservationDirectory(directory), reservation)).find(r => r.sessionFile === target);
+}
+/** Phase one: before the web runtime leaves the file, so nothing else can open it meanwhile. */
+export async function reserveForCli(input: { cwd: string; sessionId: string; sessionFile: string }, directory?: string, handoffDirectory?: string): Promise<CliReservation> {
+  const cwd = await canonicalCwd(input.cwd);
+  const id = randomUUID();
+  const value = reservation({ ...input, cwd, id, version: 1, releasedBy: process.pid, phase: "releasing", pidNamespace: await processNamespace() }, id);
+  value.sessionFile = await sessionIdentity(value);
+  const dir = reservationDirectory(directory);
+  await safeDirectory(dir, true);
+  const existing = (await registry(dir, reservation)).find(r => r.sessionFile === value.sessionFile);
+  if (existing && cliReservationState(existing) !== "stale") throw invalid();
+  if (existing) await unlink(path.join(dir, `${existing.id}.json`));
+  // Handoff receipts and reservations must never describe the same file at once.
+  // An adopted file this server owns may move on to a CLI; its receipt is dropped once released.
+  if ((await registry(directoryPath(handoffDirectory))).some(r => r.sessionFile === value.sessionFile && r.owner?.pid !== process.pid)) throw invalid();
+  await publish(dir, value);
+  return value;
+}
+/** Phase two: the web runtime no longer holds the file. */
+export async function markCliReservationReleased(id: string, directory?: string): Promise<CliReservation> {
+  const dir = reservationDirectory(directory);
+  return withReservationLock(dir, id, async (value) => {
+    if (value.releasedBy !== process.pid || value.phase !== "releasing") throw invalid();
+    value.phase = "released";
+    await publish(dir, value);
+    return value;
+  });
+}
+/** Take an unclaimed (or dead-claimed) reservation back for the web. */
+export async function cancelCliReservation(id: string, directory?: string): Promise<void> {
+  const dir = reservationDirectory(directory);
+  await withReservationLock(dir, id, async (value) => {
+    if (cliReservationState(value) === "claimed" || (value.phase === "releasing" && value.releasedBy !== process.pid && alive(value.releasedBy))) throw invalid();
+    await unlink(path.join(dir, `${value.id}.json`));
+  });
+}
+/**
+ * Web side: may this file be opened by a web runtime? A reservation whose claiming CLI
+ * exited is finished and removed; any other reservation blocks.
+ */
+export async function assertWebMayOpen(sessionFile: string, directory?: string): Promise<void> {
+  const value = await findCliReservation(sessionFile, directory);
+  if (!value) return;
+  if (cliReservationState(value) !== "stale") throw new Error(value.claimedBy !== undefined
+    ? "This session was handed off to a CLI that is still running. Exit that CLI (or hand it back with /outpost-bridge handoff) first."
+    : "This session was handed off to the CLI. Open it there, or take it back from Terminal sessions.");
+  await cancelCliReservation(value.id, directory);
+}
+/** CLI side: claim a released reservation for this process, or refuse. No reservation is a no-op. */
+export async function claimCliReservation(sessionFile: string | undefined, directory?: string): Promise<boolean> {
+  if (sessionFile === undefined) return false;
+  const found = await findCliReservation(sessionFile, directory);
+  if (!found) return false;
+  const dir = reservationDirectory(directory);
+  return withReservationLock(dir, found.id, async (value) => {
+    if (value.claimedBy === process.pid) return true;
+    const state = cliReservationState(value);
+    if (state === "claimed" || state === "releasing" || (state === "stale" && value.claimedBy === undefined)) throw new Error("CLI reservation is not available");
+    value.claimedBy = process.pid;
+    await publish(dir, value);
+    return true;
+  });
+}
+/** CLI side, before switching: would the claim succeed? */
+export async function assertCliReservationClaimable(sessionFile: string | undefined, directory?: string): Promise<void> {
+  if (sessionFile === undefined) return;
+  const value = await findCliReservation(sessionFile, directory);
+  if (!value || value.claimedBy === process.pid) return;
+  const state = cliReservationState(value);
+  if (state === "claimed" || state === "releasing" || (state === "stale" && value.claimedBy === undefined)) throw new Error("CLI reservation is not available");
+}
+
+/** Remove the handoff receipt of a file this server owned, after releasing it to a CLI. */
+export async function dropOwnedCliHandoff(sessionFile: string, directory?: string): Promise<void> {
+  const dir = directoryPath(directory);
+  const target = await canonicalTarget(sessionFile);
+  const found = (await registry(dir)).find(r => r.sessionFile === target);
+  if (!found) return;
+  const lock = path.join(dir, `.${found.id}.lock`);
+  await mkdir(lock, { mode: 0o700 });
+  try {
+    privateStat(await lstat(lock), true);
+    const value = await readReceipt(dir, found.id);
+    if (value.owner?.pid !== process.pid) throw invalid();
+    await unlink(path.join(dir, `${value.id}.json`));
+  } finally { await rmdir(lock); }
 }

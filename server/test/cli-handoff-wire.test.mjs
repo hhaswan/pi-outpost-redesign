@@ -25,9 +25,10 @@ async function fixture(t) {
   const cwd = path.join(data, "project");
   const handoffs = path.join(data, "handoffs");
   const bridges = path.join(data, "bridges");
+  const reservations = path.join(data, "reservations");
   await fs.mkdir(cwd);
   await fs.mkdir(bridges, { mode: 0o700 });
-  return { data, cwd: await fs.realpath(cwd), handoffs, bridges, stops };
+  return { data, cwd: await fs.realpath(cwd), handoffs, bridges, reservations, stops };
 }
 
 async function release(f, cwd = f.cwd) {
@@ -75,7 +76,7 @@ export default function (pi) {
     cwd: f.cwd, agentDir: path.join(root, "agent"),
     sandbox: sandbox ? { root: f.cwd, allowWrite: true, writableRoot: f.cwd, allowBash: false } : false,
     noExtensions: false, extensionPaths: [extension, ...(bridge ? [path.join(repository, "extensions", "cli-session-bridge.ts")] : [])], ...(lock ? { [lock]: true } : {}),
-  }, { entry, env: { PI_OUTPOST_HANDOFF_DIR: f.handoffs, PI_OUTPOST_BRIDGE_DIR: f.bridges, ANTHROPIC_API_KEY: "test-offline-no-model-requests", PI_OFFLINE: "1" } });
+  }, { entry, env: { PI_OUTPOST_HANDOFF_DIR: f.handoffs, PI_OUTPOST_BRIDGE_DIR: f.bridges, PI_OUTPOST_RESERVATION_DIR: f.reservations, ANTHROPIC_API_KEY: "test-offline-no-model-requests", PI_OFFLINE: "1" } });
   let stopped = false;
   const stop = async () => { if (!stopped) { stopped = true; await server.stop(); } };
   f.stops.push(stop);
@@ -308,4 +309,118 @@ test("WebLoadedCliBridgeDoesNotVetoHandoff: the real bridge loaded in RPC mode a
   assert.equal(reply.resumed, true, JSON.stringify(reply));
   await assertContinued(web, receipt, since);
   assert.deepEqual(await fs.readdir(f.bridges), [], "resumed web mode must remain outside CLI enrollment");
+});
+
+
+/** A seeded conversation in the web server's own session store, opened in the web. */
+async function openWebSession(web, f) {
+  const saved = SessionManager.create(f.cwd, path.join(web.server.root, "agent", "sessions"));
+  saved.appendMessage({ role: "user", content: [{ type: "text", text: seed }], timestamp: Date.now() });
+  const file = await fs.realpath(saved.getSessionFile());
+  const since = web.client.received.length;
+  web.client.send({ type: "switch_session", path: saved.getSessionFile() });
+  await web.client.waitFor(m => web.client.received.indexOf(m) >= since && m.type === "session_replaced" && m.sessionId === saved.getSessionId(), 20_000);
+  return { file, path: saved.getSessionFile(), sessionId: saved.getSessionId() };
+}
+
+/** A CLI-like process: claims the reservation as the bridge does at startup, holds it until told to exit. */
+async function claimingCli(t, f, file) {
+  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e",
+    `import { claimCliReservation } from ${JSON.stringify(store)}; try { await claimCliReservation(${JSON.stringify(file)}, ${JSON.stringify(f.reservations)}); process.send('claimed'); } catch { process.send('refused'); } process.once('message', () => process.exit(0));`],
+  { cwd: repository, env: { ...process.env, NODE_V8_COVERAGE: "" }, stdio: ["ignore", "ignore", "pipe", "ipc"], windowsHide: true });
+  const exited = new Promise(resolve => child.once("exit", resolve));
+  t.after(async () => { if (child.exitCode === null) child.kill(); await exited; });
+  const outcome = await new Promise(resolve => child.once("message", m => resolve(String(m))));
+  return { outcome, async stop() { child.send("exit"); await exited; } };
+}
+
+async function refusedSwitch(web, file, pattern) {
+  const since = web.client.received.length;
+  web.client.send({ type: "switch_session", path: file });
+  const error = await web.client.waitFor(m => web.client.received.indexOf(m) >= since && m.type === "error", 20_000);
+  assert.match(error.message, pattern);
+  assert.equal(web.client.received.slice(since).some(m => m.type === "session_replaced"), false);
+}
+
+test("WebToCliHandoff: web leaves the file, refuses it while a CLI holds it, and reopens the same file after that CLI exits", { skip: process.platform === "win32" }, async t => {
+  const f = await fixture(t);
+  const web = await boot(t, f);
+  const session = await openWebSession(web, f);
+  const since = web.client.received.length;
+  const reply = await request(web.client, { action: "release" });
+  assert.equal(reply.error, undefined, JSON.stringify(reply));
+  assert.equal(reply.released.state, "waiting");
+  assert.equal(reply.released.sessionId, session.sessionId);
+  assert.ok(reply.released.command.includes(`pi --session '${session.file}'`), reply.released.command);
+  const replaced = await web.client.waitFor(m => web.client.received.indexOf(m) >= since && m.type === "session_replaced", 20_000);
+  assert.notEqual(replaced.sessionId, session.sessionId, "the web must move to another conversation");
+  const bytes = await fs.readFile(session.file);
+  await refusedSwitch(web, session.path, /handed off to the CLI/);
+  const cli = await claimingCli(t, f, session.file);
+  assert.equal(cli.outcome, "claimed");
+  const second = await claimingCli(t, f, session.file);
+  assert.equal(second.outcome, "refused", "only one CLI may claim a released web session");
+  const listed = await request(web.client, { action: "list" });
+  assert.equal(listed.reservations.find(r => r.sessionId === session.sessionId).state, "claimed");
+  assert.ok((await request(web.client, { action: "reclaim", id: reply.released.id })).error, "a live CLI's session cannot be taken back");
+  await refusedSwitch(web, session.path, /still running/);
+  assert.deepEqual(await fs.readFile(session.file), bytes, "refusals never write the file");
+  await cli.stop();
+  const back = web.client.received.length;
+  web.client.send({ type: "switch_session", path: session.path });
+  await web.client.waitFor(m => web.client.received.indexOf(m) >= back && m.type === "session_replaced" && m.sessionId === session.sessionId, 20_000);
+  assert.deepEqual((await request(web.client, { action: "list" })).reservations, [], "a finished reservation is removed");
+});
+
+test("ReclaimUnclaimedCliHandoff: web takes back a released session no CLI opened", { skip: process.platform === "win32" }, async t => {
+  const f = await fixture(t);
+  const web = await boot(t, f);
+  const session = await openWebSession(web, f);
+  const released = (await request(web.client, { action: "release" })).released;
+  const since = web.client.received.length;
+  const reply = await request(web.client, { action: "reclaim", id: released.id });
+  assert.equal(reply.reclaimed, true, JSON.stringify(reply));
+  await web.client.waitFor(m => web.client.received.indexOf(m) >= since && m.type === "session_replaced" && m.sessionId === session.sessionId, 20_000);
+  const cli = await claimingCli(t, f, session.file);
+  assert.equal(cli.outcome, "claimed", "no reservation remains: a later CLI start is unaffected (no-op claim)");
+});
+
+test("AdoptClosedCliSession: closed CLI history continues in web; refused while a Pi CLI runs in the project", { skip: process.platform !== "linux" }, async t => {
+  const f = await fixture(t);
+  const web = await boot(t, f);
+  const directory = path.join(web.server.root, "agent", "sessions", `--${f.cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`);
+  const saved = SessionManager.create(f.cwd, directory);
+  saved.appendMessage({ role: "user", content: [{ type: "text", text: seed }], timestamp: Date.now() });
+  const file = saved.getSessionFile();
+  const stale = new Date(Date.now() - 60_000);
+  await fs.utimes(file, stale, stale);
+  // A process titled `pi` in the project directory stands for a still-running CLI.
+  const running = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { argv0: "pi", cwd: f.cwd, stdio: "ignore" });
+  t.after(() => { if (running.exitCode === null) running.kill(); });
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const refused = await request(web.client, { action: "adopt", path: file });
+  assert.match(refused.error ?? "", /still running in this project \(PID \d+/);
+  const bytes = await fs.readFile(file);
+  running.kill();
+  await new Promise(resolve => running.once("exit", resolve));
+  assert.ok((await request(web.client, { action: "adopt", path: path.join(f.cwd, "not-history.jsonl") })).error, "only listed CLI history may be adopted");
+  const since = web.client.received.length;
+  const reply = await request(web.client, { action: "adopt", path: file });
+  assert.equal(reply.resumed, true, JSON.stringify(reply));
+  await web.client.waitFor(m => web.client.received.indexOf(m) >= since && m.type === "session_replaced" && m.sessionId === saved.getSessionId(), 20_000);
+  assert.ok((await fs.readFile(file)).subarray(0, bytes.length).equals(bytes), "the original file continues; nothing is rewritten");
+  const cli = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e",
+    `import { assertCliHandoffNotReserved } from ${JSON.stringify(store)}; await assertCliHandoffNotReserved(${JSON.stringify(await fs.realpath(file))}, ${JSON.stringify(f.handoffs)});`],
+  { cwd: repository, env: { ...process.env, NODE_V8_COVERAGE: "" }, stdio: "ignore" });
+  assert.notEqual(await new Promise(resolve => cli.once("exit", resolve)), 0, "an enrolled CLI must now refuse the adopted file");
+});
+
+test("ConcurrentReleaseHasOneOutcome: two simultaneous hand-offs release the file once", { skip: process.platform === "win32" }, async t => {
+  const f = await fixture(t);
+  const web = await boot(t, f);
+  const session = await openWebSession(web, f);
+  const [a, b] = await Promise.all([request(web.client, { action: "release" }), request(web.client, { action: "release" })]);
+  assert.equal([a, b].filter(r => r.released).length, 1, JSON.stringify([a, b]));
+  const listed = await request(web.client, { action: "list" });
+  assert.deepEqual(listed.reservations.map(r => r.sessionId), [session.sessionId], "exactly one reservation for the file");
 });

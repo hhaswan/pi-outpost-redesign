@@ -191,3 +191,22 @@ not corrupt or unowned: the bridge's unscoped session_before_switch handler veto
 its own web owner. No live receipt, claim or conversation was removed to fix this.
 OpenLore orientation was attempted again but npm returned Invalid Version; direct
 source inspection and the red/green SDK-boundary reproduction were used.
+
+
+## Two-way handoff (web to CLI, closed CLI to web)
+
+- **WebToCliHandoff — covered.** `server/test/cli-handoff-wire.test.mjs`
+  `WebToCliHandoff: web leaves the file, refuses it while a CLI holds it, and reopens the same file after that CLI exits`
+  (real server, real claiming child process, second claimer refused, refusals leave bytes unchanged);
+  `server/test/cliReservationStore.test.ts` `WebReleasedSessionWaitsForOneCli`; and the real TUI plus
+  browser probe `scripts/check-cli-handoff.mjs` `ActualWebToCliHandoffAndBackOnTheSameFile` (UI confirm,
+  copy command, real bridged CLI claims and appends to the same file, Take back disabled while it runs,
+  back to web after exit). UI: `ui/src/components/CliSessions.test.tsx` `WebToCliHandoffPanel`.
+- **ReclaimUnclaimedCliHandoff — covered.** Wire test `ReclaimUnclaimedCliHandoff`; store test
+  `UnclaimedReservationCanBeTakenBack`.
+- **ConcurrentReleaseHasOneOutcome — covered.** Wire test `ConcurrentReleaseHasOneOutcome`.
+- **AdoptClosedCliSession — covered (Linux).** Wire test `AdoptClosedCliSession` uses a real process
+  titled `pi` in the project to prove refusal, then adoption, then an enrolled-CLI refusal check; store
+  test `ClosedCliAdoptionByServer`; UI test `AdoptClosedCliPanel` (explicit closed confirmation).
+  Limitation: a Pi CLI running in another directory without naming the file is not detected; the UI
+  asks the operator to confirm.

@@ -78,6 +78,24 @@ Do not delete the receipt or conversation. A nonempty mutex is unsafe and must n
 be recursively removed. Restart Outpost and retry continuation. Do not perform
 this recovery while another server or CLI can still use the file.
 
+## Continue a web session in the CLI
+
+In **Terminal sessions**, choose **Hand off to CLI** and confirm. The web reserves the current saved
+conversation, moves to a new one, and shows a command such as
+`cd '/project' && pi --session '/root/.pi/agent/sessions/….jsonl'`. Run it in a terminal where the Outpost
+bridge extension is installed. That CLI claims the file at startup; a second CLI is refused. The web
+refuses to open, rename or delete the file while the reservation is unclaimed or its CLI runs. After the CLI
+exits, open the session from Sessions again, or use **Take back in web**. **Take back in web** also cancels
+a hand-off no CLI has opened yet. A CLI without the bridge extension does not see the reservation: install
+the bridge before opening a released session.
+
+## Continue a closed CLI session in web
+
+Terminal sessions lists recent CLI history of the project. Choose **Continue in web**, then confirm that the
+CLI is closed. The server refuses while any Pi CLI process runs in the project directory or names the file
+(detected on Linux only; other platforms refuse), and while the file changed in the last five seconds. After
+adoption, the original file continues in web and enrolled CLIs refuse it, as after a terminal handoff.
+
 ## Private protocol
 
 The registry is `PI_OUTPOST_BRIDGE_DIR`, or `~/.pi/outpost-bridges` by default. Outpost and the CLI must use the same directory and OS account. Each process writes `<instanceId>.json` using the shared `CliBridgeRegistration` contract. Updates use a private temporary file and atomic rename. POSIX directory permissions are 0700 and files are 0600. Existing unsafe ownership, permissions, symlink directories, and unsafe ancestors are refused, not repaired. Root-owned sticky temporary directories are allowed as ancestors. On Windows, Node cannot enforce equivalent POSIX ownership checks; operators must secure the directory with account-only ACLs. Do not place it on a shared or untrusted filesystem.
