@@ -2415,7 +2415,10 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
         selectionsRef.current.set(serverUrl, selection);
         writeWorkspaceSelection(serverUrl, selection);
       };
-      const socket = new WebSocket(wsUrlFor(serverUrl, tokenRef.current, workspaceRoot));
+      // Ask for this tab's project at connect: the server's default project would
+      // otherwise flash its conversation until the restore below switches away.
+      const savedRoot = restoreSelection ? selectionsRef.current.get(serverUrl)?.root : undefined;
+      const socket = new WebSocket(wsUrlFor(serverUrl, tokenRef.current, workspaceRoot ?? savedRoot));
       socketRef.current = socket;
       let probeTimer: number | undefined;
       let deadline: number | undefined;
@@ -2763,7 +2766,8 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
             break;
           }
         }
-        dispatch({ type: "server", message });
+        // A hello that is about to be switched away from (a side session) shows nothing of its own conversation.
+        dispatch({ type: "server", message: restoreTarget && message.type === "hello" ? { ...message, items: [] } : message });
         if (restoreNotice) dispatch({ type: "server", message: { type: "error", message: restoreNotice } });
         if (snapshot && awaitingRestore) dispatch({ type: "workspace_switching" });
         if (restoreTarget) {
