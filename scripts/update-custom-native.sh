@@ -24,6 +24,7 @@ npm run check:custom-build
 "$node" scripts/check-responsive.mjs --strict-touch
 "$node" scripts/check-image-lightbox.mjs
 "$node" scripts/check-update-notice.mjs
+"$node" scripts/check-tab-sessions.mjs
 "$node" scripts/check-cli-handoff.mjs
 "$node" scripts/check-native-deploy.mjs
 CLI_HANDOFF_TEST_ENTRY="$repo/cli/dist/pi-outpost.mjs" "$node" --import tsx --test server/test/update.test.ts server/test/update-command-process.test.mjs server/test/piPackagesUpdate.test.ts extensions/cli-session-bridge.test.ts server/test/cliBridge.test.ts server/test/cliHandoffStore.test.ts server/test/cli-bridge-wire.test.mjs server/test/cli-handoff-wire.test.mjs

@@ -946,8 +946,12 @@ Each standalone browser tab remembers its last acknowledged workspace for each
 server. After reconnecting or refreshing that tab, it selects the same still-open
 workspace, including a side session, without sending a prompt or opening another
 agent. New tabs start at the server's default workspace; they do not inherit
-another tab's last selected project. Use **New side session** to run a second
-conversation on the same project in a different tab. If a side session no longer
+another tab's last selected project. Tabs on the same project show the same
+conversation until one of them starts a new one (**+ new**) or opens another saved
+session: that tab then moves onto its own side session, and the other tabs keep
+theirs. **New side session** does the same explicitly. A server with
+`workspaceLock` cannot open side sessions, so there the change applies to every
+tab and the asking tab is told so. If a side session no longer
 exists after a server restart, the tab reports the fallback; select a saved
 session explicitly rather than assuming the old session was restored. An embedded
 widget's explicit workspace remains authoritative. The tab shows disconnected as

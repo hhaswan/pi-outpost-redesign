@@ -59,14 +59,16 @@ describe("reading back past compaction", () => {
     const sessionFile = seedCompactedSession(root, 6);
     server = await startServer(root);
     client = connect(server.wsUrl());
-    other = connect(server.wsUrl());
     await client.open();
-    await other.open();
     await client.waitFor("hello");
-    await other.waitFor("hello");
+    // Switched before the second tab connects: a switch asked while another tab watches
+    // would move only this tab onto its own side session.
     client.send({ type: "switch_session", path: sessionFile });
     const replaced = await client.waitFor("session_replaced");
     sessionId = replaced.sessionId;
+    other = connect(server.wsUrl());
+    await other.open();
+    await other.waitFor("hello");
   });
 
   after(async () => {

@@ -163,7 +163,10 @@ test("embedded: a side question mid-turn is answered from the work so far, and s
   await fresh;
   assert.doesNotMatch(conversationText((await requests(log)).filter((request) => request.kind === "side").at(-1)), /earlier_side_questions|Side question:/, "the thread was forgotten");
 
-  // Another conversation closes the panel.
+  // Another conversation closes the panel. The second tab leaves first: a new conversation
+  // asked while another tab watches moves only the asking tab onto its own side session.
+  again.close();
+  await new Promise((resolve) => setTimeout(resolve, 300));
   const closed = next(client, (message) => btwWidget(message) && message.widgetLines === undefined);
   client.send({ type: "new_session" });
   await closed;

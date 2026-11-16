@@ -4204,7 +4204,17 @@ async function handleOpenSideSession(socket: WebSocket, rawRoot: string): Promis
   // back when the side session is ready — the selector lists it.
   const boundWhenAsked = clients.get(socket);
   const stillWanted = askToBind(socket);
+  const side = await createSideSession(socket, project, project);
+  if (!side) return;
+  if (stillWanted() && clients.get(socket) === boundWhenAsked) bindClient(socket, side, "workspace_switched");
+  announceWorkspaceActivity();
+}
 
+/**
+ * Build and start a side session on `project`, on the model `modelFrom` is using.
+ * Reports a failure to `socket` and returns undefined; binds nobody.
+ */
+async function createSideSession(socket: WebSocket, project: Workspace, modelFrom: Workspace): Promise<Workspace | undefined> {
   let side: Workspace;
   try {
     // The project's own settings, so the side session is confined exactly as the
@@ -4231,7 +4241,7 @@ async function handleOpenSideSession(socket: WebSocket, rawRoot: string): Promis
   } catch (error) {
     reportError(error);
     send(socket, { type: "workspace_error", message: `Could not start a side session on ${path.basename(project.root)}: ${error instanceof Error ? error.message : String(error)}` });
-    return;
+    return undefined;
   }
 
   workspaces.add(side);
@@ -4243,11 +4253,99 @@ async function handleOpenSideSession(socket: WebSocket, rawRoot: string): Promis
     reportError(error);
     send(socket, { type: "workspace_error", message: `Could not start a side session on ${path.basename(project.root)}: ${error instanceof Error ? error.message : String(error)}` });
     announceWorkspaceActivity();
-    return;
+    return undefined;
   }
-  await adoptProjectModel(side, project);
-  if (stillWanted() && clients.get(socket) === boundWhenAsked) bindClient(socket, side, "workspace_switched");
-  announceWorkspaceActivity();
+  await adoptProjectModel(side, modelFrom);
+  return side;
+}
+
+/** Sockets whose conversation change is moving them onto their own side session. */
+const splittingSockets = new WeakSet<WebSocket>();
+let sharedConversationNotices = 0;
+
+/** Whether another open client is watching `workspace` besides `socket`. */
+function sharedWithOthers(workspace: Workspace, socket: WebSocket): boolean {
+  for (const [other, bound] of clients) {
+    if (other !== socket && bound === workspace && other.readyState === other.OPEN) return true;
+  }
+  return false;
+}
+
+/**
+ * A conversation change asked by one tab on a workspace other tabs are watching
+ * applies to that tab only: it moves onto its own side session, and the others keep
+ * their conversation. `prepare` runs on the new, still unbound, side and says whether
+ * the change took; when it did not, the side is closed and the tab stays where it was.
+ * Returns false when the change should be made in place instead.
+ */
+async function changeConversationApart(
+  workspace: Workspace,
+  socket: WebSocket,
+  prepare: (side: Workspace) => Promise<boolean>,
+): Promise<boolean> {
+  if (!sharedWithOthers(workspace, socket)) return false;
+  if (config.workspaceLock) {
+    // Side sessions are refused under the lock (open_side_session too): change in place, but say so.
+    send(socket, {
+      type: "extension_ui_request",
+      id: `shared-conversation-${++sharedConversationNotices}`,
+      method: "notify",
+      message: "This server is pinned to one project, so the conversation changes in every tab showing it.",
+      notifyType: "warning",
+    });
+    return false;
+  }
+  if (splittingSockets.has(socket)) {
+    send(socket, { type: "error", message: "Session change already in progress" });
+    return true;
+  }
+  const project = workspaces.get(workspace.root);
+  if (!project) return false;
+  splittingSockets.add(socket);
+  try {
+    const stillWanted = askToBind(socket);
+    const side = await createSideSession(socket, project, workspace);
+    if (!side) return true;
+    let took = false;
+    try {
+      took = await prepare(side);
+    } catch (error) {
+      reportError(error);
+    }
+    if (took && stillWanted() && clients.get(socket) === workspace && socket.readyState === socket.OPEN) {
+      bindClient(socket, side, "workspace_switched");
+      announceWorkspaceActivity();
+      void broadcastSessions(side).catch(reportError);
+    } else {
+      await closeSideSession(side);
+    }
+    return true;
+  } finally {
+    splittingSockets.delete(socket);
+  }
+}
+
+async function handleNewSession(workspace: Workspace, socket: WebSocket): Promise<void> {
+  // A fresh side session already is a new conversation.
+  if (await changeConversationApart(workspace, socket, async () => true)) return;
+  await replaceSession(workspace, socket, () => workspace.agent.newSession());
+}
+
+async function handleSwitchSession(workspace: Workspace, socket: WebSocket, wanted: string): Promise<void> {
+  const current = workspace.agent.snapshot().sessionFile;
+  const sameFile = current !== undefined && path.resolve(current) === path.resolve(wanted);
+  // A transferred CLI session continues only in the main workspace; a file another
+  // session holds is refused by switchSession — neither is worth building a side for.
+  const inPlace = sameFile || liveElsewhere(workspace, wanted) !== undefined || (await findCliHandoff(wanted, workspace.settings.cwd)) !== undefined;
+  if (!inPlace) {
+    const apart = await changeConversationApart(workspace, socket, async (side) => {
+      await switchSession(side, socket, wanted);
+      const live = side.agent.snapshot().sessionFile;
+      return live !== undefined && path.resolve(live) === path.resolve(wanted);
+    });
+    if (apart) return;
+  }
+  await switchSession(workspace, socket, wanted);
 }
 
 /**
@@ -7275,11 +7373,11 @@ function handleClientMessage(socket: WebSocket, raw: string): void {
       void handleRestartSession(workspace, socket);
       break;
     case "new_session":
-      void replaceSession(workspace, socket, () => workspace.agent.newSession());
+      handleNewSession(workspace, socket).catch(reportError);
       break;
     case "switch_session":
       if (typeof message.path !== "string") return;
-      switchSession(workspace, socket, message.path).catch(reportError);
+      handleSwitchSession(workspace, socket, message.path).catch(reportError);
       break;
     case "delete_session":
       if (typeof message.path !== "string") return;
