@@ -5,7 +5,8 @@
  * Desktop 1280x800: a conversation with two attached images; click opens a modal
  * viewer, the wheel zooms the image, ArrowRight shows the second one with the zoom
  * reset, Escape closes and focus returns to the first image. A workspace PNG opened in
- * the file viewer opens the viewer too.
+ * the file viewer opens the viewer too. A `read` tool result carrying an image shows it as a
+ * thumbnail in the tool card, which opens the same viewer.
  * Phone 390x844 (touch): no document overflow, 44 px close control, a double tap zooms,
  * swipe down and the close button close.
  * Monkey pass: rapid open/close, double-click spam, a session switch under an open
@@ -99,6 +100,14 @@ m.appendMessage({
 });
 m.appendSessionInfo(TITLE);
 m.appendMessage({ role: 'assistant', api: 'anthropic-messages', provider: 'anthropic', model: 'claude-sonnet-4-6', timestamp: Date.now() + 1, stopReason: 'stop', usage, content: [{ type: 'text', text: 'See [the plan](shots/plan.png) for details.' }] });
+// A tool that returned an image: its card shows the picture and opens the same viewer.
+const TOOL_TITLE = 'Tool image fixture';
+const t = SessionManager.create(root, sessions);
+t.appendMessage({ role: 'user', content: [{ type: 'text', text: 'Read the plan image' }] });
+t.appendSessionInfo(TOOL_TITLE);
+t.appendMessage({ role: 'assistant', api: 'anthropic-messages', provider: 'anthropic', model: 'claude-sonnet-4-6', timestamp: Date.now() + 2, stopReason: 'toolUse', usage, content: [{ type: 'toolCall', id: 'read-plan', name: 'read', arguments: { path: 'shots/plan.png' } }] });
+t.appendMessage({ role: 'toolResult', toolCallId: 'read-plan', toolName: 'read', isError: false, timestamp: Date.now() + 3, content: [{ type: 'text', text: 'Read image file [image/png]' }, { type: 'image', data: green.toString('base64'), mimeType: 'image/png' }] });
+t.appendMessage({ role: 'assistant', api: 'anthropic-messages', provider: 'anthropic', model: 'claude-sonnet-4-6', timestamp: Date.now() + 4, stopReason: 'stop', usage, content: [{ type: 'text', text: 'That is the plan.' }] });
 
 const server = await startServer(root, { sandbox: false, noExtensions: true }, { entry: path.resolve('cli/dist/pi-outpost.mjs'), env });
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH });
@@ -244,6 +253,28 @@ try {
     assert.equal(await page.evaluate(() => document.body.style.overflow), '', 'scroll lock released');
     assert.deepEqual(errors, [], 'page errors');
     results.push('desktop monkey: rapid open/close, dblclick spam, session switch closes the viewer, no errors');
+
+    // Tool result image: thumbnail in the tool card (inside the Process group), opens the lightbox.
+    await openSession(page, TOOL_TITLE);
+    await page.getByText('That is the plan.', { exact: true }).waitFor();
+    const processGroup = page.getByRole('button', { name: /Process ·/ });
+    if ((await processGroup.count()) > 0 && (await processGroup.getAttribute('aria-expanded')) === 'false') await processGroup.click();
+    const toolThumb = page.getByRole('button', { name: 'Open image 1 returned by read' });
+    await toolThumb.waitFor();
+    assert.match(await toolThumb.locator('img').getAttribute('src'), /^data:image\/png;base64,/);
+    const thumbBox = await toolThumb.boundingBox();
+    assert.ok(thumbBox.width >= 44 && thumbBox.height >= 44, `tool thumbnail target ${thumbBox.width}x${thumbBox.height}`);
+    assert.equal(await toolThumb.evaluate((el) => getComputedStyle(el).cursor), 'zoom-in');
+    assert.ok((await toolThumb.locator('img').boundingBox()).height <= 192, 'thumbnail at most max-h-48');
+    await toolThumb.click();
+    await lightbox(page).waitFor();
+    assert.equal(await page.getByTestId('image-lightbox-counter').textContent(), 'Image 1');
+    assert.equal(await lightbox(page).locator('img').getAttribute('src'), await toolThumb.locator('img').getAttribute('src'));
+    await page.keyboard.press('Escape');
+    await lightbox(page).waitFor({ state: 'detached' });
+    assert.equal(await focusedName(page), 'Open image 1 returned by read', 'focus returns to the tool thumbnail');
+    assert.deepEqual(errors, [], 'page errors');
+    results.push('desktop: tool result image shows in the tool card and opens the lightbox');
     await ctx.close();
   }
 

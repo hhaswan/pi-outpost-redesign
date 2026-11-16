@@ -16,6 +16,8 @@ fi
 node="$(command -v node)"
 export PATH="$(dirname "$node"):$PATH"
 npx -y npm@12.2.2 ci
+# npm ci can keep a stale half-installed node-pty; the web terminal then fails silently.
+"$node" -e 'require("node-pty")' || { echo 'node-pty does not load: remove node_modules/node-pty and run npm ci again.' >&2; exit 1; }
 "$node" cli/scripts/build.mjs
 npm run check:custom-build
 "$node" --test scripts/check-agent-images.test.mjs

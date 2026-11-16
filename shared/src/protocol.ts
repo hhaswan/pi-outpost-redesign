@@ -74,6 +74,8 @@ export type ChatItem = ChatItemProvenance &
       toolName: string;
       args: unknown;
       output: string;
+      /** Images the tool returned (at most 4, each within the per-image cap). */
+      images?: WireImage[];
       isError?: boolean;
       running?: boolean;
       /**
@@ -1308,6 +1310,8 @@ export type ServerMessage =
       toolCallId: string;
       isError: boolean;
       text: string;
+      /** Images the tool returned (at most 4, each within the per-image cap). */
+      images?: WireImage[];
       outputHtml?: string;
       outputHtmlCollapsed?: string;
       /** Serialized structured-exchange document, when the tool declared one. */

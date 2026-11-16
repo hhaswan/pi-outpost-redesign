@@ -163,7 +163,7 @@ import {
   validBaseUrl,
   validProviderId,
 } from "./credentials.ts";
-import { assistantToItem, contentText, customMessageToItem, historyToItems, structuredExchangeField, toProgressFraction, truncate, userMessageText } from "./convert.ts";
+import { assistantToItem, contentText, customMessageToItem, historyToItems, structuredExchangeField, toolResultContent, toProgressFraction, truncate, userMessageText } from "./convert.ts";
 
 import { HistoryUnavailableError, type HistoryContext, historyWindow, olderItemCount } from "./history.ts";
 import { isStackExhaustion, noteCompaction, noteToolOutcome, noteTurnOutcome, recordTurnFailure } from "./turnFailureLog.ts";
@@ -3336,11 +3336,13 @@ function onRuntimeEvent(workspace: Workspace, event: RuntimeEvent): void {
         event.isError,
       );
       const structured = structuredExchangeField(event.details);
+      const result = toolResultContent(event.content as never);
       broadcast(workspace, {
         type: "tool_end",
         toolCallId: event.toolCallId,
         isError: event.isError,
-        text: truncate(contentText(event.content as never)),
+        text: truncate(result.text),
+        ...(result.images ? { images: result.images } : {}),
         ...(rendered ? { outputHtml: rendered.expanded, outputHtmlCollapsed: rendered.collapsed } : {}),
         ...structured,
       });
@@ -5280,6 +5282,13 @@ async function reclaimFromCli(workspace: Workspace, socket: WebSocket, id: strin
     found = match;
   } catch { return refused; }
   const file = found.sessionFile;
+  // A CLI without the Outpost bridge never claims the reservation; catch it by its process.
+  try {
+    const running = await runningPiCliProcesses(workspace.settings.cwd, file);
+    if (running.length) return { error: `A Pi CLI is still running in this project (PID ${running.slice(0, 5).join(", ")}), maybe with this session open. Exit it, then retry.` };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
   if (await isKnownSessionPath(workspace, file)) {
     try { await cancelCliReservation(id); } catch { return refused; }
     await switchSession(workspace, socket, file);

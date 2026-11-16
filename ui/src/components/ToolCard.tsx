@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { LightboxImage } from "./ImageLightbox";
 import { RenderedHtml } from "./RenderedHtml";
 import { ViewerErrorBoundary } from "./ViewerErrorBoundary";
 import { noopDispatch } from "../presentations/actions";
@@ -35,9 +36,11 @@ export function ToolCard({ item, dispatch = noopDispatch }: { item: ToolItem; di
   const showCollapsed =
     !open && Collapsed !== undefined && (presentation.hasCollapsed?.(item) ?? true);
 
+  const images = item.images ?? [];
+
   return (
     <div
-      className={`${open ? "rounded-2xl" : "w-max max-w-full rounded-full"} border text-xs ${
+      className={`${open || images.length > 0 ? "rounded-2xl" : "w-max max-w-full rounded-full"} border text-xs ${
         item.isError
           ? "border-red-300 bg-red-50 dark:border-red-900/60 dark:bg-red-950/20"
           : "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60"
@@ -98,6 +101,21 @@ export function ToolCard({ item, dispatch = noopDispatch }: { item: ToolItem; di
             aria-label={`${item.toolName} progress`}
             className="h-1.5 w-full appearance-none overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800 [&::-moz-progress-bar]:bg-emerald-500 [&::-webkit-progress-bar]:bg-transparent [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-emerald-500"
           />
+        </div>
+      )}
+      {images.length > 0 && (
+        // Outside the fold: the picture is the result, so it shows whether or not the card is open.
+        <div className="flex flex-wrap gap-1.5 border-t border-zinc-200 p-2 dark:border-zinc-800">
+          {images.map((image, j) => (
+            <LightboxImage
+              key={j}
+              src={`data:${image.mimeType};base64,${image.data}`}
+              group="conversation"
+              label={`Open image ${j + 1} returned by ${item.toolName}`}
+              triggerClassName="inline-flex min-h-11 min-w-11 max-w-full items-center justify-center"
+              className="max-h-48 max-w-full rounded-xl object-contain"
+            />
+          ))}
         </div>
       )}
       {showCollapsed && Collapsed !== undefined && (

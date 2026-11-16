@@ -471,3 +471,35 @@ describe("ToolCard", () => {
     expect(button).toHaveAttribute("aria-expanded", "true");
   });
 });
+
+describe("ToolCard — images a tool returned", () => {
+  it("shows each image as a thumbnail without opening the card, and a click opens the lightbox", () => {
+    render(
+      <ToolCard
+        item={{
+          ...TOOL_DEFAULTS,
+          kind: "tool",
+          toolName: "read",
+          output: "",
+          images: [
+            { data: "AAAA", mimeType: "image/png" },
+            { data: "BBBB", mimeType: "image/jpeg" },
+          ],
+        }}
+      />,
+    );
+    const first = screen.getByRole("button", { name: "Open image 1 returned by read" });
+    expect(screen.getByRole("button", { name: "Open image 2 returned by read" })).toBeInTheDocument();
+    expect(first.querySelector("img")).toHaveAttribute("src", "data:image/png;base64,AAAA");
+    expect(first.querySelector("img")).toHaveClass("max-h-48", "rounded-xl");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(first);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("1 / 2");
+  });
+
+  it("renders no thumbnail row when the tool returned no image", () => {
+    const { container } = render(<ToolCard item={{ ...TOOL_DEFAULTS, kind: "tool", toolName: "read", output: "text" }} />);
+    expect(container.querySelector("[data-lightbox-trigger]")).toBeNull();
+  });
+});

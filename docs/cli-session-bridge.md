@@ -87,7 +87,8 @@ bridge extension is installed. That CLI claims the file at startup; a second CLI
 refuses to open, rename or delete the file while the reservation is unclaimed or its CLI runs. After the CLI
 exits, open the session from Sessions again, or use **Take back in web**. **Take back in web** also cancels
 a hand-off no CLI has opened yet. A CLI without the bridge extension does not see the reservation: install
-the bridge before opening a released session.
+the bridge before opening a released session. **Take back in web** refuses while any Pi CLI runs
+in the project directory (Linux), so an unbridged CLI cannot end up writing beside the web.
 
 ## Continue a closed CLI session in web
 

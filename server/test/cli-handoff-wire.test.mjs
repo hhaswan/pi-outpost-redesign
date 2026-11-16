@@ -372,11 +372,18 @@ test("WebToCliHandoff: web leaves the file, refuses it while a CLI holds it, and
   assert.deepEqual((await request(web.client, { action: "list" })).reservations, [], "a finished reservation is removed");
 });
 
-test("ReclaimUnclaimedCliHandoff: web takes back a released session no CLI opened", { skip: process.platform === "win32" }, async t => {
+test("ReclaimUnclaimedCliHandoff: web takes back a released session no CLI opened", { skip: process.platform !== "linux" }, async t => {
   const f = await fixture(t);
   const web = await boot(t, f);
   const session = await openWebSession(web, f);
   const released = (await request(web.client, { action: "release" })).released;
+  // A CLI without the bridge never claims the reservation: its process still blocks take-back.
+  const unbridged = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { argv0: "pi", cwd: f.cwd, stdio: "ignore" });
+  t.after(() => { if (unbridged.exitCode === null) unbridged.kill(); });
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.match((await request(web.client, { action: "reclaim", id: released.id })).error ?? "", /still running in this project/);
+  unbridged.kill();
+  await new Promise(resolve => unbridged.once("exit", resolve));
   const since = web.client.received.length;
   const reply = await request(web.client, { action: "reclaim", id: released.id });
   assert.equal(reply.reclaimed, true, JSON.stringify(reply));

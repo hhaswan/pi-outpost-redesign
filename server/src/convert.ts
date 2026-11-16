@@ -142,6 +142,28 @@ export function contentText(content: string | AnyContent[] | undefined): string 
     .join("\n");
 }
 
+/** At most this many images ride on one tool result; the rest stay "[image]". */
+export const MAX_TOOL_IMAGES = 4;
+/** Per-image cap on base64 length — the same 10 MB the prompt path enforces (MAX_IMAGE_BYTES). */
+export const MAX_TOOL_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * A tool result's display text plus the images it returned. An attached image
+ * drops its "[image]" marker; one over the count or size cap keeps it.
+ */
+export function toolResultContent(content: string | AnyContent[] | undefined): { text: string; images?: WireImage[] } {
+  if (!Array.isArray(content)) return { text: contentText(content) };
+  const images: WireImage[] = [];
+  const kept = content.filter((c) => {
+    if (c.type !== "image" || images.length >= MAX_TOOL_IMAGES) return true;
+    if (typeof c.data !== "string" || !c.data || typeof c.mimeType !== "string" || !c.mimeType) return true;
+    if (c.data.length > MAX_TOOL_IMAGE_BYTES) return true;
+    images.push({ data: c.data, mimeType: c.mimeType });
+    return false;
+  });
+  return { text: contentText(kept), ...(images.length > 0 ? { images } : {}) };
+}
+
 export function truncate(text: string, max = MAX_TOOL_OUTPUT): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max)}\n… [truncated, ${text.length} chars total]`;
@@ -275,12 +297,14 @@ export function historyToItems(
           message.isError ?? false,
         );
 
+        const result = toolResultContent(message.content);
         items.push({
           kind: "tool",
           toolCallId,
           toolName,
           args: call?.args ?? {},
-          output: truncate(contentText(message.content)),
+          output: truncate(result.text),
+          ...(result.images ? { images: result.images } : {}),
           isError: message.isError ?? false,
           ...(callHtml ? { callHtml } : {}),
           ...(rendered

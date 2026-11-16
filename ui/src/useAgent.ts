@@ -1575,6 +1575,7 @@ function reduce(state: AgentState, action: Action): AgentState {
         ...state,
         items: upsertTool(state.items, message.toolCallId, "tool", {
           output: message.text,
+          images: message.images,
           isError: message.isError,
           running: false,
           outputHtml: message.outputHtml,

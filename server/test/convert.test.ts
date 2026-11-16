@@ -8,6 +8,7 @@ import {
   assistantToItem,
   customMessageToItem,
   messageUsage,
+  MAX_TOOL_IMAGE_BYTES,
 } from "../src/convert.ts";
 import { ExtensionRenderer } from "../src/extensionRender.ts";
 import type { ChatItem } from "@pi-outpost/shared";
@@ -205,6 +206,47 @@ describe("historyToItems", () => {
     assert.equal(tool.toolName, "read");
     assert.equal(tool.output, "file content");
     assert.equal(tool.isError, false);
+  });
+
+  test("a toolResult's image blocks become images on the tool item, capped at four", () => {
+    const image = (n: number) => ({ type: "image", data: `img${n}`, mimeType: "image/png" });
+    const items = historyToItems([
+      { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "read", arguments: { path: "a.png" } }] },
+      {
+        role: "toolResult",
+        toolCallId: "tc1",
+        toolName: "read",
+        content: [{ type: "text", text: "Read image" }, image(1), image(2), image(3), image(4), image(5)],
+        isError: false,
+      },
+    ]);
+    const tool = items[0] as Extract<(typeof items)[0], { kind: "tool" }>;
+    assert.deepEqual(tool.images?.map((i) => i.data), ["img1", "img2", "img3", "img4"]);
+    assert.equal(tool.images?.[0].mimeType, "image/png");
+    // Attached images drop their marker; the fifth, over the cap, keeps it.
+    assert.equal(tool.output, "Read image\n[image]");
+  });
+
+  test("an image over the per-image cap stays \"[image]\" and is not attached", () => {
+    const items = historyToItems([
+      {
+        role: "toolResult",
+        toolCallId: "tc1",
+        toolName: "read",
+        content: [
+          { type: "image", data: "x".repeat(MAX_TOOL_IMAGE_BYTES + 1), mimeType: "image/png" },
+          { type: "image", data: "small", mimeType: "image/png" },
+        ],
+      },
+    ]);
+    const tool = items[0] as Extract<(typeof items)[0], { kind: "tool" }>;
+    assert.deepEqual(tool.images, [{ data: "small", mimeType: "image/png" }]);
+    assert.equal(tool.output, "[image]");
+  });
+
+  test("a text-only toolResult carries no images field", () => {
+    const items = historyToItems([{ role: "toolResult", toolCallId: "tc1", toolName: "read", content: [{ type: "text", text: "hi" }] }]);
+    assert.equal("images" in items[0], false);
   });
 
   test("toolResult without matching toolCall still produces a tool item", () => {
