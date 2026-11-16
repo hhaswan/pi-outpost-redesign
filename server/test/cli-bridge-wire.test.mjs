@@ -132,6 +132,22 @@ test("a web prompt goes to the live CLI on the same file, streams back, stops th
   emit({ type: "block_delta", block: "text", contentIndex: 0, delta: "cli says hi" });
   const delta = await next((m) => m.type === "block_delta");
   assert.equal(delta.delta, "cli says hi");
+  // A client binding mid-turn (a page reload) sees the turn running and its reply so far, once,
+  // still streaming, so the next delta extends it rather than opening a second bubble.
+  const late = connect(server.wsUrl());
+  t.after(() => late.close());
+  await late.open();
+  const joined = await late.waitFor("hello");
+  assert.equal(joined.isStreaming, true, "busy for the CLI's turn");
+  assert.equal(joined.items.filter((item) => item.kind === "user" && item.text === "routed to the cli").length, 1);
+  const partials = joined.items.filter((item) => item.kind === "assistant" && item.blocks.some((b) => b.text.includes("cli says hi")));
+  assert.equal(partials.length, 1, "exactly one partial reply");
+  assert.deepEqual({ ...joined.items.at(-1), blocks: joined.items.at(-1).blocks.map((b) => b.text) }, { kind: "assistant", blocks: ["cli says hi"], streaming: true });
+  const extended = next((m) => m.type === "block_delta" && m.delta === " again");
+  emit({ type: "block_delta", block: "text", contentIndex: 0, delta: " again" });
+  assert.equal((await late.waitFor((m) => m.type === "block_delta")).delta, " again");
+  await extended;
+  assert.equal(listeners.size, 1, "one event subscription per workspace, whatever the number of clients");
   emit({ type: "tool_start", toolCallId: "c1", toolName: "bash", args: { command: "ls" } });
   assert.equal((await next((m) => m.type === "tool_start")).toolCallId, "c1");
   emit({ type: "tool_end", toolCallId: "c1", toolName: "bash", content: [{ type: "text", text: "listing" }], isError: false });
@@ -139,7 +155,21 @@ test("a web prompt goes to the live CLI on the same file, streams back, stops th
   const cli = SessionManager.open(file);
   cli.appendMessage({ role: "user", content: [{ type: "text", text: "routed to the cli" }], timestamp: Date.now() });
   cli.appendMessage({ role: "assistant", content: [{ type: "text", text: "cli says hi" }], api: "x", provider: "x", model: "x", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() });
-  emit({ type: "assistant_end", message: { role: "assistant", content: [{ type: "text", text: "cli says hi" }], stopReason: "stop" } });
+  emit({ type: "assistant_end", message: { role: "assistant", content: [{ type: "text", text: "cli says hi again" }], stopReason: "stop" } });
+  await next((m) => m.type === "assistant_end");
+  // Joining after the reply ended and a tool ran: the finished reply and card, no streaming item.
+  const later = connect(server.wsUrl());
+  t.after(() => later.close());
+  await later.open();
+  const rejoined = await later.waitFor("hello");
+  assert.equal(rejoined.isStreaming, true);
+  assert.deepEqual(rejoined.items.slice(-3).map((item) => item.kind), ["user", "assistant", "tool"]);
+  assert.equal(rejoined.items.filter((item) => item.kind === "assistant" && item.streaming).length, 0);
+  assert.equal(rejoined.items.filter((item) => item.kind === "assistant" && item.blocks.some((b) => b.text === "cli says hi again")).length, 1);
+  assert.equal(rejoined.items.find((item) => item.kind === "tool" && item.toolCallId === "c1")?.output, "listing");
+  // Alone again: with other tabs watching, a conversation change below would open a side session.
+  late.close(); later.close();
+  await new Promise((resolve) => setTimeout(resolve, 200));
   // Both armed before the end: they may arrive in one read.
   const ended = next((m) => m.type === "agent_end");
   const syncing = next((m) => m.type === "session_synced");

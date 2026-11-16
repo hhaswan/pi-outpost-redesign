@@ -2896,13 +2896,17 @@ function snapshot(workspace: Workspace): SessionSnapshot {
     })(),
     // A bridged CLI's turn on this file counts: a client joining mid-turn shows Stop for it.
     isStreaming: state.isStreaming || cliTurnRunning(workspace, state.sessionFile),
-    items: historyToItems(
-      state.messages as never,
-      state.isStreaming,
-      branchUserEntries(workspace).map((entry) => entry.entryId),
-      workspace.browserRoot,
-      workspace.renderer,
-    ),
+    // ...and what that turn has streamed so far, which the file sync shows only once it ends.
+    items: [
+      ...historyToItems(
+        state.messages as never,
+        state.isStreaming,
+        branchUserEntries(workspace).map((entry) => entry.entryId),
+        workspace.browserRoot,
+        workspace.renderer,
+      ),
+      ...(cliTurnRunning(workspace, state.sessionFile) ? cliLinks.get(workspace)!.turn : []),
+    ],
     // What compaction took out of the context and a reader can still ask for. Absent
     // when there is nothing older, which is also what a runtime that cannot read the
     // branch reports — either way no client offers to load what is not there.
@@ -4866,7 +4870,11 @@ function cliBridgeEnabled(workspace: Workspace): boolean {
   return workspace.settings.sandbox === undefined && !config.extensionLock && !config.workspaceLock;
 }
 
-interface CliLink { owner: CliBridgeRegistration; file: string; running: boolean; close: () => void }
+/**
+ * `turn` mirrors, item for item, what the clients built from this turn's wire messages, so a
+ * client binding mid-turn gets it in its snapshot: the in-flight reply once, still streaming.
+ */
+interface CliLink { owner: CliBridgeRegistration; file: string; running: boolean; turn: ChatItem[]; close: () => void }
 const cliLinks = new Map<Workspace, CliLink>();
 const cliLinking = new Set<Workspace>();
 
@@ -4890,7 +4898,12 @@ async function promptLiveCli(workspace: Workspace, text: string, images?: WireIm
   if (promptText.length > 8000) return false;
   const result = await routeToCli(owner, promptText, randomUUID());
   if (result.outcome === "fallback") return false;
-  if (result.outcome === "submitted") broadcastUser(workspace, { text, promptText });
+  if (result.outcome === "submitted") {
+    broadcastUser(workspace, { text, promptText });
+    // Shown in a mid-turn snapshot only while the CLI runs; its turn's end re-reads the file.
+    const link = cliLinks.get(workspace);
+    if (link?.file === sessionFile) link.turn.push({ kind: "user", text });
+  }
   else broadcast(workspace, { type: "error", message: result.message });
   return true;
 }
@@ -4921,7 +4934,7 @@ async function linkLiveCli(workspace: Workspace, file: string | undefined): Prom
     const link = cliLinks.get(workspace);
     if (link && (!owner || link.file !== file || (["id", "port", "token", "sessionFile"] as const).some((key) => owner![key] !== link.owner[key]))) unlinkLiveCli(workspace);
     if (owner && file && !cliLinks.has(workspace) && workspace.started) {
-      const next: CliLink = { owner, file, running: false, close: () => {} };
+      const next: CliLink = { owner, file, running: false, turn: [], close: () => {} };
       cliLinks.set(workspace, next);
       next.close = followCliEvents(owner, (event) => onCliEvent(workspace, next, event), () => {
         if (cliLinks.get(workspace) === next) unlinkLiveCli(workspace);
@@ -4937,6 +4950,7 @@ function unlinkLiveCli(workspace: Workspace): void {
   if (!link) return;
   cliLinks.delete(workspace);
   link.close();
+  link.turn = [];
   // A CLI gone mid-turn leaves no turn running here: the file shows what it wrote.
   if (link.running) {
     link.running = false;
@@ -4964,6 +4978,7 @@ function onCliEvent(workspace: Workspace, link: CliLink, event: CliBridgeEvent):
   if (event.type === "agent_end") {
     if (!link.running) return;
     link.running = false;
+    link.turn = [];
     if (!webTurn) broadcast(workspace, { type: "agent_end" });
     void syncSharedSessionLocked(workspace);
     return;
@@ -4972,33 +4987,57 @@ function onCliEvent(workspace: Workspace, link: CliLink, event: CliBridgeEvent):
   if (!link.running || webTurn) return;
   switch (event.type) {
     case "assistant_start":
+      link.turn.push({ kind: "assistant", blocks: [], streaming: true });
       broadcast(workspace, { type: "assistant_start" });
       break;
-    case "block_delta":
+    case "block_delta": {
+      const item = streamingCliItem(link);
+      const index = item.blocks.findIndex((b) => b.contentIndex === event.contentIndex);
+      if (index >= 0) item.blocks[index] = { ...item.blocks[index], text: item.blocks[index].text + event.delta };
+      else item.blocks.push({ type: event.block, text: event.delta, contentIndex: event.contentIndex });
       broadcast(workspace, { type: "block_delta", block: event.block, contentIndex: event.contentIndex, delta: event.delta });
       break;
-    case "assistant_end":
-      broadcast(workspace, { type: "assistant_end", item: assistantToItem(event.message as never) });
+    }
+    case "assistant_end": {
+      const item = assistantToItem(event.message as never);
+      link.turn[link.turn.indexOf(streamingCliItem(link))] = item;
+      broadcast(workspace, { type: "assistant_end", item });
       break;
+    }
     case "tool_start": {
       const callHtml = workspace.renderer.renderToolCallHtml(event.toolCallId, event.toolName, event.args);
+      link.turn.push({ kind: "tool", toolCallId: event.toolCallId, toolName: event.toolName, args: event.args, output: "", running: true, ...(callHtml ? { callHtml } : {}) });
       broadcast(workspace, { type: "tool_start", toolCallId: event.toolCallId, toolName: event.toolName, args: event.args, ...(callHtml ? { callHtml } : {}) });
       break;
     }
     case "tool_end": {
       const rendered = workspace.renderer.renderToolResultHtml(event.toolCallId, event.toolName, event.content as never, event.details, event.isError);
       const result = toolResultContent(event.content as never);
-      broadcast(workspace, {
-        type: "tool_end",
-        toolCallId: event.toolCallId,
+      const outcome = {
         isError: event.isError,
-        text: truncate(result.text),
         ...(result.images ? { images: result.images } : {}),
         ...(rendered ? { outputHtml: rendered.expanded, outputHtmlCollapsed: rendered.collapsed } : {}),
-      });
+      };
+      const index = link.turn.findIndex((item) => item.kind === "tool" && item.toolCallId === event.toolCallId);
+      const card = index >= 0 ? link.turn[index] : undefined;
+      const ended = { ...(card?.kind === "tool" ? card : { kind: "tool" as const, toolCallId: event.toolCallId, toolName: event.toolName, args: undefined }), output: truncate(result.text), running: false, ...outcome };
+      if (index >= 0) link.turn[index] = ended;
+      else link.turn.push(ended);
+      broadcast(workspace, { type: "tool_end", toolCallId: event.toolCallId, text: truncate(result.text), ...outcome });
       break;
     }
   }
+}
+
+/** The CLI turn's in-flight reply, created as a client's upsert would when no assistant_start came. */
+function streamingCliItem(link: CliLink): Extract<ChatItem, { kind: "assistant" }> {
+  for (let i = link.turn.length - 1; i >= 0; i--) {
+    const item = link.turn[i];
+    if (item.kind === "assistant" && item.streaming) return item;
+  }
+  const item: Extract<ChatItem, { kind: "assistant" }> = { kind: "assistant", blocks: [], streaming: true };
+  link.turn.push(item);
+  return item;
 }
 
 /** Wait for the workspace's queue to be free; the result releases it. */

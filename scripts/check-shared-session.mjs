@@ -196,11 +196,16 @@ try{
   assert.ok(requests.filter(r=>r.last==='slow burst').length<=1,'one send for a double click');
   console.log('PASS MonkeyBurstSettles');
 
-  // Monkey: reload the page mid CLI turn. The new page shows the turn running, then its reply.
+  // Monkey: reload the page mid CLI turn. The new page shows the turn running and its partial reply once, then the reply.
+  // A burst Stop that landed after the first part keeps that aborted partial on screen: count, do not expect one.
+  const partial=page.getByText('first part,',{exact:true});const aborted=await partial.count();
   await composer.fill('slow during reload');await send.click();
-  await expect(page.getByText('first part,',{exact:true})).toBeVisible({timeout:10000});
-  await page.reload();await expect(composer).toBeVisible();
+  await expect(partial).toHaveCount(aborted+1,{timeout:10000});
+  // Not the composer: mid-turn its placeholder reads "steer the agent".
+  await page.reload();
   await expect(stop).toBeVisible({timeout:5000});
+  await expect(partial).toHaveCount(aborted+1);
+  await expect(page.getByText('slow during reload',{exact:true})).toHaveCount(1);
   await expect(page.getByText('first part, reply to slow during reload',{exact:true})).toBeVisible({timeout:15000});
   await expect(stop).toHaveCount(0,{timeout:10000});
   assert.equal(requests.filter(r=>r.last==='slow during reload').length,1);
