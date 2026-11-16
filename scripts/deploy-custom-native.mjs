@@ -1,12 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import WebSocket from 'ws';
 import {chromium} from 'playwright';
 import {get as httpGet} from 'node:http';
 import {DEPLOY_ADDRESS,lockIngress,unlockIngress} from './native-deploy-network.mjs';
+import {checkAgentImages} from './check-agent-images.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const args=process.argv.slice(2).filter(arg=>arg!=='--check');
 if(!args[0])throw Error('Usage: node scripts/deploy-custom-native.mjs <config.json> [service.service] [--check]');
@@ -93,6 +94,8 @@ async function verifyBrowser(){
 }
 await fs.mkdir(path.join(root,'.local'),{recursive:true,mode:0o700});
 await fs.access(path.join(source,'pi-outpost.mjs'));await fs.access(path.join(source,'extensions/cli-session-bridge.mjs'));
+// The SDK stays external: a corrupt Photon dependency would make every image vanish.
+await checkAgentImages(pathToFileURL(path.join(source,'pi-outpost.mjs')).href);
 if(!(await fs.readFile(path.join(source,'pi-outpost.mjs'),'utf8')).includes('var CUSTOM_BUILD = true;'))throw Error('Refusing to deploy an unmarked stock build');
 if(process.argv.includes('--check')){console.log('DEPLOY_PREFLIGHT_OK');process.exit(0);}
 const lock=path.join(root,'.local/native-deploy.lock');
@@ -111,6 +114,7 @@ try{
  await fs.mkdir(release,{recursive:true,mode:0o700});
  await fs.cp(source,target,{recursive:true,errorOnExist:true,force:false});
  if(await hash(path.join(target,'pi-outpost.mjs'))!==record.sourceSha256)throw Error('Source build changed while waiting for deployment');
+ await checkAgentImages(pathToFileURL(path.join(target,'pi-outpost.mjs')).href);record.checks.push('release resolves a valid SDK image decoder');
  // Exclude client input until all saved sessions have been restored.
  lockIngress(port);ingressLocked=true;record.checks.push('temporary ingress gate excludes client submissions during restoration');
  // Check again under the ingress gate before interrupting the process.

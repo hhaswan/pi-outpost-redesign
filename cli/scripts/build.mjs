@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 const isWindows = process.platform === "win32";
 import esbuild from "esbuild";
 import { inlineSeaAssets } from "../../server/scripts/sea-inline-assets.mjs";
+import { checkAgentImages } from "../../scripts/check-agent-images.mjs";
 
 const require = createRequire(import.meta.url);
 const CLI_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -29,6 +30,9 @@ const OUT_DIR = resolve(CLI_DIR, "dist");
 const BUNDLE = resolve(OUT_DIR, "pi-outpost.mjs");
 const WEB_SRC = resolve(REPO_ROOT, "web/dist");
 const WEB_OUT = resolve(OUT_DIR, "web");
+
+await checkAgentImages();
+console.log("[build] SDK image decoding and resizing verified");
 
 const { version } = require(resolve(CLI_DIR, "package.json"));
 const piSdkMain = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));

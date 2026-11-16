@@ -23,6 +23,7 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import esbuild from "esbuild";
+import { validateWasmAsset } from "../../scripts/check-agent-images.mjs";
 
 const require = createRequire(import.meta.url);
 /** Where codemode's QuickJS module comes from, once it is no longer a file. */
@@ -36,7 +37,7 @@ function replaceOnce(source, file, pattern, replacement, why) {
   return source.replace(pattern, () => replacement);
 }
 
-const base64 = async (file) => (await readFile(file)).toString("base64");
+const base64 = async (file) => (await validateWasmAsset(file)).toString("base64");
 
 /** codemode's worker, bundled on its own: it runs from a `data:` URL, with nothing to import beside it. */
 async function codemodeWorkerSource(sdkDist) {

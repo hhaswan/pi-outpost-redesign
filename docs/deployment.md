@@ -146,7 +146,8 @@ bash scripts/update-custom-native.sh /root/pi-outpost.config.json
 This host-specific flow requires Linux, root, systemd, IPv4 HTTP on an explicit
 configured port, iptables/ip6tables, python3, and Playwright Chromium. It refuses a dirty
 checkout, installs from the lockfile with npm 12.2.2, builds the embedded custom UI,
-and runs the artifact gate, a real CLI PTY/browser handoff probe, a disposable
+and runs the artifact gate, an image decode/resize check and a real browser image-prompt
+probe, a real CLI PTY/browser handoff probe, a disposable
 native-service deployment probe, and focused update/ownership tests. It does not restart the live service during these checks.
 
 Deployment then runs in `pi-outpost-custom-deploy.service`, outside the live
@@ -163,6 +164,10 @@ A systemd drop-in pins `pi-outpost.service` to an immutable copy under
 package globally therefore no longer changes the live service's selected UI.
 Keep the repository and its pinned dependencies available: the copied bundle
 resolves its external dependencies from this repository's `node_modules`.
+The build, preflight and staged release refuse a Photon WebAssembly file that does
+not compile. Without that guard the SDK reports every image as
+`Image omitted: could not be resized below the inline image size limit`, even a
+small one. Restore the locked dependency; raising image limits does not fix it.
 
 The worker backs up the previous drop-in and CLI bridge, verifies restored saved
 session IDs through fresh connections, and checks the authenticated mobile UI.
