@@ -246,6 +246,19 @@ describe("Work Plan across viewport classes", () => {
     expect(within(nav).getByRole("button", { name: /Plan/ })).toHaveTextContent("0/1");
   });
 
+  it("keeps the selected task when the drawer is closed and reopened", () => {
+    stubWidth(1280);
+    mockUseAgent.mockReturnValue(agentApi(agentState({ workPlan })));
+    render(<App />);
+    fireEvent.click(screen.getByRole("treeitem", { name: /Viewport task/ }));
+    expect(screen.getByRole("treeitem", { name: /Viewport task/ })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Close Work Plan" }));
+    expect(screen.queryByRole("complementary", { name: "Work Plan" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open Work Plan" }));
+    expect(screen.getByRole("treeitem", { name: /Viewport task/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("region", { name: "Task details" })).toHaveTextContent("Viewport task");
+  });
+
   it("closes the phone overlay when the window narrows, and restores the desktop state when it widens", () => {
     const resize = stubWidth(390);
     mockUseAgent.mockReturnValue(agentApi(agentState({ workPlan })));

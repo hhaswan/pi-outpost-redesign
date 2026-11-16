@@ -25,6 +25,9 @@ interface WorkPlanPanelProps {
    * conversation, and leaves closing to the sheet bar, whose close control is touch-sized.
    */
   inSheet?: boolean;
+  /** The selected task, when the caller keeps it across close and reopen. */
+  selectedTaskId?: string | null;
+  onSelectTask?: (id: string | null) => void;
 }
 
 function workspacePath(resource: WorkPlanResource): string | null {
@@ -38,10 +41,14 @@ function workspacePath(resource: WorkPlanResource): string | null {
   return candidate;
 }
 
-export function WorkPlanPanel({ plan, open, onToggle, onOpenWorkspace, requestedTaskId, onTaskRequestHandled, inSheet = false }: WorkPlanPanelProps) {
+export function WorkPlanPanel({ plan, open, onToggle, onOpenWorkspace, requestedTaskId, onTaskRequestHandled, inSheet = false, selectedTaskId, onSelectTask }: WorkPlanPanelProps) {
   const previewId = useId();
   const [previewVisible, setPreviewVisible] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Owned by the caller when given: the panel unmounts on close, and a selection held
+  // here would be lost each time.
+  const [ownSelectedId, setOwnSelectedId] = useState<string | null>(null);
+  const selectedId = selectedTaskId !== undefined ? selectedTaskId : ownSelectedId;
+  const setSelectedId = onSelectTask ?? setOwnSelectedId;
   const [missingTaskId, setMissingTaskId] = useState<string | null>(null);
   // A navigation is an event, not a mode: applied once and then given back. Left
   // standing it would re-select its task on every plan update — the agent edits

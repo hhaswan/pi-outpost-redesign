@@ -365,6 +365,9 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
   // iOS keeps the layout viewport under its keyboard: lift the shell above it.
   const keyboardInset = useKeyboardInset(isNarrowViewport);
   const [narrowWorkPlanOpen, setNarrowWorkPlanOpen] = useState(false);
+  // The Work Plan panel unmounts when closed; its selected task lives here so reopening keeps it.
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  useEffect(() => { setSelectedTaskId(null); }, [boundKey, state.sessionId]);
   const workPlanDisplayedOpen = isNarrowViewport ? narrowWorkPlanOpen : workPlanOpen;
   const [terminalOpen, setTerminalOpen] = useState(false);
   const terminalEnabled = state.terminal?.enabled ?? false;
@@ -1310,6 +1313,8 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
               }}
               requestedTaskId={requestedTaskId}
               onTaskRequestHandled={clearRequestedTask}
+              selectedTaskId={selectedTaskId}
+              onSelectTask={setSelectedTaskId}
             />
           )}
           {outcomeOpen && (
@@ -1699,6 +1704,8 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             open
             inSheet
             onToggle={() => setNarrowWorkPlanOpen(false)}
+            selectedTaskId={selectedTaskId}
+            onSelectTask={setSelectedTaskId}
             onOpenWorkspace={(path) => {
               setDiffOnOpen(false);
               readFile(path);
