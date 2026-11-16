@@ -1,5 +1,11 @@
 # Transfer a CLI session to the web without copying its file
 
+> **Superseded by `shared-cli-web-sessions`.** The user dropped exclusive ownership:
+> web and the Pi CLI now write one session file at once. The handoff, reservation,
+> adoption and lease implementation, its tests and `scripts/check-cli-handoff.mjs`
+> were removed; `shared-cli-web-sessions` removes these requirements. Do not deploy
+> or archive this change on its own.
+
 ## Intent and implementation evidence
 
 The user requires continuation of the exact CLI JSONL file, not a fork. The current

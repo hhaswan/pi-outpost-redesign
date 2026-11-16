@@ -27,7 +27,7 @@
  *   --shots=dir     save a screenshot of every checked screen into dir
  *
  * Isolation: a throwaway workspace and agent dir, no extensions, offline, and private
- * bridge, handoff and reservation registries, so a CLI on this machine never sees the
+ * bridge registry, so a CLI on this machine never sees the
  * probe's server and the probe never sees a real one.
  */
 import fs from 'node:fs/promises';
@@ -59,10 +59,8 @@ const env = {
   PI_OFFLINE: '1',
   ANTHROPIC_API_KEY: 'x',
   PI_OUTPOST_BRIDGE_DIR: path.join(registries, 'bridges'),
-  PI_OUTPOST_HANDOFF_DIR: path.join(registries, 'handoffs'),
-  PI_OUTPOST_RESERVATION_DIR: path.join(registries, 'reservations'),
 };
-// Owner-only, as the stores require; the handoff and reservation stores create their own.
+// Owner-only, as the registry requires.
 await fs.mkdir(env.PI_OUTPOST_BRIDGE_DIR, { mode: 0o700 });
 
 // The fixture: a long user message with an unbroken token, a reply with a wide code

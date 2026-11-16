@@ -9,7 +9,7 @@ const PREFIX_BYTES = 256 * 1024;
 const TAIL_BYTES = 64 * 1024;
 const MAX_LABEL = 120;
 
-/** Pi's default session directory is per cwd. Outpost's explicit SESSION_DIR is flat. */
+/** Pi's default session directory is per cwd; Outpost writes its sessions there too. */
 export function cliSessionDirectory(agentDir: string, cwd: string): string {
   const safeCwd = `--${path.resolve(cwd).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
   return path.join(agentDir, "sessions", safeCwd);
@@ -28,6 +28,11 @@ export async function externalCliHistory(agentDir: string, cwd: string): Promise
   if (scans.size > 64) scans.delete(scans.keys().next().value!);
   void result.catch(() => scans.delete(directory));
   return result;
+}
+
+/** After a write this server made into the directory (a rename, a title): the cache cannot see it. */
+export function forgetCliHistory(agentDir: string, cwd: string): void {
+  scans.delete(cliSessionDirectory(agentDir, cwd));
 }
 
 async function readWindow(handle: FileHandle, start: number, length: number): Promise<string> {
@@ -85,7 +90,7 @@ async function scanDirectory(directory: string, cwd: string): Promise<SessionSum
     } catch { return null; }
     finally { await handle.close(); }
     const prefixLines = completeLines(prefix, true, stat.size <= PREFIX_BYTES);
-    let header: { type?: string; cwd?: string; id?: unknown };
+    let header: { type?: string; cwd?: string; id?: unknown; parentSession?: unknown };
     try { header = JSON.parse(prefixLines.shift() ?? ""); } catch { return null; }
     if (header.type !== "session" || header.cwd !== cwd || typeof header.id !== "string" || header.id.length > 128) return null;
     let firstMessage = "";
@@ -102,7 +107,8 @@ async function scanDirectory(directory: string, cwd: string): Promise<SessionSum
     // the latest title: an early name may have been changed or explicitly cleared.
     const nameValue = stat.size <= PREFIX_BYTES ? sessionName(prefixLines) : sessionName(completeLines(suffix, false, true));
     return { path: file, id: header.id, ...(nameValue ? { name: nameValue } : {}), firstMessage,
-      modified: stat.mtime.toISOString(), readOnlyCliHistory: true };
+      ...(typeof header.parentSession === "string" ? { parentSession: path.resolve(header.parentSession) } : {}),
+      modified: stat.mtime.toISOString() };
   };
   const summaries: (SessionSummary | null)[] = [];
   const recent = candidates.slice(0, MAX_FILES);

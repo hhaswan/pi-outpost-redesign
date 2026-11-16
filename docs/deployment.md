@@ -149,8 +149,8 @@ checkout, installs from the lockfile with npm 12.2.2, builds the embedded custom
 and runs the artifact gate, an image decode/resize check and a real browser image-prompt
 probe, a built-app responsive layout gate at phone, tablet and desktop widths (strict
 44 px touch targets and no hover-only controls on phones), an image lightbox probe,
-a real CLI PTY/browser handoff probe, a disposable
-native-service deployment probe, and focused update/ownership tests. It does not restart the live service during these checks.
+a real CLI PTY/browser shared-session probe, a disposable
+native-service deployment probe, and focused update and shared-session tests. It does not restart the live service during these checks.
 
 Deployment then runs in `pi-outpost-custom-deploy.service`, outside the live
 service's process group. It waits up to 15 minutes for workspaces and known

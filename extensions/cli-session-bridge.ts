@@ -2,10 +2,10 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { CliBridgeRegistration, CliBridgeSnapshot } from "../shared/src/cliBridge.ts";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type ServerResponse } from "node:http";
-import { lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, watch, writeFileSync, type FSWatcher } from "node:fs";
+import { syncSessionFile, type SyncableSessionManager } from "../shared/src/sessionSync.ts";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { assertCliHandoffNotReserved, assertCliReservationClaimable, claimCliReservation, createCliHandoff } from "../shared/src/cliHandoffStore.ts";
 
 const MAX_BODY = 16 * 1024;
 const MAX_SNAPSHOT = 512 * 1024;
@@ -61,14 +61,15 @@ function readable(message: unknown): string {
   return text ? `${m.role}${m.toolName ? ` (${m.toolName.slice(0, 100)})` : ""}:\n${text}` : "";
 }
 
-/** Opt-in, in-process owner. Never opens or writes the CLI's session file. */
+/**
+ * Opt-in, in-process owner. Never writes the CLI's session file; in a terminal it re-reads
+ * it between turns, so what Outpost web appended to the same file reaches the next request.
+ */
 export default function cliSessionBridge(pi: ExtensionAPI): void {
   const instanceId = randomUUID();
   const token = randomBytes(32).toString("hex");
   const directory = resolve(process.env.PI_OUTPOST_BRIDGE_DIR ?? join(homedir(), ".pi", "outpost-bridges"));
   const registrationPath = join(directory, `${instanceId}.json`);
-  const handoffDirectory = resolve(process.env.PI_OUTPOST_HANDOFF_DIR ?? join(homedir(), ".pi", "outpost-handoffs"));
-  const reservationDirectory = resolve(process.env.PI_OUTPOST_RESERVATION_DIR ?? join(homedir(), ".pi", "outpost-cli-reservations"));
   let ctx: ExtensionContext | undefined;
   let generation = randomUUID();
   let granted = false;
@@ -77,7 +78,6 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
   let active = false;
   let partial = "";
   let pending: { at: number; text: string } | undefined;
-  let handingOff = false;
   // Never evict IDs within a generation: at capacity fail closed instead of allowing replay.
   const submissions = new Map<string, { hash: string; uncertain: boolean }>();
   let ownedBytes: string | undefined;
@@ -185,7 +185,7 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
         return;
       }
       if (!granted) { reply(res, 403, { error: "Input not granted" }); return; }
-      if (handingOff || waiting || pending || !ctx.isIdle() || ctx.hasPendingMessages()) { reply(res, 409, { error: "Owner not idle" }); return; }
+      if (waiting || pending || !ctx.isIdle() || ctx.hasPendingMessages()) { reply(res, 409, { error: "Owner not idle" }); return; }
       if (submissions.size >= 4096) { reply(res, 409, { error: "Submission capacity reached; start a new generation" }); return; }
       const record = { hash, uncertain: false };
       submissions.set(input.inputId, record);
@@ -207,20 +207,6 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
     ctx = context;
     if (ctx.mode !== "tui") return;
     privateDirectory(directory);
-    try { await assertCliHandoffNotReserved(ctx.sessionManager.getSessionFile(), handoffDirectory); }
-    catch {
-      ctx.ui.notify("This session is reserved for an Outpost handoff. Continue in web; do not open another CLI writer.", "error");
-      ctx.shutdown();
-      return;
-    }
-    // A session the web handed off: this CLI becomes its single writer until it exits.
-    try {
-      if (await claimCliReservation(ctx.sessionManager.getSessionFile(), reservationDirectory)) ctx.ui.notify("Continuing a session handed off from Outpost web. The web cannot reopen it until this CLI exits.", "info");
-    } catch {
-      ctx.ui.notify("Outpost web has not finished releasing this session, or another CLI holds it. Close this CLI and retry.", "error");
-      ctx.shutdown();
-      return;
-    }
     generation = randomUUID();
     await new Promise<void>((accept, reject) => {
       server.once("error", reject);
@@ -233,63 +219,53 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
     try { publish(); } catch {
       active = false; server.close(); throw new Error("Bridge registration refused");
     }
-    ctx.ui.notify("Outpost bridge observing. /outpost-bridge allow grants idle input; /outpost-bridge handoff releases this session to web and closes CLI.", "info");
+    ctx.ui.notify("Outpost bridge observing. /outpost-bridge allow grants idle text input.", "info");
   });
   pi.registerCommand("outpost-bridge", {
-    description: "Allow/revoke Outpost idle input, or hand off this same session file to web and close CLI (terminal confirmation required)",
+    description: "Allow or revoke Outpost idle plain-text input (terminal confirmation required)",
     handler: async (args, context) => {
       if (!active || context.mode !== "tui") return;
-      if (args.trim() === "handoff") {
-        if (handingOff || waiting || !context.isIdle() || context.hasPendingMessages()) {
-          context.ui.notify("Cannot hand off while CLI is busy or waiting for input.", "error");
-          return;
-        }
-        const before = generation;
-        const sessionId = context.sessionManager.getSessionId();
-        const sessionFile = context.sessionManager.getSessionFile();
-        handingOff = true;
-        let released = false;
-        try {
-          const confirmed = await context.ui.confirm("Continue this session in Outpost?", "This closes this CLI after its current session is safely released. Web will continue the SAME session file, not a copy. Submitted text without a transcript entry may not be in the history; inspect the transcript before confirming. Confirm only when you want to stop using this CLI.");
-          if (!confirmed) return;
-          if (!active || before !== generation || !context.isIdle() || context.hasPendingMessages() || waiting ||
-              context.sessionManager.getSessionId() !== sessionId || context.sessionManager.getSessionFile() !== sessionFile || !sessionFile) {
-            context.ui.notify("Session changed or is no longer idle. Handoff was not released.", "error");
-            return;
-          }
-          await createCliHandoff({ bridgeId: instanceId, cwd: context.cwd, sessionId, sessionFile }, handoffDirectory);
-          grantEpoch++; granted = false;
-          released = true;
-          context.ui.notify("Handoff prepared. CLI is closing; open Terminal sessions in this project and refresh released sessions to continue in web.", "info");
-          context.shutdown();
-        } catch {
-          context.ui.notify("Handoff failed. No web writer is authorized while this CLI process is alive.", "error");
-        } finally { if (!released) handingOff = false; }
-        return;
-      }
       if (args.trim() === "revoke") { grantEpoch++; granted = false; context.ui.notify("Outpost input revoked.", "info"); return; }
-      if (args.trim() !== "allow") { context.ui.notify("Usage: /outpost-bridge allow | revoke | handoff", "info"); return; }
+      if (args.trim() !== "allow") { context.ui.notify("Usage: /outpost-bridge allow | revoke", "info"); return; }
       const before = generation;
       const epoch = ++grantEpoch;
       const confirmed = await context.ui.confirm("Allow Outpost input?", "Authorized web operators may submit plain text while this CLI is idle. Tools may execute with your CLI permissions. Terminal dialogs stay here.");
       if (active && before === generation && epoch === grantEpoch && confirmed) granted = true;
     },
   });
-  pi.on("session_before_switch", async (event, context) => {
-    // Web also auto-loads this extension; its RPC host already validates the writer lease.
-    if (context.mode !== "tui" || event.reason !== "resume" || !event.targetSessionFile) return;
-    try { await assertCliHandoffNotReserved(event.targetSessionFile, handoffDirectory); }
-    catch {
-      context.ui.notify("This session is reserved for an Outpost handoff. Continue in its web workspace instead.", "error");
-      return { cancel: true };
+  // Outpost web may append to this same file. Re-read it between turns: the SDK builds each
+  // request from the SessionManager, so its messages reach the model and the next entry
+  // chains after the web's last one. The terminal scrollback does not redraw, hence the notice.
+  type Followed = { file: string; watcher: FSWatcher; timer?: ReturnType<typeof setTimeout> };
+  let followed: Followed | undefined;
+  function syncFromWeb(context: ExtensionContext | undefined): void {
+    if (!context || context.mode !== "tui" || !context.isIdle() || context.hasPendingMessages()) return;
+    try {
+      const messages = () => context.sessionManager.getEntries().filter((entry) => entry.type === "message").length;
+      const before = messages();
+      if (syncSessionFile(context.sessionManager as unknown as SyncableSessionManager)) {
+        context.ui.notify(`Synced ${messages() - before} new messages from Outpost web`, "info");
+      }
+    } catch { /* A file mid-rewrite is read again on its next change. */ }
+  }
+  function follow(): void {
+    const file = ctx?.mode === "tui" ? ctx.sessionManager.getSessionFile() : undefined;
+    if (followed && followed.file !== file) { followed.watcher.close(); clearTimeout(followed.timer); followed = undefined; }
+    if (file && !followed) {
+      try {
+        const next: Followed = { file, watcher: watch(file, () => {
+          clearTimeout(next.timer);
+          next.timer = setTimeout(() => syncFromWeb(ctx), 300);
+        }) };
+        next.watcher.on("error", () => {});
+        followed = next;
+      } catch { /* Not written yet: the next poll tries again. */ }
     }
-    try { await assertCliReservationClaimable(event.targetSessionFile, reservationDirectory); }
-    catch {
-      context.ui.notify("This web session is not released to the CLI, or another CLI holds it.", "error");
-      return { cancel: true };
-    }
-  });
-  pi.on("input", () => handingOff ? { action: "handled" as const } : undefined);
+    syncFromWeb(ctx);
+  }
+  const poll = setInterval(follow, 2000);
+  poll.unref();
+  pi.on("input", (_event, context) => { syncFromWeb(context); });
   pi.on("ui_prompt_start", () => { waiting = true; });
   pi.on("ui_prompt_end", () => { waiting = false; });
   pi.on("message_start", (event) => {
@@ -314,6 +290,7 @@ export default function cliSessionBridge(pi: ExtensionAPI): void {
   });
   pi.on("session_shutdown", async () => {
     active = false; granted = false; ctx = undefined;
+    clearInterval(poll); followed?.watcher.close(); clearTimeout(followed?.timer); followed = undefined;
     try {
       if (ownedBytes !== undefined && ownsRegistration()) unlinkSync(registrationPath);
     } catch { /* Keep the stale claim if cleanup fails; still close the endpoint. */ }

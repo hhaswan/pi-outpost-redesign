@@ -24,8 +24,8 @@ test("CLI resume history uses per-cwd directory, validates headers, and is read-
   const sessions = await externalCliHistory(root, cwd);
   assert.equal(sessions.length, 1);
   assert.deepEqual(sessions[0] && { id: sessions[0].id, name: sessions[0].name, firstMessage: sessions[0].firstMessage,
-    readOnly: sessions[0].readOnlyCliHistory, count: sessions[0].messageCount, path: sessions[0].path },
-    { id: "valid-id", name: "Earlier CLI conversation", firstMessage: "Old CLI question", readOnly: true, count: undefined, path: session });
+    count: sessions[0].messageCount, path: sessions[0].path },
+    { id: "valid-id", name: "Earlier CLI conversation", firstMessage: "Old CLI question", count: undefined, path: session });
 });
 
 test("Long CLI history never presents an old title after a rename or explicit clear", async t => {

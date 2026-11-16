@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';import fs from 'node:fs/promises';import
 import {makeWorkspace,startServer} from '../server/test/harness.mjs';
 const root=await makeWorkspace({'README.md':'# x'});const fake=path.join(root,'npm.mjs');
 await fs.writeFile(fake,"console.log('99.0.0');");
-const dirs={};for(const k of ['BRIDGE','HANDOFF','RESERVATION']){dirs[`PI_OUTPOST_${k}_DIR`]=path.join(root,k.toLowerCase());await fs.mkdir(dirs[`PI_OUTPOST_${k}_DIR`],{mode:0o700});}
+const dirs={};for(const k of ['BRIDGE']){dirs[`PI_OUTPOST_${k}_DIR`]=path.join(root,k.toLowerCase());await fs.mkdir(dirs[`PI_OUTPOST_${k}_DIR`],{mode:0o700});}
 const s=await startServer(root,{sandbox:false,noExtensions:true},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{...dirs,PI_OFFLINE:'1',ANTHROPIC_API_KEY:'x'}});
 const b=await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH});
 try{for(const [w,h] of [[320,620],[390,844]]){const p=await b.newPage({viewport:{width:w,height:h}});

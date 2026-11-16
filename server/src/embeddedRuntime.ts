@@ -39,6 +39,7 @@ import { toolUpdateEvent } from "./agentRuntime.ts";
 import { CredentialError, providerConfig, type ProviderDeclaration, storeApiKey, storeProvider } from "./credentials.ts";
 import { ExtensionUiBridge } from "./extensionUiBridge.ts";
 import { generateSessionTitle } from "./sessions.ts";
+import { syncSessionFile } from "../../shared/src/sessionSync.ts";
 
 export interface EmbeddedRuntimeOptions {
   factory: CreateAgentSessionRuntimeFactory;
@@ -712,6 +713,14 @@ export class EmbeddedRuntime implements AgentRuntime {
     }
     parts.push(`extension bind ${seconds(doneAt - bindStartedAt)}${this.bindingDone ? "" : " and still binding"}`);
     console.warn(`[pi] ${what} took ${seconds(doneAt - startedAt)} — ${parts.join(", ")}`);
+  }
+
+  syncFromFile(): boolean {
+    const session = this.session;
+    if (session.isStreaming || session.isCompacting) return false;
+    if (syncSessionFile(session.sessionManager) === 0) return false;
+    session.refreshContext();
+    return true;
   }
 
   async navigateTree(entryId: string): Promise<{ cancelled: boolean; editorText?: string }> {

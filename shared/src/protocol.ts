@@ -1,4 +1,4 @@
-export type { CliBridgeOperation, CliBridgeReply, CliBridgeSnapshot, CliBridgeSummary, CliHandoffSummary, CliReservationSummary } from "./cliBridge.ts";
+export type { CliBridgeOperation, CliBridgeReply, CliBridgeSnapshot, CliBridgeSummary } from "./cliBridge.ts";
 /**
  * Wire protocol between server and web UI — single source of truth.
  * Lean events: SDK events are transformed server-side to keep frames small
@@ -159,10 +159,8 @@ export interface SessionSummary {
   name?: string;
   firstMessage: string;
   modified: string;
-  /** Absent for bounded, read-only CLI history: its entire transcript was not scanned. */
+  /** Absent for the Pi CLI's per-project history: its transcripts are not scanned. */
   messageCount?: number;
-  /** External CLI history is visible, but this server must never open, rename or delete it. */
-  readOnlyCliHistory?: boolean;
   /** Excerpt of the transcript around the match — search results only. */
   snippet?: string;
   /**
@@ -1215,6 +1213,11 @@ export type ServerMessage =
   | ({ type: "mcp_management_result" } & import("./mcpManagement.ts").McpManagementReply)
   | ({ type: "hello" } & SessionSnapshot)
   | ({ type: "session_replaced" } & SessionSnapshot)
+  /**
+   * The same session, re-read after another writer (the Pi CLI) appended to its file.
+   * Only the conversation changes: views, dialogs and extension state stay.
+   */
+  | { type: "session_synced"; sessionId: string; items: ChatItem[]; olderItems?: number; sessionName?: string; contextUsage?: ContextUsage }
   | { type: "sessions"; sessions: SessionSummary[] }
   /** Answer to search_sessions — sent only to the client that asked. */
   | { type: "session_search_results"; requestId: string; query: string; sessions: SessionSummary[] }

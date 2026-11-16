@@ -13,7 +13,7 @@
  * viewer (it must close, no stale image), and no page errors anywhere.
  *
  * Isolation: throwaway workspace and agent dir, no extensions, offline, private
- * bridge, handoff and reservation registries.
+ * bridge registry.
  *
  * Usage: node scripts/check-image-lightbox.mjs
  */
@@ -72,13 +72,11 @@ const root = await makeWorkspace({ 'shots/plan.png': green, 'README.md': '# Ligh
 const agentDir = path.join(root, '.pi-agent');
 const registries = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-outpost-lightbox-'));
 // The registries refuse group/world-accessible directories: private, like the server creates them.
-for (const dir of ['bridges', 'handoffs', 'reservations']) await fs.mkdir(path.join(registries, dir), { mode: 0o700 });
+for (const dir of ['bridges']) await fs.mkdir(path.join(registries, dir), { mode: 0o700 });
 const env = {
   PI_OFFLINE: '1',
   ANTHROPIC_API_KEY: 'x',
   PI_OUTPOST_BRIDGE_DIR: path.join(registries, 'bridges'),
-  PI_OUTPOST_HANDOFF_DIR: path.join(registries, 'handoffs'),
-  PI_OUTPOST_RESERVATION_DIR: path.join(registries, 'reservations'),
 };
 
 const usage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };

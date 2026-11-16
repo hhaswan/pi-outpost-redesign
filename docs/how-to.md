@@ -929,18 +929,16 @@ the owner is busy, unreachable, or has not granted permission. A submission rece
 is not proof that the CLI accepted the text or completed a model response; check
 the terminal if the CLI transcript does not change.
 
-The **sessions** menu also shows Pi CLI history for the current project when Pi
-CLI and Outpost share the configured agent directory. CLI history is labelled
-**read-only**: search matches its confirmed title or opening message when available, but Outpost cannot
-resume, rename, or delete it automatically. To continue the exact original file in
-web, load the bridge in its CLI (`/reload` if it was already running), run
-`/outpost-bridge handoff`, and confirm closing that CLI. Then select the same
-project in web, open **Terminal sessions**, refresh the list, and choose
-**Continue in web** for the released session. The server waits for the original
-process to exit and acquires a writer lease before opening the same file; it never
-forks the history. See [handoff and recovery](cli-session-bridge.md#continue-the-same-session-file-in-web).
-Without an explicit handoff, continue CLI history with `/resume` in the CLI only
-when no web process owns that file. Outpost-managed sessions keep their usual controls.
+The **sessions** menu also lists the project's Pi CLI history when Pi CLI and Outpost
+share the configured agent directory; open, rename or delete it like any session. New
+web conversations are saved in the CLI's directory for the project, so `pi -c` or
+`/resume` in a terminal there continues them too. Web and a terminal may keep the
+**same** conversation open and both send to it: each side reads what the other
+appended before its next prompt, and the web view also updates while idle, without a
+reload. The terminal shows `Synced N new messages from Outpost web` instead of
+redrawing. Sending from both at the same moment can branch the conversation; nothing
+is lost. Deleting is refused while a bridged CLI has the file open. See
+[Shared session files](cli-session-bridge.md#shared-session-files).
 
 Each standalone browser tab remembers its last acknowledged workspace for each
 server. After reconnecting or refreshing that tab, it selects the same still-open

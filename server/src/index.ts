@@ -9,14 +9,10 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createSubagentActivityExtension, getSubagentActivity } from "./subagentActivity.ts";
 import { manageCliBridge, isCliSessionClaimed } from "./cliBridge.ts";
-import {
-  adoptedCliHandoffs, assertWebMayOpen, cancelCliReservation, claimCliHandoff, createClosedCliHandoff, dropOwnedCliHandoff, findCliHandoff,
-  findCliReservation, listCliReservations, markCliReservationReleased, reserveForCli, type CliReservation,
-} from "../../shared/src/cliHandoffStore.ts";
-import { runningPiCliProcesses } from "./cliProcesses.ts";
-import { externalCliHistory } from "./externalCliHistory.ts";
+import { cliSessionDirectory, externalCliHistory, forgetCliHistory } from "./externalCliHistory.ts";
 import { manageMcp } from "./mcpManagement.ts";
 import fs from "node:fs/promises";
+import { watch as watchFile, type FSWatcher } from "node:fs";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -695,7 +691,8 @@ const GIT_CREDENTIALS = gitCredentialsPath(AGENT_DIR);
 useGitCredentialStore({ file: GIT_CREDENTIALS, locked: config.credentialsLock === true });
 /** What every client is told about the store: hosts and user names. Re-read after each change. */
 let gitHosts: GitHostEntry[] = await listGitHosts(GIT_CREDENTIALS);
-// Own agentDir ⇒ own session store, fully separate from ~/.pi/agent
+// Own agentDir ⇒ own session store, fully separate from ~/.pi/agent. Sessions are now
+// written to the per-project CLI directory (see buildRuntimeFor); this flat one is still read.
 const SESSION_DIR = config.agentDir ? path.join(config.agentDir, "sessions") : undefined;
 
 // Store a key where *this* configuration will look for it, then leave: an isolated
@@ -1906,7 +1903,7 @@ async function buildRuntimeFor(target: Workspace): Promise<AgentRuntime> {
       settings: config.agentRuntime,
       cwd,
       agentDir: AGENT_DIR,
-      sessionDir: SESSION_DIR,
+      sessionDir: cliSessionDirectory(AGENT_DIR, cwd),
       resourceArgs: [
         ...rpcResourceArgs(config, {
           bundledSkills: config.noSkills ? [] : BUNDLED_SKILLS,
@@ -1935,7 +1932,8 @@ async function buildRuntimeFor(target: Workspace): Promise<AgentRuntime> {
     factory: makeCreateRuntime(target.sandboxedTools, target),
     cwd,
     agentDir: AGENT_DIR,
-    sessionManager: SessionManager.create(cwd, SESSION_DIR),
+    // The Pi CLI's own directory for this project, so `pi -c` and `/resume` there list web sessions too.
+    sessionManager: SessionManager.create(cwd, cliSessionDirectory(AGENT_DIR, cwd)),
     onModelFallback: (message) => console.warn(`[pi] ${message}`),
   });
 }
@@ -4336,9 +4334,8 @@ async function handleNewSession(workspace: Workspace, socket: WebSocket): Promis
 async function handleSwitchSession(workspace: Workspace, socket: WebSocket, wanted: string): Promise<void> {
   const current = workspace.agent.snapshot().sessionFile;
   const sameFile = current !== undefined && path.resolve(current) === path.resolve(wanted);
-  // A transferred CLI session continues only in the main workspace; a file another
-  // session holds is refused by switchSession — neither is worth building a side for.
-  const inPlace = sameFile || liveElsewhere(workspace, wanted) !== undefined || (await findCliHandoff(wanted, workspace.settings.cwd)) !== undefined;
+  // A file another session holds is refused by switchSession — not worth building a side for.
+  const inPlace = sameFile || liveElsewhere(workspace, wanted) !== undefined;
   if (!inPlace) {
     const apart = await changeConversationApart(workspace, socket, async (side) => {
       await switchSession(side, socket, wanted);
@@ -4695,6 +4692,8 @@ async function handlePrompt(workspace: Workspace, text: string, images?: WireIma
       broadcast(workspace, { type: "error", message: `No model allowed by "allowedModels" can answer — check its credentials` });
       return;
     }
+    // What the Pi CLI wrote to this file since: the prompt chains after it, and the model sees it.
+    syncSharedSession(workspace);
     const source = await promptSource(workspace, text, images);
     attempt = promptOnce(workspace, source);
     await attempt.accepted;
@@ -4782,6 +4781,75 @@ function queueView(workspace: Workspace): QueuedPrompt[] {
 function broadcastQueue(workspace: Workspace): void {
   broadcast(workspace, { type: "queue", prompts: queueView(workspace) });
 }
+
+// --- Session files shared with the Pi CLI ------------------------------------------
+
+/**
+ * Pick up what another writer (the Pi CLI) appended to the live session file, and show
+ * it. Between turns only: a running turn is left alone and re-checked once idle.
+ */
+function syncSharedSession(workspace: Workspace): void {
+  // syncFromFile refuses a streaming or compacting session itself, and is a stat when nothing changed.
+  if (!workspace.started || workspace.replacingSession || !workspace.agent.syncFromFile?.()) return;
+  const { sessionId, items, olderItems, sessionName, contextUsage } = snapshot(workspace);
+  broadcast(workspace, { type: "session_synced", sessionId, items, ...(olderItems === undefined ? {} : { olderItems }), ...(sessionName ? { sessionName } : {}), contextUsage });
+  broadcast(workspace, { type: "tree", roots: buildTree(workspace) });
+}
+
+const sessionWatches = new Map<Workspace, SessionWatch>();
+const syncing = new Set<Workspace>();
+
+/** Through the queue lock, so a sync never lands between a prompt's preparation and its send. */
+async function syncSharedSessionLocked(workspace: Workspace): Promise<void> {
+  if (syncing.has(workspace)) return;
+  syncing.add(workspace);
+  const release = await lockQueue(workspace);
+  try {
+    syncSharedSession(workspace);
+  } catch (error) {
+    reportError(error);
+  } finally {
+    release();
+    syncing.delete(workspace);
+  }
+}
+
+type SessionWatch = { file: string; watcher: FSWatcher; timer?: ReturnType<typeof setTimeout> };
+
+function unwatch(workspace: Workspace): void {
+  const watched = sessionWatches.get(workspace);
+  watched?.watcher.close();
+  clearTimeout(watched?.timer);
+  sessionWatches.delete(workspace);
+}
+
+/** Follow each started workspace's session file: fs.watch, debounced, with this sweep as the polling fallback. */
+function followSharedSessions(): void {
+  const open = new Set(workspaces.all());
+  for (const workspace of sessionWatches.keys()) if (!open.has(workspace) || !workspace.started) unwatch(workspace);
+  for (const workspace of open) {
+    if (!workspace.started || !workspace.agent.syncFromFile) continue;
+    const file = workspace.agent.snapshot().sessionFile;
+    if (sessionWatches.get(workspace)?.file !== file) unwatch(workspace);
+    if (file && !sessionWatches.has(workspace)) {
+      try {
+        const watched: SessionWatch = {
+          file,
+          watcher: watchFile(file, () => {
+            clearTimeout(watched.timer);
+            watched.timer = setTimeout(() => void syncSharedSessionLocked(workspace), 300);
+          }),
+        };
+        watched.watcher.on("error", () => {});
+        sessionWatches.set(workspace, watched);
+      } catch {
+        // Not written yet (a new conversation): the next sweep tries again.
+      }
+    }
+    void syncSharedSessionLocked(workspace);
+  }
+}
+setInterval(followSharedSessions, 2000).unref();
 
 /** Wait for the workspace's queue to be free; the result releases it. */
 async function lockQueue(workspace: Workspace): Promise<() => void> {
@@ -5104,14 +5172,8 @@ async function editPrompt(workspace: Workspace, socket: WebSocket, entryId: stri
  * reading/persisting to attacker-chosen files via switch_session).
  */
 async function isKnownSessionPath(workspace: Workspace, path: string): Promise<boolean> {
-  const sessions = await scanSessions(workspace, true);
+  const sessions = [...(await scanSessions(workspace, true)), ...(await externalCliHistory(AGENT_DIR, workspace.settings.cwd))];
   return sessions.some((info) => info.path === path);
-}
-
-/** Adopted external files retain their durable writer lease, including after restart. */
-async function ownsAdoptedSession(workspace: Workspace, file: string): Promise<boolean> {
-  const receipt = await findCliHandoff(file, workspace.settings.cwd);
-  return !receipt || (receipt.owner?.pid === process.pid && receipt.owner.workspace === workspace.id);
 }
 
 /** Delete a saved session file (allowlisted path, never the live one). */
@@ -5134,15 +5196,11 @@ async function deleteSession(workspace: Workspace, socket: WebSocket, path: stri
     send(socket, { type: "error", message: "Unknown session" });
     return;
   }
+  // Deleting under a running CLI writer would lose what it appends next.
   if (await isCliSessionClaimed(path)) {
-    send(socket, { type: "error", message: "This session is claimed by a terminal bridge. Continue through Terminal sessions; do not open another writer." });
+    send(socket, { type: "error", message: "A Pi CLI has this session open. Close it there before deleting it." });
     return;
   }
-  if (await findCliHandoff(path, workspace.settings.cwd)) {
-    send(socket, { type: "error", message: "Deleting a transferred CLI session is disabled while its handoff receipt reserves the original file." });
-    return;
-  }
-  if (!(await webMayOpen(socket, path))) return;
   await fs.unlink(path);
   await deleteWorkPlan(path);
   invalidateSessionScan(workspace);
@@ -5154,193 +5212,26 @@ async function switchSession(workspace: Workspace, socket: WebSocket, path: stri
     send(socket, { type: "error", message: "Unknown session" });
     return;
   }
-  if (!(await webMayOpen(socket, path))) return;
-  if (await isCliSessionClaimed(path)) {
-    send(socket, { type: "error", message: "This session is claimed by a terminal bridge. Continue through Terminal sessions; do not open another writer." });
-    return;
-  }
-  // Two runtimes appending to one file would interleave two conversations in it.
+  // Two runtimes of this server appending to one file would interleave two conversations in it.
   const holder = liveElsewhere(workspace, path);
   if (holder) {
     send(socket, { type: "error", message: `This conversation is open in ${workspaceTitle(holder)} — switch there to continue it` });
     return;
   }
-  const receipt = await findCliHandoff(path, workspace.settings.cwd);
-  if (receipt && workspace.isSide) {
-    send(socket, { type: "error", message: "Continue a transferred CLI session in its project's main workspace, not a side session." });
-    return;
-  }
-  await replaceSession(workspace, socket, async () => {
-    if (receipt) {
-      try {
-        if (!receipt.owner) throw new Error("Continue this released session through Terminal sessions first");
-        await claimCliHandoff(receipt.id, workspace.settings.cwd, workspace.id);
-      } catch {
-        send(socket, { type: "error", message: "The transferred CLI session is still reserved by another owner; no session was switched." });
-        return { cancelled: true };
-      }
-    }
-    return workspace.agent.switchSession(receipt?.sessionFile ?? path);
-  });
-}
-
-/** The receipt, never a browser-supplied path, authorizes the first external-file open. */
-async function resumeCliHandoff(workspace: Workspace, socket: WebSocket, id: string): Promise<{ resumed?: boolean; error?: string }> {
-  if (workspace.isSide || workspace.isBusy() || workspace.replacingSession || workspace.pendingDialogs.size > 0) {
-    return { error: "Continue a released CLI session from an idle main workspace in its project." };
-  }
-  let resumed = false;
-  let failure = "CLI handoff was not continued. Refresh its state before retrying.";
-  await replaceSession(workspace, socket, async () => {
-    let receipt: Awaited<ReturnType<typeof claimCliHandoff>>;
-    try {
-      receipt = await claimCliHandoff(id, workspace.settings.cwd, workspace.id);
-      if (clients.get(socket) !== workspace) return { cancelled: true };
-      if (await isCliSessionClaimed(receipt.sessionFile)) throw new Error("A terminal still claims this file; inspect its owner before continuing.");
-      const holder = liveElsewhere(workspace, receipt.sessionFile);
-      if (holder) throw new Error("This transferred session is already open in another workspace.");
-      await assertWebMayOpen(receipt.sessionFile);
-    } catch {
-      // Lease validation did not replace the runtime; preserve the current conversation.
-      failure = "CLI handoff is unavailable, still owned, or refused. No continuation was acknowledged; inspect the current session and retry only after refreshing.";
-      return { cancelled: true };
-    }
-    const current = workspace.agent.snapshot();
-    if (current.sessionId === receipt.sessionId && current.sessionFile === receipt.sessionFile) {
-      resumed = true;
-      return { cancelled: true }; // An acknowledged retry must not recreate an already-owned runtime.
-    }
-    const result = await workspace.agent.switchSession(receipt.sessionFile);
-    const actual = workspace.agent.snapshot();
-    resumed = !result.cancelled && actual.sessionId === receipt.sessionId && actual.sessionFile === receipt.sessionFile;
-    if (resumed) invalidateSessionScan(workspace);
-    return result;
-  });
-  return resumed ? { resumed: true } : { error: failure };
-}
-
-/** A file handed off to a CLI stays closed to every web runtime until that CLI is done with it. */
-async function webMayOpen(socket: WebSocket, file: string): Promise<boolean> {
+  // Claimed in the same tick as the check: two tabs opening one file at once must not both pass it.
+  const key = resolvedFile(path);
+  opening.set(key, workspace);
   try {
-    await assertWebMayOpen(file);
-    return true;
-  } catch (error) {
-    send(socket, { type: "error", message: error instanceof Error && /handed off/.test(error.message) ? error.message : "The CLI reservation state of this session is unsafe or unreadable; no session was opened." });
-    return false;
+    await replaceSession(workspace, socket, () => workspace.agent.switchSession(path));
+  } finally {
+    if (opening.get(key) === workspace) opening.delete(key);
   }
 }
 
-const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-const reservationSummary = (value: CliReservation & { state?: "releasing" | "waiting" | "claimed" | "stale" }) => ({
-  id: value.id, sessionId: value.sessionId, state: value.state ?? (value.phase === "released" ? "waiting" as const : "releasing" as const),
-  command: `cd ${shellQuote(value.cwd)} && pi --session ${shellQuote(value.sessionFile)}`,
-});
-const idleMain = (workspace: Workspace) => !workspace.isSide && !workspace.isBusy() && !workspace.replacingSession && workspace.pendingDialogs.size === 0;
-
-/**
- * Web to CLI: reserve the current file for one CLI, leave it for a fresh conversation,
- * then mark it released. The CLI bridge claims it at startup; no web runtime reopens it
- * until that CLI exits or the operator takes it back unclaimed.
- */
-async function releaseToCli(workspace: Workspace, socket: WebSocket) {
-  if (!idleMain(workspace)) return { error: "Hand off to the CLI from an idle main workspace, not a side session or while the agent works." };
-  const { sessionFile, sessionId } = workspace.agent.snapshot();
-  if (!sessionFile || !sessionId || !(await fs.stat(sessionFile).then((stat) => stat.isFile(), () => false))) {
-    return { error: "This conversation has no saved file yet. Send a message first." };
-  }
-  if (liveElsewhere(workspace, sessionFile)) return { error: "This conversation is also open in another session of the project. Close it there first." };
-  let reservation: CliReservation;
-  try {
-    if (await isCliSessionClaimed(sessionFile)) throw new Error("claimed");
-    reservation = await reserveForCli({ cwd: workspace.settings.cwd, sessionId, sessionFile });
-  } catch {
-    return { error: "This session cannot be reserved for the CLI: it is claimed, already reserved, or its metadata is unsafe." };
-  }
-  await replaceSession(workspace, socket, () => workspace.agent.newSession());
-  if (workspace.agent.snapshot().sessionFile === sessionFile) {
-    await cancelCliReservation(reservation.id).catch(reportError);
-    return { error: "The web conversation could not be closed, so nothing was handed off. Try again." };
-  }
-  try {
-    const released = await markCliReservationReleased(reservation.id);
-    await dropOwnedCliHandoff(sessionFile);
-    invalidateSessionScan(workspace);
-    return { released: reservationSummary(released) };
-  } catch {
-    return { error: "The web left the session, but the CLI reservation could not be completed. Refresh Terminal sessions before opening it anywhere." };
-  }
-}
-
-/** Take back a reservation no running CLI holds, and reopen it here. */
-async function reclaimFromCli(workspace: Workspace, socket: WebSocket, id: string) {
-  if (!idleMain(workspace)) return { error: "Take a session back from an idle main workspace." };
-  const refused = { error: "This reservation is held by a running CLI, belongs to another project, or no longer exists." };
-  let found: CliReservation & { state: string };
-  try {
-    const match = (await listCliReservations(workspace.settings.cwd)).find((value) => value.id === id);
-    if (!match || match.state === "claimed" || match.state === "releasing") return refused;
-    found = match;
-  } catch { return refused; }
-  const file = found.sessionFile;
-  // A CLI without the Outpost bridge never claims the reservation; catch it by its process.
-  try {
-    const running = await runningPiCliProcesses(workspace.settings.cwd, file);
-    if (running.length) return { error: `A Pi CLI is still running in this project (PID ${running.slice(0, 5).join(", ")}), maybe with this session open. Exit it, then retry.` };
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) };
-  }
-  if (await isKnownSessionPath(workspace, file)) {
-    try { await cancelCliReservation(id); } catch { return refused; }
-    await switchSession(workspace, socket, file);
-    return { reclaimed: workspace.agent.snapshot().sessionFile === file };
-  }
-  // A once-adopted CLI file: the reservation (whose CLI never claimed it or has exited)
-  // names this exact file, so it authorizes re-adoption. The receipt is published before
-  // the reservation goes, so no CLI can open the file in between.
-  try {
-    const receipt = await createClosedCliHandoff({ cwd: workspace.settings.cwd, sessionId: found.sessionId, sessionFile: file });
-    await cancelCliReservation(id);
-    const result = await resumeCliHandoff(workspace, socket, receipt.id);
-    return result.resumed ? { reclaimed: true } : result;
-  } catch { return refused; }
-}
-
-/**
- * Continue a closed CLI's history in web. Refused while an enrolled CLI claims the file,
- * a reservation names it, or any Pi CLI runs in this project; the server then becomes
- * the releaser of its own receipt and resumes it like a handed-off session.
- */
-async function adoptClosedCli(workspace: Workspace, socket: WebSocket, file: string) {
-  if (!idleMain(workspace)) return { error: "Continue a CLI session from an idle main workspace." };
-  const info = (await externalCliHistory(AGENT_DIR, workspace.settings.cwd)).find((entry) => entry.path === file);
-  if (!info) return { error: "Unknown CLI session for this project." };
-  try {
-    if (await isCliSessionClaimed(file)) return { error: "A running CLI with the Outpost bridge owns this session. Use /outpost-bridge handoff in that terminal." };
-    if (await findCliReservation(file)) return { error: "This session is reserved for a CLI. Take it back from Terminal sessions instead." };
-    if (await findCliHandoff(file, workspace.settings.cwd)) return { error: "This session already has a handoff receipt. Continue it from the released list." };
-    const running = await runningPiCliProcesses(workspace.settings.cwd, file);
-    if (running.length) return { error: `A Pi CLI is still running in this project (PID ${running.slice(0, 5).join(", ")}). Exit it, then retry.` };
-    const stat = await fs.stat(file);
-    if (Date.now() - stat.mtimeMs < 5000) return { error: "This session file changed seconds ago. Make sure its CLI has exited, then retry." };
-    const receipt = await createClosedCliHandoff({ cwd: workspace.settings.cwd, sessionId: info.id, sessionFile: file });
-    return await resumeCliHandoff(workspace, socket, receipt.id);
-  } catch (error) {
-    return { error: error instanceof Error && /Linux only/.test(error.message) ? error.message : "This CLI session could not be adopted; its file or metadata is unsafe." };
-  }
-}
-
-/** Reservations and adoptable closed CLI history, for the Terminal sessions panel. */
-async function cliListExtras(workspace: Workspace) {
-  const reservations = await listCliReservations(workspace.settings.cwd).catch(() => []);
-  const history = await externalCliHistory(AGENT_DIR, workspace.settings.cwd).catch(() => []);
-  const closed = [];
-  for (const info of history.slice(0, 50)) {
-    if (closed.length >= 10) break;
-    if (await isCliSessionClaimed(info.path).catch(() => true)) continue;
-    if (await findCliHandoff(info.path, workspace.settings.cwd).catch(() => true)) continue;
-    closed.push({ path: info.path, sessionId: info.id, title: (info.name || info.firstMessage || info.id).slice(0, 120), modified: info.modified });
-  }
-  return { reservations: reservations.map(reservationSummary), closed };
+/** Files a session switch is opening right now, before the runtime reports them as live. */
+const opening = new Map<string, Workspace>();
+function resolvedFile(file: string): string {
+  return path.resolve(file);
 }
 
 const SESSION_LIST_LIMIT = 50;
@@ -5361,13 +5252,6 @@ async function scanSessions(workspace: Workspace, fresh = false): Promise<Sessio
   const cached = sessionScans.get(workspace.root);
   if (!fresh && cached && Date.now() - cached.at < SESSION_SCAN_TTL_MS) return cached.sessions;
   const sessions = await SessionManager.list(workspace.settings.cwd, SESSION_DIR);
-  const adopted = await adoptedCliHandoffs(workspace.settings.cwd);
-  for (const directory of new Set(adopted.map((receipt) => path.dirname(receipt.sessionFile)))) {
-    const allowed = new Set(adopted.filter((receipt) => path.dirname(receipt.sessionFile) === directory).map((receipt) => receipt.sessionFile));
-    for (const info of await SessionManager.list(workspace.settings.cwd, directory)) {
-      if (allowed.has(info.path) && !sessions.some((existing) => existing.path === info.path)) sessions.push(info);
-    }
-  }
   sessionScans.set(workspace.root, { at: Date.now(), sessions });
   return sessions;
 }
@@ -5375,18 +5259,22 @@ async function scanSessions(workspace: Workspace, fresh = false): Promise<Sessio
 /** Anything that writes to a session file (rename, title, delete) must drop the scan. */
 function invalidateSessionScan(workspace: Workspace): void {
   sessionScans.delete(workspace.root);
+  forgetCliHistory(AGENT_DIR, workspace.settings.cwd);
 }
 
 async function sessionList(workspace: Workspace): Promise<SessionSummary[]> {
   const sessions = await scanSessions(workspace);
-  const managed = sessions.map((info) => {
-    const holder = liveElsewhere(workspace, info.path);
-    return holder ? { ...toSummary(info), liveIn: workspaceTitle(holder) } : toSummary(info);
-  });
+  const managed = sessions.map((info) => toSummary(info));
+  // The project's Pi CLI directory, where new web sessions are written too; read bounded, not transcript by transcript.
   const external = await externalCliHistory(AGENT_DIR, workspace.settings.cwd);
-  // Keep independent bounds: a busy CLI history must not push Outpost's own sessions out of the menu.
+  // Keep independent bounds: one busy directory must not push the other's sessions out of the menu.
   return [...managed.sort((a, b) => b.modified.localeCompare(a.modified)).slice(0, SESSION_LIST_LIMIT),
-    ...external.filter((info) => !sessions.some((managed) => managed.path === info.path)).slice(0, SESSION_LIST_LIMIT)].sort((a, b) => b.modified.localeCompare(a.modified));
+    ...external.filter((info) => !sessions.some((managed) => managed.path === info.path)).slice(0, SESSION_LIST_LIMIT)]
+    .sort((a, b) => b.modified.localeCompare(a.modified))
+    .map((summary) => {
+      const holder = liveElsewhere(workspace, summary.path);
+      return holder ? { ...summary, liveIn: workspaceTitle(holder) } : summary;
+    });
 }
 
 /**
@@ -5398,6 +5286,8 @@ async function sessionList(workspace: Workspace): Promise<SessionSummary[]> {
  */
 function liveElsewhere(workspace: Workspace, candidate: string): Workspace | undefined {
   const wanted = path.resolve(candidate);
+  const pending = opening.get(wanted);
+  if (pending && pending !== workspace) return pending;
   return workspaces.sessionsOf(workspace.root).find((other) => {
     if (other === workspace || !other.started) return false;
     const live = other.agent.snapshot().sessionFile;
@@ -5415,7 +5305,7 @@ function liveElsewhere(workspace: Workspace, candidate: string): Workspace | und
 async function refreshSideLabels(root: string): Promise<void> {
   const sides = workspaces.sessionsOf(root).filter((open) => open.isSide && open.started);
   if (sides.length === 0) return;
-  const saved = await scanSessions(sides[0]);
+  const saved = [...(await scanSessions(sides[0])), ...(await externalCliHistory(AGENT_DIR, sides[0].settings.cwd))];
   let changed = false;
   for (const side of sides) {
     const live = side.agent.snapshot().sessionFile;
@@ -5455,15 +5345,6 @@ async function renameSession(workspace: Workspace, socket: WebSocket, path: stri
     send(socket, { type: "error", message: "Unknown session" });
     return;
   }
-  if (await isCliSessionClaimed(path)) {
-    send(socket, { type: "error", message: "This session is claimed by a terminal bridge. Continue through Terminal sessions; do not open another writer." });
-    return;
-  }
-  if (!(await ownsAdoptedSession(workspace, path))) {
-    send(socket, { type: "error", message: "This transferred session belongs to another web workspace; resume it in its owning workspace first." });
-    return;
-  }
-  if (!(await webMayOpen(socket, path))) return;
   const name = sanitizeName(rawName);
   const live = liveSessionMatch(workspace, path);
   if (live === "unknown") {
@@ -7153,17 +7034,7 @@ function handleClientMessage(socket: WebSocket, raw: string): void {
         send(socket, { type: "cli_bridge_result", requestId, error: "Terminal bridge request is too large" });
         return;
       }
-      const enabled = workspace.settings.sandbox === undefined && !config.extensionLock && !config.workspaceLock;
-      const operation = message.operation;
-      const shape = (keys: string[], field?: "id" | "path") => enabled && Object.keys(operation).every((key) => keys.includes(key)) &&
-        (field === undefined || (typeof (operation as Record<string, unknown>)[field] === "string" && ((operation as Record<string, unknown>)[field] as string).length <= 4096));
-      const refused = Promise.resolve({ error: "CLI handoff access is disabled or invalid" });
-      const result = operation?.action === "resume" ? (shape(["action", "id"], "id") ? resumeCliHandoff(workspace, socket, operation.id) : refused)
-        : operation?.action === "release" ? (shape(["action"]) ? releaseToCli(workspace, socket) : refused)
-        : operation?.action === "reclaim" ? (shape(["action", "id"], "id") ? reclaimFromCli(workspace, socket, operation.id) : refused)
-        : operation?.action === "adopt" ? (shape(["action", "path"], "path") ? adoptClosedCli(workspace, socket, operation.path) : refused)
-        : manageCliBridge(operation, { enabled, cwd: workspace.settings.cwd }).then(async (reply) => operation?.action === "list" && enabled && !reply.error
-          ? { ...reply, ...(await cliListExtras(workspace)) } : reply);
+      const result = manageCliBridge(message.operation, { enabled: workspace.settings.sandbox === undefined && !config.extensionLock && !config.workspaceLock });
       void result
         .then((result) => { if (clients.get(socket) === workspace) send(socket, { type: "cli_bridge_result", requestId, ...result }); })
         .catch(() => { if (clients.get(socket) === workspace) send(socket, { type: "cli_bridge_result", requestId, error: "Terminal bridge request failed; owner state is unknown" }); });

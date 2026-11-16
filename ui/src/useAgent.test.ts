@@ -1520,7 +1520,7 @@ describe("stale responses", () => {
 
   it("clears old project history and search when switching workspaces", async () => {
     const result = await connected([], { workspace: { root: "/old", name: "old", activity: "idle" } });
-    const old = { id: "old", path: "/old/sessions/old.jsonl", name: "Old CLI history", readOnlyCliHistory: true };
+    const old = { id: "old", path: "/old/sessions/old.jsonl", name: "Old CLI history" };
     act(() => mockWs!.receive({ type: "sessions", sessions: [old] }));
     act(() => result.current.searchSessions("old"));
     const oldRequest = lastRequestId();
@@ -4378,33 +4378,18 @@ it("CLI panel reopening supersedes an earlier read without replaying a submissio
   expect(result.current.state.cliBridge?.error).toBeUndefined();
 });
 
-it("CLI handoff acknowledgment survives only its same-workspace session replacement", async () => {
-  const workspace = { root: "/project/a", name: "a", activity: "idle" };
-  const result = await connected([], { workspace });
-  act(() => result.current.manageCliBridge({ action: "resume", id: "released" }));
-  const requestId = lastRequestId();
-  act(() => mockWs!.receive({ type: "session_replaced", workspace, sessionId: "original-cli", model: "", thinkingLevel: "off", models: [], commands: [], items: [], isStreaming: false }));
-  expect(result.current.state.cliBridge?.requestId).toBe(requestId);
-  expect(result.current.state.cliBridge?.loading).toBe(true);
-  act(() => mockWs!.receive({ type: "cli_bridge_result", requestId, resumed: true }));
-  expect(result.current.state.cliBridge?.resumed).toBe(true);
-  act(() => result.current.manageCliBridge({ action: "list" }));
-  expect(result.current.state.cliBridge?.resumed).toBeUndefined();
-  act(() => mockWs!.receive({ type: "cli_bridge_result", requestId: lastRequestId(), sessions: [] }));
-  act(() => result.current.manageCliBridge({ action: "resume", id: "another" }));
-  const stale = lastRequestId();
-  act(() => mockWs!.receive({ type: "workspace_switched", workspace: { root: "/project/b", name: "b", activity: "idle" }, sessionId: "other", model: "", thinkingLevel: "off", models: [], commands: [], items: [], isStreaming: false }));
-  act(() => mockWs!.receive({ type: "cli_bridge_result", requestId: stale, resumed: true }));
-  expect(result.current.state.cliBridge).toBeNull();
-});
 
-it("handoff failure remains visible when SDK recovery closes the old session panel", async () => {
-  const workspace = { root: "/project/a", name: "a", activity: "idle" };
-  const result = await connected([], { workspace });
-  act(() => result.current.manageCliBridge({ action: "resume", id: "released" }));
-  const requestId = lastRequestId();
-  act(() => mockWs!.receive({ type: "session_replaced", workspace, sessionId: "unexpected-fallback", model: "", thinkingLevel: "off", models: [], commands: [], items: [], isStreaming: false }));
-  act(() => mockWs!.receive({ type: "cli_bridge_result", requestId, error: "CLI handoff was not continued. Refresh its state before retrying." }));
-  expect(result.current.state.cliBridge?.resumed).not.toBe(true);
-  expect(result.current.state.errors).toContain("CLI handoff was not continued. Refresh its state before retrying.");
+// openlore: scenario=CliTurnAppearsInWebWithoutRefresh spec=shared-cli-web-sessions
+it("a CLI-synced conversation replaces the transcript only, and only for its own session", async () => {
+  const result = await connected([{ kind: "user", text: "from web" }]);
+  act(() => mockWs!.receive({ type: "extension_ui_request", id: "n1", method: "notify", message: "kept", notifyType: "info" }));
+  const notifications = result.current.state.notifications;
+  const synced = [{ kind: "user", text: "from web" }, { kind: "user", text: "from cli" }];
+  act(() => mockWs!.receive({ type: "session_synced", sessionId: "other", items: [] }));
+  expect(result.current.state.items).toEqual([{ kind: "user", text: "from web" }]);
+  act(() => mockWs!.receive({ type: "session_synced", sessionId: "sess_1", items: synced, sessionName: "Named in CLI" }));
+  expect(result.current.state.items).toEqual(synced);
+  expect(result.current.state.sessionName).toBe("Named in CLI");
+  expect(result.current.state.notifications).toBe(notifications);
+  expect(result.current.state.sessionId).toBe("sess_1");
 });

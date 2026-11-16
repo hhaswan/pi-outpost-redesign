@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Built app, real browser tabs: two tabs on one project hold different conversations.
  * A conversation change in one tab moves only that tab onto its own side session.
- * Offline fixture, no model calls; bridge/handoff/reservation stores are private temp dirs. */
+ * Offline fixture, no model calls; the bridge registry is a private temp dir. */
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -11,7 +11,7 @@ import {connect,makeWorkspace,startServer} from '../server/test/harness.mjs';
 
 const root=await fs.realpath(await makeWorkspace({'a.md':'alpha\n'}));
 const other=path.join(root,'other-project');await fs.mkdir(other);
-const stores={};for(const name of ['bridges','handoffs','reservations']){stores[name]=path.join(root,name);await fs.mkdir(stores[name],{mode:0o700});}
+const stores={};for(const name of ['bridges']){stores[name]=path.join(root,name);await fs.mkdir(stores[name],{mode:0o700});}
 const usage={input:1,output:1,cacheRead:0,cacheWrite:0,totalTokens:2,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}};
 function seed(name,question){
  const m=SessionManager.create(root,path.join(root,'.pi-agent','sessions'));
@@ -28,7 +28,7 @@ const lacks=async(p,text)=>assert.equal(await p.getByText(text,{exact:true}).cou
 const openSession=async(p,name)=>{await p.getByRole('button',{name:'sessions',exact:true}).click();await p.getByText(name,{exact:true}).first().click();};
 const newConversation=p=>p.getByRole('button',{name:'+ new',exact:true}).click();
 try{
- server=await startServer(root,{sandbox:false,noExtensions:true},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{HOME:path.join(root,'home'),PI_OFFLINE:'1',ANTHROPIC_API_KEY:'fixture-no-model-calls',PI_OUTPOST_BRIDGE_DIR:stores.bridges,PI_OUTPOST_HANDOFF_DIR:stores.handoffs,PI_OUTPOST_RESERVATION_DIR:stores.reservations}});
+ server=await startServer(root,{sandbox:false,noExtensions:true},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{HOME:path.join(root,'home'),PI_OFFLINE:'1',ANTHROPIC_API_KEY:'fixture-no-model-calls',PI_OUTPOST_BRIDGE_DIR:stores.bridges}});
  observer=connect(server.wsUrl());await observer.waitFor('hello');observer.send({type:'open_project',root:other});await observer.waitFor(m=>m.type==='workspace_switched'&&m.workspace?.root===other);
  browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH});
  const context=await browser.newContext({viewport:{width:1280,height:800}});

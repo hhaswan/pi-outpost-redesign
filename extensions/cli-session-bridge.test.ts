@@ -1,5 +1,4 @@
 import { test } from "node:test";
-import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, chmodSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,29 +10,21 @@ async function fixture() {
   const root = mkdtempSync(join(tmpdir(), "cli-bridge-"));
   const directory = join(root, "registry");
   const old = process.env.PI_OUTPOST_BRIDGE_DIR;
-  const oldHandoff = process.env.PI_OUTPOST_HANDOFF_DIR;
-  const handoffDirectory = join(root, "handoffs");
   process.env.PI_OUTPOST_BRIDGE_DIR = directory;
-  process.env.PI_OUTPOST_HANDOFF_DIR = handoffDirectory;
   const handlers = new Map<string, Function>();
   let command: Function;
   let idle = true;
   let confirm = true;
-  let sessionId = randomUUID();
-  let shutdowns = 0;
-  let pendingMessages = false;
-  let confirmHook: (() => void) | undefined;
+  let sessionId = "session-one";
   const sent: string[] = [];
   let entries: unknown[] = [{ type: "message", message: { role: "user", content: "hello" } }];
   const context = {
-    mode: "tui", cwd: root, isIdle: () => idle, hasPendingMessages: () => pendingMessages,
-    shutdown: () => { shutdowns++; },
+    mode: "tui", cwd: root, isIdle: () => idle, hasPendingMessages: () => false,
     sessionManager: { getSessionId: () => sessionId, getSessionFile: () => join(root, `${sessionId}.jsonl`), getBranch: () => entries },
-    ui: { notify() {}, confirm: async () => { confirmHook?.(); return confirm; } },
+    ui: { notify() {}, confirm: async () => confirm },
   };
   bridge({ on: (name: string, fn: Function) => handlers.set(name, fn), registerCommand: (_: string, options: { handler: Function }) => { command = options.handler; }, sendUserMessage: (text: string) => { sent.push(text); } } as unknown as ExtensionAPI);
   if (old === undefined) delete process.env.PI_OUTPOST_BRIDGE_DIR; else process.env.PI_OUTPOST_BRIDGE_DIR = old;
-  if (oldHandoff === undefined) delete process.env.PI_OUTPOST_HANDOFF_DIR; else process.env.PI_OUTPOST_HANDOFF_DIR = oldHandoff;
   const emit = async (name: string, event = {}) => handlers.get(name)?.(event, context);
   await emit("session_start");
   const file = join(directory, readdirSync(directory)[0]);
@@ -44,11 +35,7 @@ async function fixture() {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const snapshot = async () => (await request("/snapshot")).json();
-  return { root, directory, handoffDirectory, file, registration, sent, emit, request, snapshot,
-    handoff: () => command!("handoff", context), shutdowns: () => shutdowns,
-    pendingMessages: (value: boolean) => { pendingMessages = value; },
-    confirmHook: (hook: () => void) => { confirmHook = hook; },
-    persist: () => { const file = join(root, `${sessionId}.jsonl`); writeFileSync(file, JSON.stringify({ type: "session", version: 3, id: sessionId, cwd: root }) + "\n"); return file; },
+  return { root, directory, file, registration, sent, emit, request, snapshot,
     allow: () => command!("allow", context), revoke: () => command!("revoke", context),
     idle: (value: boolean) => { idle = value; }, confirm: (value: boolean) => { confirm = value; },
     entries: (value: unknown[]) => { entries = value; }, session: (value: string) => { sessionId = value; },
@@ -60,7 +47,6 @@ test("EnrolledCliDiscovery / PrivateBridgeBoundary: authenticated loopback, priv
   const f = await fixture();
   try {
     assert.equal((await f.request("/snapshot", undefined, "wrong")).status, 401);
-    assert.equal((await fetch(`http://127.0.0.1:${f.registration.port}/snapshot`, { headers: { Authorization: `Bearer ${f.registration.token}`, Origin: "https://untrusted.invalid" } })).status, 401);
     assert.equal((await f.request("/nope")).status, 404);
     const s = await f.snapshot();
     assert.equal(s.transcript, "user:\nhello");
@@ -165,75 +151,4 @@ test("PrivateBridgeBoundary: unsafe registry and symlink refused; replaced claim
     try { await assert.rejects(handlers.get("session_start")!({}, { mode: "tui" }), /Unsafe bridge/); }
     finally { chmodSync(root, 0o700); rmSync(root, { recursive: true, force: true }); }
   }
-});
-
-test("ConfirmedTerminalHandoff / ShutdownEventIsNotRelease: separate consent prepares receipt and closes CLI without rewriting history", async () => {
-  const f = await fixture();
-  try {
-    const sessionFile = f.persist();
-    const before = readFileSync(sessionFile);
-    await f.allow();
-    await f.handoff();
-    const receipts = readdirSync(f.handoffDirectory).filter((name) => name.endsWith(".json"));
-    assert.equal(receipts.length, 1);
-    const receipt = JSON.parse(readFileSync(join(f.handoffDirectory, receipts[0]), "utf8"));
-    assert.equal(receipt.sessionId, f.registration.sessionId);
-    assert.equal(receipt.sessionFile, sessionFile);
-    assert.equal(receipt.pid, process.pid);
-    assert.equal(f.shutdowns(), 1);
-    assert.deepEqual(readFileSync(sessionFile), before);
-    assert.deepEqual(await f.emit("input", { text: "must not start a new turn" }), { action: "handled" });
-    const { claimCliHandoff } = await import("../shared/src/cliHandoffStore.ts");
-    await assert.rejects(claimCliHandoff(receipt.id, f.root, f.root, f.handoffDirectory));
-    await f.emit("session_shutdown");
-    await assert.rejects(claimCliHandoff(receipt.id, f.root, f.root, f.handoffDirectory));
-    assert.deepEqual(readFileSync(sessionFile), before);
-  } finally { await f.close(); }
-});
-
-test("DeclinedOrBusyTerminalHandoff: no release while declined, working, queued or dialog-blocked", async () => {
-  for (const reason of ["declined", "working", "queued", "dialog", "changed", "became-busy"]) {
-    const f = await fixture();
-    try {
-      f.persist();
-      if (reason === "declined") f.confirm(false);
-      if (reason === "working") f.idle(false);
-      if (reason === "queued") f.pendingMessages(true);
-      if (reason === "dialog") await f.emit("ui_prompt_start");
-      if (reason === "changed") f.confirmHook(() => f.session("different-session"));
-      if (reason === "became-busy") f.confirmHook(() => f.idle(false));
-      await f.handoff();
-      assert.equal(f.shutdowns(), 0, reason);
-      const { existsSync } = await import("node:fs");
-      assert.equal(existsSync(f.handoffDirectory), false, reason);
-    } finally { await f.close(); }
-  }
-});
-
-test("CliCannotReopenReservedFile: enrolled runtime resume is cancelled before another session loads", async () => {
-  const f = await fixture();
-  try {
-    const source = f.persist();
-    await f.handoff();
-    const name = readdirSync(f.handoffDirectory).find(name => name.endsWith(".json"))!;
-    const file = join(f.handoffDirectory, name);
-    const receipt = JSON.parse(readFileSync(file, "utf8"));
-    writeFileSync(file, JSON.stringify({ ...receipt, owner: { pid: process.pid, workspace: "web-owner" } }));
-    const before = readFileSync(source);
-    assert.deepEqual(await f.emit("session_before_switch", { reason: "resume", targetSessionFile: source }), { cancel: true });
-    assert.deepEqual(readFileSync(source), before);
-  } finally { await f.close(); }
-});
-
-test("ConfirmedTerminalHandoff: explicit close can release an SDK-idle owner without retrying an unresolved intercepted submission", async () => {
-  const f = await fixture();
-  try {
-    f.persist(); await f.allow();
-    const { generation } = await f.snapshot();
-    assert.equal((await f.request("/submit", { generation, inputId: "uncertain-before-handoff", text: "may be intercepted" })).status, 200);
-    await f.handoff();
-    assert.equal(f.shutdowns(), 1);
-    assert.deepEqual(f.sent, ["may be intercepted"]);
-    assert.equal(readdirSync(f.handoffDirectory).filter(name => name.endsWith(".json")).length, 1);
-  } finally { await f.close(); }
 });

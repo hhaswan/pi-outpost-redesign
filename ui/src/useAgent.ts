@@ -55,9 +55,6 @@ type AssistantItem = Extract<ChatItem, { kind: "assistant" }>;
 type ToolItem = Extract<ChatItem, { kind: "tool" }>;
 
 /** Extension "Custom UI" dialog requests — need a client answer (select/confirm/input/editor). */
-/** Terminal-session operations that replace the conversation; their reply must survive that replacement. */
-const SESSION_CHANGING_CLI_OPERATIONS = new Set<CliBridgeOperation["action"]>(["resume", "release", "reclaim", "adopt"]);
-
 export type DialogRequest = Extract<ExtensionUIRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 export interface ExtensionNotification {
   id: string;
@@ -333,7 +330,7 @@ export interface OlderHistory {
 }
 
 export interface AgentState {
-  cliBridge: (CliBridgeReply & { loading: boolean; operation?: CliBridgeOperation["action"]; sessionIdAtRequest?: string }) | null;
+  cliBridge: (CliBridgeReply & { loading: boolean }) | null;
   mcpManagement: (McpManagementReply & { loading: boolean }) | null;
   connected: boolean;
   /**
@@ -653,7 +650,7 @@ type Action =
   | { type: "auth_retrying" }
   | { type: "server"; message: ServerMessage }
   | { type: "set_mcp_manager_open"; open: boolean }
-  | { type: "cli_bridge_started"; requestId: string; operation: CliBridgeOperation["action"] }
+  | { type: "cli_bridge_started"; requestId: string }
   | { type: "mcp_management_started"; requestId: string }
   | { type: "login_started"; flowId: string; provider: string; method: "oauth" | "api_key" }
   | { type: "login_answered" }
@@ -789,8 +786,7 @@ function applySnapshot(state: AgentState, message: ServerMessage & { sessionId: 
       ? { piPackageLookup: null, piPackageChange: null, piPackageUpdate: null, mcpManagement: null, mcpManagerOpen: false }
       : {}),
     serverRestarting: false,
-    cliBridge: message.type === "session_replaced" && state.cliBridge?.loading && SESSION_CHANGING_CLI_OPERATIONS.has(state.cliBridge.operation ?? "list") &&
-      message.workspace && state.workspace && workspaceKey(message.workspace) === workspaceKey(state.workspace) ? state.cliBridge : null,
+    cliBridge: null,
     mcpManagement: null,
     mcpManagerOpen: false,
     restartNeeded: message.restartNeeded ?? [],
@@ -928,7 +924,7 @@ function followMoves(state: AgentState, moves: readonly [from: string, to: strin
 
 function reduce(state: AgentState, action: Action): AgentState {
   if (action.type === "set_mcp_manager_open") return { ...state, mcpManagerOpen: action.open };
-  if (action.type === "cli_bridge_started") return { ...state, cliBridge: { ...state.cliBridge, requestId: action.requestId, operation: action.operation, sessionIdAtRequest: state.sessionId ?? undefined, loading: true, error: undefined, submitted: undefined, resumed: undefined } };
+  if (action.type === "cli_bridge_started") return { ...state, cliBridge: { ...state.cliBridge, requestId: action.requestId, loading: true, error: undefined, submitted: undefined } };
   if (action.type === "mcp_management_started") return { ...state, mcpManagement: { ...state.mcpManagement, requestId: action.requestId, loading: true, error: undefined, message: undefined } };
   if (action.type === "connected") return { ...state, connected: true, authRequired: false };
   if (action.type === "workspace_switching") return { ...state, switching: true };
@@ -1250,6 +1246,17 @@ function reduce(state: AgentState, action: Action): AgentState {
         // the same project leaves the files where they were.
         contentSearch: message.type === "session_replaced" ? state.contentSearch : null,
       };
+    case "session_synced":
+      // The same conversation, grown by another writer (the Pi CLI): replace the transcript
+      // only. A snapshot would also drop open views, dialogs and extension state.
+      if (message.sessionId !== state.sessionId) return state;
+      return {
+        ...state,
+        items: message.items,
+        olderHistory: message.olderItems ? { remaining: message.olderItems, have: 0, loading: false, error: null } : null,
+        sessionName: message.sessionName ?? state.sessionName,
+        contextUsage: message.contextUsage ?? state.contextUsage,
+      };
     case "workspace_activity":
       // Activity only — no conversation content, and deliberately accepted while
       // bound elsewhere: that is what makes background work visible at all.
@@ -1382,9 +1389,6 @@ function reduce(state: AgentState, action: Action): AgentState {
       if (state.cliBridge?.requestId !== message.requestId) return state;
       return {
         ...state,
-        // SDK failure recovery can replace the session and close its panel. Do not hide the refusal there.
-        ...(SESSION_CHANGING_CLI_OPERATIONS.has(state.cliBridge.operation ?? "list") && message.error && state.cliBridge.sessionIdAtRequest !== state.sessionId
-          ? { errors: [...state.errors, message.error] } : {}),
         cliBridge: { ...state.cliBridge, ...message, loading: false },
       };
     case "mcp_management_result":
@@ -2976,7 +2980,7 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
     manageCliBridge: (operation: CliBridgeOperation) => {
       if (!state.connected || (state.cliBridge?.loading && operation.action !== "list")) return;
       const requestId = `cli-bridge:${randomId()}`;
-      dispatch({ type: "cli_bridge_started", requestId, operation: operation.action });
+      dispatch({ type: "cli_bridge_started", requestId });
       sendMessage({ type: "cli_bridge", requestId, operation });
     },
     manageMcp: (operation: McpManagementOperation) => {

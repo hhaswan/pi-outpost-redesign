@@ -1,6 +1,6 @@
 # Opt-in CLI session bridge
 
-The bridge observes an existing Pi terminal runtime without creating another agent or writing its session JSONL. A separately confirmed handoff can close the CLI and let Outpost continue the exact original file, as described below. An unmodified CLI cannot be attached retroactively. Load the extension explicitly when starting a terminal session:
+The bridge observes an existing Pi terminal runtime without creating another agent, and keeps a terminal and Outpost web in step when both write the same session JSONL (see [Shared session files](#shared-session-files)). An unmodified CLI cannot be attached retroactively. Load the extension explicitly when starting a terminal session:
 
 ```sh
 pi -e /absolute/path/to/pi-outpost/extensions/cli-session-bridge.ts
@@ -8,94 +8,39 @@ pi -e /absolute/path/to/pi-outpost/extensions/cli-session-bridge.ts
 
 The build also ships a standalone `dist/extensions/cli-session-bridge.mjs`; it can be passed to `pi -e` without this source tree. For automatic discovery in future terminal sessions, copy that bundle to `~/.pi/agent/extensions/pi-outpost-cli-bridge.js` (mode 0600). Pi auto-discovers global `*.js` and `*.ts` files, **not** `*.mjs`; the bundled JavaScript is also valid under the `.js` name. For the native root-owned deployment, this copy has already been installed. Existing terminal sessions need `/reload` while idle to load it; no process is remotely reloaded. A Pi CLI running as another OS user needs its own compatible installation and a secure, shared bridge registry before the root-owned server can discover it.
 
-The build itself installs nothing globally. The extension starts its endpoint only on `session_start` in TUI mode, not during module loading or SDK discovery. It uses type-only imports from the installed SDK and `shared/src/cliBridge.ts`; these imports disappear under the extension loader. Keep the repository layout when distributing the source.
+The build itself installs nothing globally. The extension starts its endpoint only on `session_start` in TUI mode, not during module loading or SDK discovery. It uses type-only imports from the installed SDK and `shared/src/cliBridge.ts`, and imports `shared/src/sessionSync.ts`, which the build bundles in. Keep the repository layout when distributing the source.
 
-## Consent and ownership
+## Consent
 
 Observation is enabled by loading the extension. Input is disabled by default. In the terminal, run `/outpost-bridge allow` and confirm the dialog to permit authorized web operators to submit text while the CLI is idle. Run `/outpost-bridge revoke` to withdraw permission. Revocation prevents new submissions, not work already submitted. Grants do not survive runtime replacement or tree navigation.
 
-The CLI remains the sole writer until its operator explicitly releases the session and the process exits. Browser disconnects do not stop it. Dialogs, tool approvals, authentication prompts, and custom terminal screens stay in the terminal. Input may cause the agent to execute tools with the CLI user's permissions; granting input is not a sandbox. **Submitted to CLI** means the bridge accepted the text, not that Pi accepted the input or completed a model turn. If nothing appears afterward, check the actual CLI terminal for a provider/authentication error or an extension that handled the input; do not submit again automatically.
+Browser disconnects do not stop the CLI. Dialogs, tool approvals, authentication prompts, and custom terminal screens stay in the terminal. Input may cause the agent to execute tools with the CLI user's permissions; granting input is not a sandbox. **Submitted to CLI** means the bridge accepted the text, not that Pi accepted the input or completed a model turn. If nothing appears afterward, check the actual CLI terminal for a provider/authentication error or an extension that handled the input; do not submit again automatically.
 
-## Continue the same session file in web
+## Shared session files
 
-1. If the CLI was already running before this update, run `/reload` while idle.
-2. In that CLI, run `/outpost-bridge handoff` and confirm the separate warning.
-   **This closes the CLI.** It does not grant remote input or copy/fork history.
-3. In Outpost select the same project, open **Terminal sessions**, and click
-   **Refresh list**. Under **Continue a CLI session in web**, wait until it says
-   **Released; ready to continue**, then click **Continue in web**.
-4. The panel closes when the actual session changes. Continue in the web composer.
-   The session ID and original JSONL path remain the same. Continuation uses the
-   web server's configured tools and credentials, not a copied CLI environment.
+Outpost web and the Pi CLI may open and write the **same** session file at the same
+time. There is no handoff, lock or reservation.
 
-The command refuses a working CLI, SDK-queued messages, a terminal dialog, or a
-session that changes during confirmation. A fresh CLI with no persisted file
-cannot be handed off. An unresolved bridge submission reservation does not turn
-into an accepted message: the handoff confirmation explicitly warns that submitted
-text without a transcript entry may be absent from history. Handoff never resends
-that text. It closes the original process before authorizing a new writer.
-
-Shutdown notification is not a release barrier. Other extension shutdown handlers
-can still append. Outpost waits until the original PID is no longer alive, then
-validates the file/header identity and acquires an exclusive web writer lease.
-An unreachable bridge or missing registration alone never grants ownership. A
-remaining stale CLI claim still blocks continuation and requires investigation.
-A cancelled or failed SDK switch does not report continuation as successful.
-
-Receipts live in `PI_OUTPOST_HANDOFF_DIR`, default `~/.pi/outpost-handoffs`.
-CLI and web must share that same private directory, OS account, and PID/network
-namespaces. Linux receipts record `/proc/self/ns/pid`; mismatched or unavailable
-PID namespace evidence fails closed. A container-local PID must never be treated
-as a host PID. Keep the CLI and web in the same supported environment rather than
-weakening container isolation to bypass this check. Directory mode
-is 0700 and receipt mode is 0600 on POSIX; use account-only ACLs on Windows.
-The browser receives only project/session identity and releasing/ready/owned state,
-not original or web owner PIDs. A filesystem mutex serializes claims. A live lease
-in another server/workspace refuses a second writer. Adoption and later restoration are supported only
-from an idle project's **main workspace**, not a side session.
-
-Adopted files appear in the normal saved-session inventory, so server restart and
-session restoration still use the original file. A dead prior web owner's lease
-can be recovered under the claim mutex. Renaming uses the owning runtime/lease;
-deletion is deliberately refused while a handoff receipt reserves the original file.
-
-Enrolled CLIs refuse normal operation on a reserved file and cancel supported
-runtime resume operations before switching. This veto is TUI-only: when the same
-extension is auto-discovered by the web runtime in RPC mode, it must not reject
-the web owner after the server has validated and acquired the lease. This is **cooperative protection, not
-an OS-wide file lock**. Do not independently launch `pi --session`, `--continue`, an
-unmodified CLI, or extensions that directly write a web-owned file. SDK startup
-loads a selected file before extension startup checks run; an SDK format migration
-or unrelated raw-file writer is outside this bridge's guarantee. The transfer
-itself proves that its original CLI process has exited before web writes begin.
-
-If a web process crashes inside the short claim critical section, the empty
-`.<receipt-id>.lock` directory is retained rather than automatically stolen.
-For explicit recovery: stop **all** Outpost instances using that handoff directory,
-verify the receipt's original PID and any web owner PID have exited, investigate
-any remaining CLI registration, then remove **only that empty mutex with `rmdir`**.
-Do not delete the receipt or conversation. A nonempty mutex is unsafe and must not
-be recursively removed. Restart Outpost and retry continuation. Do not perform
-this recovery while another server or CLI can still use the file.
-
-## Continue a web session in the CLI
-
-In **Terminal sessions**, choose **Hand off to CLI** and confirm. The web reserves the current saved
-conversation, moves to a new one, and shows a command such as
-`cd '/project' && pi --session '/root/.pi/agent/sessions/….jsonl'`. Run it in a terminal where the Outpost
-bridge extension is installed. That CLI claims the file at startup; a second CLI is refused. The web
-refuses to open, rename or delete the file while the reservation is unclaimed or its CLI runs. After the CLI
-exits, open the session from Sessions again, or use **Take back in web**. **Take back in web** also cancels
-a hand-off no CLI has opened yet. A CLI without the bridge extension does not see the reservation: install
-the bridge before opening a released session. **Take back in web** refuses while any Pi CLI runs
-in the project directory (Linux), so an unbridged CLI cannot end up writing beside the web.
-
-## Continue a closed CLI session in web
-
-Terminal sessions lists recent CLI history of the project. Choose **Continue in web**, then confirm that the
-CLI is closed. The server refuses while any Pi CLI process runs in the project directory or names the file
-(detected on Linux only; other platforms refuse), and while the file changed in the last five seconds. After
-adoption, the original file continues in web and enrolled CLIs refuse it, as after a terminal handoff.
+- New web conversations are written to the Pi CLI's per-project directory
+  (`<agentDir>/sessions/--<cwd>--/`), so `pi -c` and `/resume` in the project list
+  them. Older web conversations in the flat `<agentDir>/sessions/` stay readable
+  where they are; nothing is migrated.
+- The Pi CLI history of the project is listed in the web session menu like any
+  session: open, rename and delete it from there. Deleting is refused while a
+  bridged CLI has the file open.
+- Each side appends one line per entry. Between turns each side re-reads the file
+  when it grew: web on every prompt and when the file changes while idle (a file
+  watch, with a two-second poll as fallback); the terminal on every prompt and on
+  the same watch while idle. The next entry then chains after the other writer's
+  last entry, and the next model request includes the other side's messages.
+- The web conversation updates in place, without a reload. The terminal does not
+  redraw its scrollback; it shows `Synced N new messages from Outpost web`.
+- Neither side re-reads during a running turn. If both send at the same moment,
+  the conversation tree may branch; the file stays valid and both sides keep working.
+- Two Outpost tabs of one server still cannot have one conversation live in two of
+  its sessions at once.
+- Only the default embedded runtime re-reads; under `agentRuntime.mode: "rpc"` web
+  sees CLI turns after reopening the session.
 
 ## Private protocol
 
@@ -114,9 +59,9 @@ Runtime replacement closes the old endpoint and creates a new instance and gener
 
 ## Shutdown and stale claims
 
-Normal shutdown closes all connections and removes only an unchanged, owned registration. A crash, forced kill, permission change, or replaced registration can leave a stale claim. An unreachable endpoint is not evidence that its session is idle or safe to modify. Investigate the terminal/process before manually removing a stale registration. Outpost's saved-session protections must retain unreachable claims; these cooperative claims are not universal locks against unmodified external CLI writers.
+Normal shutdown closes all connections and removes only an unchanged, owned registration. A crash, forced kill, permission change, or replaced registration can leave a stale claim. An unreachable endpoint is not evidence that its session is idle. Investigate the terminal/process before manually removing a stale registration. Outpost refuses to delete a file a registration claims, reachable or not.
 
-Web discovery, authenticated authorization, sandbox policy, unreachable-state UI, and saved-session write protection are implemented by Outpost separately. This extension alone does not enforce those browser/server policies.
+Web discovery, authenticated authorization, sandbox policy, unreachable-state UI, and the delete refusal are implemented by Outpost separately. This extension alone does not enforce those browser/server policies.
 
 ## Verification
 
@@ -126,7 +71,7 @@ Run the fake-context tests against real loopback HTTP without credentials or mod
 node --import tsx --test extensions/cli-session-bridge.test.ts
 ```
 
-The extension tests cover registration, authentication, limits, consent, revocation, idempotency and confirmed handoff. `server/test/cliHandoffStore.test.ts` covers real child-PID barriers, lease contention, unsafe metadata and restart recovery. `server/test/cli-handoff-wire.test.mjs` drives actual server processes, exact-file persistence, cancellation and cross-server competition. On Linux with python3 and Playwright Chromium installed, build the CLI and run `node scripts/check-cli-handoff.mjs` to exercise a real TUI, reload, browser Submit, a late shutdown append while web remains blocked, and exact-file continuation after PID exit. No model request is sent. Backend and UI tests cover unreachable owners and mutation refusal. An isolated real Pi TUI plus browser test exercises terminal confirmation, observation, one intercepted submission, reload and owner disappearance without a model request. This proves delivery to the extension input boundary, **not** that a provider completes a model response in a user's live CLI; check that terminal for errors.
+The extension tests cover registration, authentication, limits, consent, revocation and idempotency. `server/test/sessionSync.test.ts` covers re-reading a file another writer appended to, chaining after it, keeping a navigated leaf, and never re-reading mid-turn (web runtime and terminal `input` hook). `server/test/sharedSessionWire.test.mjs` drives a real server with a fake provider: per-project storage, live sync without reload, a chained web prompt the model sees, nothing mid-turn, and opening/renaming CLI history. On Linux with python3 and Playwright Chromium installed, build the CLI and run `node scripts/check-shared-session.mjs`: a real TUI started with `pi -c` and the built web app alternate turns on one file through a local fake Anthropic endpoint (no model spend), the file stays one linear chain, a simultaneous send keeps both sides working, and `/reload` plus **Submit to CLI** still work.
 
 ## Web access
 

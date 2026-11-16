@@ -6,7 +6,8 @@ import { test } from "node:test";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { connect, makeWorkspace, startServer } from "./harness.mjs";
 
-test("ClaimedHistoryCannotBeMutated: unreachable CLI claims block browser switch, rename and delete", async () => {
+// openlore: scenario=ClaimedHistoryCannotBeMutated spec=cli-session-bridge
+test("ClaimedHistoryCannotBeMutated: an enrolled CLI's open file is not deleted; rename is shared", async () => {
   const root = await makeWorkspace();
   const registry = path.join(root, "private-bridges");
   await fs.mkdir(registry, { mode: 0o700 });
@@ -21,14 +22,14 @@ test("ClaimedHistoryCannotBeMutated: unreachable CLI claims block browser switch
     const original = await fs.readFile(file, "utf8");
     const id = randomUUID();
     await fs.writeFile(path.join(registry, `${id}.json`), JSON.stringify({ version: 1, id, port: 1, token: "x".repeat(64), cwd: root, sessionId: saved.getSessionId(), sessionFile: file }), { mode: 0o600 });
-    for (const operation of [{ type: "switch_session", path: file }, { type: "rename_session", path: file, name: "must not rename" }, { type: "delete_session", path: file }]) {
-      const previous = client.received.length;
-      client.send(operation);
-      const reply = await client.waitFor(message => message.type === "error" && client.received.indexOf(message) >= previous);
-      assert.match(reply.message, /claimed by a terminal bridge/);
-      assert.equal(await fs.readFile(file, "utf8"), original);
-      assert.equal(client.received.some(message => message.type === "session_replaced" && message.sessionId !== hello.sessionId), false);
-    }
+    // Deleting under a running writer would lose its next append; opening or renaming is shared.
+    const previous = client.received.length;
+    client.send({ type: "delete_session", path: file });
+    const reply = await client.waitFor(message => message.type === "error" && client.received.indexOf(message) >= previous);
+    assert.match(reply.message, /Pi CLI has this session open/);
+    assert.equal(await fs.readFile(file, "utf8"), original);
+    client.send({ type: "rename_session", path: file, name: "renamed while the CLI has it" });
+    await client.waitFor(message => message.type === "sessions" && message.sessions.some(s => s.path === file && s.name === "renamed while the CLI has it"));
     client.send({ type: "cli_bridge", requestId: "list-owners", operation: { action: "list" } });
     const list = await client.waitFor(message => message.type === "cli_bridge_result" && message.requestId === "list-owners");
     assert.equal(list.sessions[0].activity, "unreachable");

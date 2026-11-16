@@ -1,5 +1,11 @@
 # Scenario-to-test matrix
 
+> **Superseded by `shared-cli-web-sessions`.** The user dropped exclusive ownership:
+> web and the Pi CLI now write one session file at once. The handoff, reservation,
+> adoption and lease implementation, its tests and `scripts/check-cli-handoff.mjs`
+> were removed; `shared-cli-web-sessions` removes these requirements. Do not deploy
+> or archive this change on its own.
+
 Inventory verified with `rg '^#### Scenario:' openspec/`. The delta contains twelve
 new scenarios plus the two modified main-spec scenarios. Existing bridge scenarios
 remain applicable and are mapped below as well. OpenLore returned no index;

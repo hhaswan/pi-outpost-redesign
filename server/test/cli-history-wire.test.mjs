@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdir,readFile,writeFile} from 'node:fs/promises';
+import {mkdir,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {makeWorkspace,startServer,connect} from './harness.mjs';
 
-// openlore: scenario=CliHistoryVisibleWithoutSecondWriter spec=session-search
+// openlore: scenario=CliHistorySearchAndProjectIsolation spec=session-search
 // No CLI process needed: this is an on-disk version-3 session from Pi /resume.
-test('CLI history appears for its cwd, searches opening messages, and rejects all write operations',async t=>{
+test('CLI history appears for its cwd and searches opening messages, isolated per project',async t=>{
  const root=await makeWorkspace();const agentDir=path.join(root,'.pi-agent');
  const directory=path.join(agentDir,'sessions',`--${root.replace(/^[/\\]/,'').replace(/[/\\:]/g,'-')}--`);
  await mkdir(directory,{recursive:true});
@@ -24,15 +24,11 @@ test('CLI history appears for its cwd, searches opening messages, and rejects al
  const ws=connect(server.wsUrl());t.after(()=>ws.close());await ws.waitFor('hello');
  ws.send({type:'list_sessions'});const listed=await ws.waitFor(m=>m.type==='sessions');
  const entry=listed.sessions.find(s=>s.path===file);
- assert.ok(entry);assert.equal(entry.readOnlyCliHistory,true);assert.equal(entry.name,'CLI private history');assert.equal(entry.messageCount,undefined);
+ assert.ok(entry);assert.equal(entry.name,'CLI private history');assert.equal(entry.messageCount,undefined);
  ws.send({type:'search_sessions',query:'terminal',requestId:'q1'});
  const found=await ws.waitFor(m=>m.type==='session_search_results'&&m.requestId==='q1');
- assert.equal(found.sessions.find(s=>s.path===file)?.readOnlyCliHistory,true);
+ assert.ok(found.sessions.some(s=>s.path===file));
  assert.equal(found.sessions.some(s=>s.id==='other-session'),false);
- for(const command of [{type:'switch_session',path:file},{type:'rename_session',path:file,name:'changed'},{type:'delete_session',path:file}]){
-  ws.send(command);const refusal=await ws.waitFor(m=>m.type==='error');assert.match(refusal.message,/Unknown session/);
- }
- assert.equal(await readFile(file,'utf8'),bytes);
  ws.send({type:'open_project',root:other});
  await ws.waitFor(m=>m.type==='workspace_switched'&&m.workspace?.root===other,20000);
  ws.send({type:'list_sessions'});

@@ -246,9 +246,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
     if (mainRef.current) mainRef.current.scrollTop = 0;
   }, [boundKey]);
   const [cliSessionsOpen, setCliSessionsOpen] = useState(false);
-  // A conversation change closes the panel — except the hand-off to CLI, whose command the panel still has to show.
-  const cliReleasing = state.cliBridge?.operation === "release";
-  useEffect(() => { if (!cliReleasing) setCliSessionsOpen(false); }, [boundKey, state.sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setCliSessionsOpen(false); }, [boundKey, state.sessionId]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarMounted, setSidebarMounted] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);

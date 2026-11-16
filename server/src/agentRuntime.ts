@@ -328,6 +328,12 @@ export interface AgentRuntime {
    * backend has no equivalent — Pi RPC exposes fork and clone, not navigation.
    */
   navigateTree?(entryId: string): Promise<{ cancelled: boolean; editorText?: string }>;
+  /**
+   * Re-read the session file after another writer (the Pi CLI) appended to it, so the
+   * next entry chains after that writer's. True when something arrived. Between turns
+   * only; absent when the backend cannot (RPC: the child owns its SessionManager).
+   */
+  syncFromFile?(): boolean;
 
   answerExtensionUI(response: ExtensionUIResponse): void;
   /** Drop every dialog an about-to-be-replaced session left an extension waiting on. */

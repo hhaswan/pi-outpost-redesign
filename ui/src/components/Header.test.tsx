@@ -495,17 +495,13 @@ describe("Header", () => {
     });
   });
 
-  it("shows CLI resume history but never offers a second writer or mutation", () => {
-    const external = session({ path: "/sessions/--project--/external.jsonl", id: "external", name: "Earlier CLI work", readOnlyCliHistory: true, messageCount: undefined });
-    const { onSwitchSession, onRenameSession, onDeleteSession } = setup({ sessions: [session(), external] });
+  it("offers CLI history like any session, without an unknown message count", () => {
+    const external = session({ path: "/sessions/--project--/external.jsonl", id: "external", name: "Earlier CLI work", messageCount: undefined });
+    const { onSwitchSession } = setup({ sessions: [session(), external] });
     openSessions();
-    expect(screen.getByText("Earlier CLI work")).toBeInTheDocument();
-    expect(screen.getByText(/Pi CLI history · read-only here; continue it from Terminal sessions/)).toBeInTheDocument();
-    expect(screen.getByLabelText("CLI history: Earlier CLI work").closest("li")!.querySelectorAll("button")).toHaveLength(0);
+    fireEvent.click(screen.getByText("Earlier CLI work"));
+    expect(onSwitchSession).toHaveBeenCalledWith("/sessions/--project--/external.jsonl");
     expect(screen.queryByText(/undefined messages/)).toBeNull();
-    expect(onSwitchSession).not.toHaveBeenCalled();
-    expect(onRenameSession).not.toHaveBeenCalled();
-    expect(onDeleteSession).not.toHaveBeenCalled();
   });
 
   describe("searching sessions", () => {
