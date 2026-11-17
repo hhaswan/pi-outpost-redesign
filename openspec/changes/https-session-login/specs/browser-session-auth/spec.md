@@ -4,16 +4,11 @@
 
 ### Requirement: TokenLoginIssuesSessionCookie
 
-When a token is configured, `POST /api/login` with body `{ "token": <master token> }` SHALL,
-on a timing-safe match, create a session and answer with a cookie
-`__Host-pi-outpost-session` that is `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/` and expires in
-14 days. A server without TLS of its own (loopback, or `allowInsecureHttp` before the HTTPS
-cutover) SHALL instead set `pi-outpost-session` with the same attributes except `Secure`,
-because browsers drop `Secure` and `__Host-` cookies on `http://`; it SHALL log one startup
-warning that sessions travel unencrypted, and Settings, Security SHALL show the one-line notice
-"Not encrypted — set up HTTPS (docs)" on a page served over `http:`. The server SHALL accept
-either cookie name, preferring `__Host-`, and logout SHALL clear every name it may have set. A wrong or missing token SHALL answer 401 without a cookie. The route SHALL be
-rate-limited per client address and SHALL require an `Origin` equal to the server's own origin.
+`POST /api/login` with the correct token (timing-safe) SHALL create a session and set an
+`HttpOnly`, `SameSite=Strict`, `Path=/`, 14-day cookie: `__Host-pi-outpost-session` with `Secure`
+under TLS, `pi-outpost-session` without `Secure` on plain HTTP. The server SHALL accept either
+name, preferring `__Host-`; logout SHALL clear both. A wrong token SHALL get 401 and no cookie;
+the route SHALL be rate-limited and same-origin only.
 
 #### Scenario: LoginSetsHardenedCookie
 - **WHEN** a same-origin client posts the correct token to `/api/login`
@@ -40,6 +35,16 @@ rate-limited per client address and SHALL require an `Origin` equal to the serve
 #### Scenario: LoginCrossOriginRefused
 - **WHEN** a request to `/api/login` carries an `Origin` that is not the server's own origin
 - **THEN** the response is 403 and sets no cookie
+
+### Requirement: PlainHttpWarnsUnencrypted
+
+A server issuing sessions without TLS SHALL log one startup warning that sessions travel
+unencrypted, and Settings, Security SHALL show "Not encrypted — set up HTTPS (docs)" on `http:`.
+
+#### Scenario: PlainHttpNoticeShown
+- **GIVEN** a token is configured and the server has no TLS
+- **WHEN** the server starts and Settings, Security is opened over `http:`
+- **THEN** one startup warning is logged and the notice "Not encrypted — set up HTTPS (docs)" is shown
 
 ### Requirement: RevocableSessionStore
 

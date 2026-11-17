@@ -54,7 +54,7 @@ For a server reached by a LAN address (no public DNS name, no public CA), pi-out
 issue its own certificates. It needs `openssl` on the host.
 
 ```bash
-pi-outpost tls init --ip 10.11.3.77          # the address devices type; repeat --ip/--dns to add names
+pi-outpost tls init --ip <HOST_IP>          # the address devices type; repeat --ip/--dns to add names
 ```
 
 This writes, under `<user config dir>/tls/` (`~/.config/pi-outpost/tls/`, directory `0700`):
@@ -155,6 +155,8 @@ rate-limited (10 attempts a minute per address).
 
 ## HTTPS cutover runbook (this native deployment)
 
+Replace `<HOST_IP>` with the LAN address devices use to reach the server.
+
 For `/root/pi-outpost.config.json` (host `0.0.0.0`, port 3141), run as root, after this change
 is committed (the updater refuses a dirty checkout):
 
@@ -169,10 +171,10 @@ node cli/scripts/build.mjs                                    # 0. the build the
 cp -p /root/pi-outpost.config.json /root/pi-outpost.config.json.pre-https
 
 # 2. Local CA and server certificate; writes server.tls into the configuration.
-$cli tls init --ip 10.11.3.77                                 # SAN: 10.11.3.77, 127.0.0.1, localhost, host name
+$cli tls init --ip <HOST_IP>                                 # SAN: <HOST_IP>, 127.0.0.1, localhost, host name
 
 # 3. Edit /root/pi-outpost.config.json: remove "allowInsecureHttp", and change the
-#    allowedOrigins entry "http://10.11.3.77:3141" to "https://10.11.3.77:3141"
+#    allowedOrigins entry "http://<HOST_IP>:3141" to "https://<HOST_IP>:3141"
 #    (keep the other entries only if still used).
 
 # 4. New token: the old one crossed the LAN in cleartext. Shown once; store it.
@@ -183,16 +185,16 @@ bash scripts/update-custom-native.sh /root/pi-outpost.config.json /root/pi-outpo
 cat .local/deploy-result.json                                 # expect "status": "deployed", "Playwright over https"
 ```
 
-6. **On each device, once:** open `https://10.11.3.77:3141/ca`. The browser warns once (the CA
+6. **On each device, once:** open `https://<HOST_IP>:3141/ca`. The browser warns once (the CA
    is not trusted yet): compare the fingerprint with the one `openssl x509 -in
    ~/.config/pi-outpost/tls/ca.crt -noout -fingerprint -sha256` prints on the host, then
    install the CA following the page (iPhone/iPad: install the profile, then **Settings,
    General, About, Certificate Trust Settings**, full trust).
-7. **Sign in:** open `https://10.11.3.77:3141` and paste the new token, or, on a signed-in
+7. **Sign in:** open `https://<HOST_IP>:3141` and paste the new token, or, on a signed-in
    device, **Settings, Security, Pair a device** and scan the QR (or type the code on the new
    device's sign-in screen).
 
-Check: `http://10.11.3.77:3141` redirects to `https://10.11.3.77:3141/`, and the address bar
+Check: `http://<HOST_IP>:3141` redirects to `https://<HOST_IP>:3141/`, and the address bar
 shows a trusted lock. Later updates need no second argument:
 `bash scripts/update-custom-native.sh /root/pi-outpost.config.json`.
 

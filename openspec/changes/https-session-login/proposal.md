@@ -16,7 +16,7 @@ the LAN will trust, so the live deployment still runs the plaintext exception.
 ## What Changes
 
 - **Local CA and server certificate.** `pi-outpost tls init` creates a private local CA (10 years)
-  and a server certificate (1 year) for the host's addresses (SAN: `10.11.3.77`, `127.0.0.1`,
+  and a server certificate (1 year) for the host's addresses (SAN: `<HOST_IP>`, `127.0.0.1`,
   `localhost`, the host name), stores them under `<userConfigDir>/tls/` with private keys `0600`,
   and writes `server.tls` (plus the new `server.tls.caFile`) into the loaded configuration.
   `pi-outpost tls renew` re-issues the server certificate from the same CA. Same port 3141.
@@ -69,7 +69,7 @@ the LAN will trust, so the live deployment still runs the plaintext exception.
   sign-in screen, `useAgent.ts`, `util/workspacePath.ts`, `util/download.ts`, `SettingsMenu.tsx`
   (Security section), new pairing route. One small client dependency for QR rendering.
 - **Scripts/tests**: listed in design.md § Deploy and probe impact.
-- **Operations**: live cutover to `https://10.11.3.77:3141`; every device installs the CA once;
+- **Operations**: live cutover to `https://<HOST_IP>:3141`; every device installs the CA once;
   the master token is rotated because it has crossed the LAN in cleartext.
 - **Out of scope by user choice**: per-device tokens or accounts (see `multi-user-local-accounts`),
   narrowing LAN reachability, reducing the agent's root shell power.

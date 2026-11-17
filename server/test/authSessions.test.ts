@@ -86,7 +86,7 @@ test("cookie attributes and parsing (PlainHttpSessionUntilCutover)", () => {
 });
 
 test("CLI: tls, token and sessions take an action word and their own flags", () => {
-  assert.deepEqual(parseCli(["tls", "init", "--ip", "10.11.3.77", "--dns", "box"]).auth, { action: "init", ips: ["10.11.3.77"], dns: ["box"], revokeSessions: false, newCa: false });
+  assert.deepEqual(parseCli(["tls", "init", "--ip", "192.0.2.10", "--dns", "box"]).auth, { action: "init", ips: ["192.0.2.10"], dns: ["box"], revokeSessions: false, newCa: false });
   assert.equal(parseCli(["tls", "init", "--new-ca"]).auth.newCa, true);
   assert.throws(() => parseCli(["tls", "renew", "--new-ca"]), /belongs to "pi-outpost tls init"/);
   assert.equal(parseCli(["tls", "renew"]).command, "tls");

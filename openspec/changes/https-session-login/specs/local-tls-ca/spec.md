@@ -12,10 +12,10 @@ else the default route's source address), `127.0.0.1`, `localhost`, the host nam
 values only.
 
 #### Scenario: InitCreatesCaAndServerCertificate
-- **GIVEN** no `<userConfigDir>/tls/ca.key` exists and the configured host is `0.0.0.0` on a machine with address `10.11.3.77`
+- **GIVEN** no `<userConfigDir>/tls/ca.key` exists and the configured host is `0.0.0.0` on a machine with address `<HOST_IP>`
 - **WHEN** `pi-outpost tls init` runs
 - **THEN** `ca.key`, `ca.crt`, `server.key` and `server.crt` exist, both keys with mode `0600`
-- **AND** `server.crt` is signed by `ca.crt`, expires in 365 days and lists `IP:10.11.3.77`, `IP:127.0.0.1`, `DNS:localhost` and the host name
+- **AND** `server.crt` is signed by `ca.crt`, expires in 365 days and lists `IP:<HOST_IP>`, `IP:127.0.0.1`, `DNS:localhost` and the host name
 - **AND** the configuration's `server.tls` names the three public/serving files and never `ca.key`
 
 #### Scenario: OpensslMissing
@@ -124,9 +124,9 @@ response MUST NOT include the request path or query, and the server MUST NOT log
 route SHALL be reachable over plaintext.
 
 #### Scenario: HttpRedirectsToHttpsRoot
-- **GIVEN** TLS is active on port 3141 and `10.11.3.77` is an allowed host
-- **WHEN** a plain HTTP request `GET /?token=secret HTTP/1.1` with `Host: 10.11.3.77:3141` arrives on port 3141
-- **THEN** the response is `301` with `Location: https://10.11.3.77:3141/`
+- **GIVEN** TLS is active on port 3141 and `<HOST_IP>` is an allowed host
+- **WHEN** a plain HTTP request `GET /?token=secret HTTP/1.1` with `Host: <HOST_IP>:3141` arrives on port 3141
+- **THEN** the response is `301` with `Location: https://<HOST_IP>:3141/`
 - **AND** neither the response nor the server log contains `secret`
 
 #### Scenario: HttpForeignHostRefused

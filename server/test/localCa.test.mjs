@@ -94,7 +94,7 @@ describe("local CA", { skip }, () => {
   });
 
   test("InitCreatesCaAndServerCertificate", async () => {
-    const result = await cli(["tls", "init", "--ip", "10.11.3.77"], configFile, xdg);
+    const result = await cli(["tls", "init", "--ip", "192.0.2.10"], configFile, xdg);
     assert.equal(result.code, 0, result.output);
     for (const name of ["ca.key", "ca.crt", "server.key", "server.crt"]) assert.ok(fs.existsSync(path.join(tlsDir, name)), name);
     if (process.platform !== "win32") {
@@ -110,7 +110,7 @@ describe("local CA", { skip }, () => {
     const days = (certificate) => Math.round((Date.parse(certificate.validTo) - Date.now()) / 86_400_000);
     assert.equal(days(leaf), 365);
     assert.ok(days(ca) >= 3649 && days(ca) <= 3650);
-    for (const san of ["IP Address:10.11.3.77", "IP Address:127.0.0.1", "DNS:localhost", `DNS:${os.hostname()}`]) {
+    for (const san of ["IP Address:192.0.2.10", "IP Address:127.0.0.1", "DNS:localhost", `DNS:${os.hostname()}`]) {
       assert.ok(leaf.subjectAltName.split(", ").includes(san), `${san} in ${leaf.subjectAltName}`);
     }
     assert.equal(leaf.subjectAltName.split(", ").length, 4, "exactly the four names");
@@ -123,7 +123,7 @@ describe("local CA", { skip }, () => {
 
   test("InitReusesExistingCa: init twice keeps the CA and the valid server certificate byte for byte", async () => {
     const before = hashFiles(tlsDir);
-    const result = await cli(["tls", "init", "--ip", "10.11.3.77"], configFile, xdg);
+    const result = await cli(["tls", "init", "--ip", "192.0.2.10"], configFile, xdg);
     assert.equal(result.code, 0, result.output);
     assert.match(result.output, /reused the existing local CA/);
     assert.match(result.output, /kept the existing server certificate/);
@@ -136,7 +136,7 @@ describe("local CA", { skip }, () => {
     fs.copyFileSync(path.join(tlsDir, "server.crt"), backup);
     fs.rmSync(path.join(tlsDir, "server.crt"));
     const caBefore = hashFiles(tlsDir)["ca.crt"];
-    const result = await cli(["tls", "init", "--ip", "10.11.3.77"], configFile, xdg);
+    const result = await cli(["tls", "init", "--ip", "192.0.2.10"], configFile, xdg);
     assert.equal(result.code, 0, result.output);
     assert.match(result.output, /reused the existing local CA[\s\S]*issued a server certificate/);
     assert.equal(hashFiles(tlsDir)["ca.crt"], caBefore);
@@ -158,7 +158,7 @@ describe("local CA", { skip }, () => {
     const caBefore = new X509Certificate(fs.readFileSync(path.join(tlsDir, "ca.crt"))).fingerprint256;
     const caKeyBefore = hashFiles(tlsDir)["ca.key"];
     const leafBefore = fs.readFileSync(path.join(tlsDir, "server.crt"), "utf8");
-    const result = await cli(["tls", "renew", "--ip", "10.11.3.77"], configFile, xdg);
+    const result = await cli(["tls", "renew", "--ip", "192.0.2.10"], configFile, xdg);
     assert.equal(result.code, 0, result.output);
     assert.match(result.output, /restart/);
     const ca = new X509Certificate(fs.readFileSync(path.join(tlsDir, "ca.crt")));
@@ -174,10 +174,10 @@ describe("local CA", { skip }, () => {
     const other = path.join(root, "replace-xdg");
     const otherConfig = path.join(root, "replace.json");
     await writeFile(otherConfig, await readFile(configFile, "utf8"), { mode: 0o600 });
-    assert.equal((await cli(["tls", "init", "--ip", "10.11.3.77"], otherConfig, other)).code, 0);
+    assert.equal((await cli(["tls", "init", "--ip", "192.0.2.10"], otherConfig, other)).code, 0);
     const dir = path.join(other, "pi-outpost", "tls");
     const oldCa = fs.readFileSync(path.join(dir, "ca.crt"));
-    const result = await cli(["tls", "init", "--ip", "10.11.3.77", "--new-ca"], otherConfig, other);
+    const result = await cli(["tls", "init", "--ip", "192.0.2.10", "--new-ca"], otherConfig, other);
     assert.equal(result.code, 0, result.output);
     assert.match(result.output, /WARNING: replaced the local CA\. Every device must install and trust the new CA again/);
     assert.ok(!fs.readFileSync(path.join(dir, "ca.crt")).equals(oldCa), "a new CA");
@@ -241,9 +241,9 @@ describe("local CA", { skip }, () => {
     }
 
     // HttpRedirectsToHttpsRoot
-    const redirect = await plain(server.port, `GET /?token=secret HTTP/1.1\r\nHost: 10.11.3.77:${server.port}\r\n\r\n`);
+    const redirect = await plain(server.port, `GET /?token=secret HTTP/1.1\r\nHost: 192.0.2.10:${server.port}\r\n\r\n`);
     assert.match(redirect, /^HTTP\/1\.1 301 /);
-    assert.match(redirect, new RegExp(`\r\nLocation: https://10\\.11\\.3\\.77:${server.port}/\r\n`));
+    assert.match(redirect, new RegExp(`\r\nLocation: https://192\\.0\\.2\\.10:${server.port}/\r\n`));
     assert.ok(!redirect.includes("secret") && !redirect.includes("token"), "path and query are not echoed");
     // HttpForeignHostRefused
     const foreign = await plain(server.port, "GET / HTTP/1.1\r\nHost: evil.example\r\n\r\n");

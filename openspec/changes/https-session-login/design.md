@@ -18,7 +18,7 @@ evidence comes from targeted `rg` and reads at HEAD `42b1198`:
 - `ui/src/authToken.ts` captures `?token=`, stores it in `localStorage["pi-outpost:token"]`;
   `useAgent.ts` puts it in the WS URL and in raw/download URLs; `TokenGate.tsx` is the token screen.
 - The embed widget receives an explicit token from its host page (`embed` spec,
-  `HostSuppliesItsOwnToken`); the live config allows `http://10.11.3.77` as an embed origin.
+  `HostSuppliesItsOwnToken`); the live config allows `http://<HOST_IP>` as an embed origin.
 - `server/src/cliBridge.ts` and `~/.pi/agent/extensions/pi-outpost-cli-bridge.js` authenticate
   server-to-CLI calls with their own per-registration token on loopback: not affected.
 - `server/src/printMode.ts` reads a token from its own local input URL and sends it as Bearer to a
@@ -35,7 +35,7 @@ evidence comes from targeted `rg` and reads at HEAD `42b1198`:
    are dropped. Bearer headers stay for scripts and non-browser clients. The embed e2e test that
    relied on a cross-origin token socket (`e2e/embed.spec.ts`, "a token-protected backend works
    across origins") is skipped with that reason; the bench probes that pass `&token=` say so.
-2. SANs: `10.11.3.77`, `127.0.0.1`, `localhost` and the host name only. The default address is the
+2. SANs: `<HOST_IP>`, `127.0.0.1`, `localhost` and the host name only. The default address is the
    configured literal host, else the source address of the default route (not every interface:
    this host has many Docker bridges); `--ip` replaces it.
 3. `openssl` is an accepted dependency of `tls init|renew`.
@@ -64,7 +64,7 @@ installation on clients.
   (directory `0700`): `ca.key` (`0600`), `ca.crt`, `server.key` (`0600`), `server.crt`. Default
   SANs: the configured host when it is a literal address, otherwise every non-internal IPv4 address
   of the machine; plus `127.0.0.1`, `localhost`, `os.hostname()`. Live result:
-  `IP:10.11.3.77, IP:127.0.0.1, DNS:localhost, DNS:<hostname>`. Superseded by decision 2:
+  `IP:<HOST_IP>, IP:127.0.0.1, DNS:localhost, DNS:<hostname>`. Superseded by decision 2:
   the default is the configured literal host, else the default route's source address.
 - Generation shells out to `openssl` with `execFile` (no shell, no new npm dependency). ECDSA P-256,
   SHA-256. CA: 3650 days, `basicConstraints=critical,CA:TRUE,pathlen:0`,
@@ -89,7 +89,7 @@ installation on clients.
   UUIDs derived from the fingerprint). Public, GET only, routes exist only when `caFile` is set.
   Page: fingerprint (SHA-256 of DER, colon hex), validity, per-OS steps, a "Continue to pi-outpost"
   link. Strict CSP (`default-src 'none'; style-src 'unsafe-inline'; img-src data:`), no scripts.
-- First visit to `https://10.11.3.77:3141` from an untrusted device shows a browser certificate
+- First visit to `https://<HOST_IP>:3141` from an untrusted device shows a browser certificate
   warning once. It cannot be avoided before the CA is trusted; the page tells users to compare the
   fingerprint shown on `/ca` with the one in Settings on an already-trusted device.
 
@@ -222,13 +222,13 @@ extension, print mode (it already sends Bearer).
 
 1. Back up `/root/pi-outpost.config.json` to `.pre-https`.
 2. `pi-outpost tls init` on the host (SANs as above); it writes `server.tls`. In the same edit:
-   remove `server.allowInsecureHttp`, change `allowedOrigins` entries from `http://10.11.3.77:3141`
-   to `https://10.11.3.77:3141` (keep the embed origin if it is still used).
+   remove `server.allowInsecureHttp`, change `allowedOrigins` entries from `http://<HOST_IP>:3141`
+   to `https://<HOST_IP>:3141` (keep the embed origin if it is still used).
 3. `pi-outpost token rotate` (the old token crossed the LAN in cleartext).
 4. Deploy the new build with `scripts/update-custom-native.sh <config> <config>.pre-https` (one
    restart; the second argument describes the running HTTP server). From then on
-   `http://10.11.3.77:3141` only answers the redirect; old `?token=` bookmarks stop working.
-5. On each device once: open `https://10.11.3.77:3141/ca`, accept the warning, install the CA
+   `http://<HOST_IP>:3141` only answers the redirect; old `?token=` bookmarks stop working.
+5. On each device once: open `https://<HOST_IP>:3141/ca`, accept the warning, install the CA
    (iOS: install profile, then Settings → General → About → Certificate Trust Settings → enable
    full trust), reload, sign in with the new token or scan a pairing QR from a signed-in device.
 The operator runbook is `docs/deployment.md` § HTTPS cutover runbook.
@@ -240,6 +240,6 @@ The operator runbook is `docs/deployment.md` § HTTPS cutover runbook.
 - `openssl` dependency for `tls init|renew` only; Windows hosts without it bring their own PEM
   files. Windows CI must provide `openssl` or skip only the generation tests, with the skip reason.
 - Deploying cookie auth while still on plaintext would break remote sign-in (browsers drop `Secure`
-  cookies on `http://10.11.3.77`); the cutover therefore enables TLS in the same restart.
+  cookies on `http://<HOST_IP>`); the cutover therefore enables TLS in the same restart.
 - The sniffing listener adds a code path in front of Fastify; it is isolated and removable.
 - CLI token rotation needs a restart; in-app rotation does not.
