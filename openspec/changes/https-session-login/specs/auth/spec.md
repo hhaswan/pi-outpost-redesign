@@ -7,15 +7,14 @@
 When a token is configured, the system SHALL require either a valid session cookie (see
 `browser-session-auth`) or `Authorization: Bearer <token>` on the WebSocket, `/branding`,
 `/files/raw`, `/files/download`, `/files/docx-template` and every authenticated `/api/*` route,
-comparing tokens timing-safely. The WebSocket SHALL additionally accept the token in the
-`pi-outpost.bearer.<base64url(token)>` subprotocol. A `token` URL query parameter MUST NOT
+comparing tokens timing-safely. A `token` URL query parameter MUST NOT
 authenticate and SHALL cause rejection. Static assets, `/health`, the CA download routes,
 `/api/login` and `/api/pair` stay public; `/health` MUST NOT expose the session id while auth is
 enabled. The WS handshake completes before an auth failure closes the socket with code 4401, so the
 client can distinguish bad credentials from an unreachable server.
 
 #### Scenario: WsWithValidToken
-- **WHEN** a WS connection presents a valid session cookie from the server's own origin, or a valid Bearer token in the header or subprotocol
+- **WHEN** a WS connection presents a valid session cookie from the server's own origin, or a valid Bearer token in the `Authorization` header
 - **THEN** the connection proceeds normally (Origin allowlist still applies)
 
 #### Scenario: WsWithBadToken
@@ -38,7 +37,9 @@ The standalone frontend SHALL NOT persist the token. On load it SHALL delete any
 `GET /api/session` whether it is signed in. When not signed in, or on a 4401 close, it SHALL stop
 reconnecting and show a sign-in screen offering the token (posted to `/api/login`), a pairing code
 (posted to `/api/pair`) and a link to `/ca`. A successful sign-in reconnects using the session
-cookie. The embed widget SHALL keep using the token its host supplies, sent as a Bearer credential.
+cookie. The embed widget SHALL send the token its host supplies only as a Bearer header on its
+HTTP requests and SHALL NOT put it in any URL; a cross-origin widget therefore cannot open a
+token-protected WebSocket (no header-based WebSocket transport is provided: no widget is in use).
 
 #### Scenario: LegacyStoredTokenRemoved
 - **GIVEN** `localStorage["pi-outpost:token"]` holds a value from an earlier version
@@ -59,4 +60,4 @@ cookie. The embed widget SHALL keep using the token its host supplies, sent as a
 
 #### Scenario: EmbedToken
 - **WHEN** the embed widget is mounted with a token option
-- **THEN** that token is used as a Bearer credential for the WS (subprotocol), branding and file requests, with no sign-in screen and no token in any URL
+- **THEN** that token is sent as a Bearer header on the branding request and appears in no URL, neither the WebSocket URL nor raw-file or download URLs

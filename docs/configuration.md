@@ -392,10 +392,11 @@ install that must stay small can omit it and name no `"mxc"`.
 |-----|--------|
 | `server.port` | Port to listen on (default `3141`). `--port` and `PI_OUTPOST_PORT`/`PORT` override it |
 | `server.host` | Address to bind (default `127.0.0.1` — only change this if you have read the security note above) |
-| `server.tls.certFile` / `server.tls.keyFile` | PEM certificate (including its chain) and matching unencrypted private key for native HTTPS/WSS, TLS 1.2 or newer. Both are required. File paths are relative to the config; `PI_OUTPOST_TLS_CERT` / `PI_OUTPOST_TLS_KEY` override them relative to the launch directory. Invalid, expired or unreadable material refuses startup |
+| `server.tls.certFile` / `server.tls.keyFile` | PEM certificate (including its chain) and matching unencrypted private key for native HTTPS/WSS, TLS 1.2 or newer. Both are required. File paths are relative to the config; `PI_OUTPOST_TLS_CERT` / `PI_OUTPOST_TLS_KEY` override them relative to the launch directory. Invalid, expired or unreadable material refuses startup. `pi-outpost tls init` writes them, see [A local CA](deployment.md#a-local-ca-for-the-lan) |
+| `server.tls.caFile` | Optional CA certificate served publicly on `/ca`, `/ca.crt` and `/ca.mobileconfig`. Must be a CA certificate with no private key in the file, else startup is refused. Written by `pi-outpost tls init`; never name `ca.key` here |
 | `server.allowInsecureHttp` | Default `false`: off-loopback HTTP refuses startup. Explicit `true` permits a protected proxy/container hop and emits a warning; it does not encrypt that hop. `PI_OUTPOST_ALLOW_INSECURE_HTTP=0` or `1` overrides. Keep direct access blocked. See [HTTPS and SSH](deployment.md#remote-transport-https-or-ssh) |
 | `server.allowedOrigins` | Extra exact Origins accepted on the WebSocket, and given CORS headers on the HTTP endpoints |
-| `server.token` | Shared secret required on the WebSocket, `/branding`, `/files/raw` and `/files/docx-template` (`PI_OUTPOST_TOKEN` overrides). Mandatory in practice off loopback |
+| `server.token` | Shared secret: browsers trade it for a session cookie on the sign-in screen; scripts send `Authorization: Bearer`. Required with a cookie or Bearer on the WebSocket, `/branding`, `/files/*` and `/api/*`; a `?token=` URL parameter is refused (`PI_OUTPOST_TOKEN` overrides). Mandatory in practice off loopback. Rotate with **Settings, Security** or `pi-outpost token rotate` |
 | `openBrowser` | Whether starting the server opens the interface (default: wherever a desktop session exists) |
 | `openIn` | `"window"` (its own window, the default) or `"browser"` (a tab). `openBrowser` still decides *whether* |
 | `branding` | `title` (default `"π"`), `welcome` message, `accentColor` |

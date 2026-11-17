@@ -47,7 +47,7 @@ docker compose up --build -d
 docker compose logs -f pi-outpost
 ```
 
-Open `http://127.0.0.1:3141/`, authenticate with the contents of `server-token`, then configure a model
+Open `http://127.0.0.1:3141/`, sign in with the contents of `server-token` (the browser keeps a session cookie, not the token), then configure a model
 in the setup screen. Its key is saved in `/data/agent`, not passed to commands in an environment
 variable. The app is single-tenant: use a separate Compose project, data volume and token for each user.
 The template explicitly sets `server.allowInsecureHttp: true` for the container-to-host

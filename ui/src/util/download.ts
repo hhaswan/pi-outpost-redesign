@@ -29,10 +29,9 @@ export interface DownloadConnection {
   workspace?: string;
 }
 
-/** URL of `/files/download` for these browser-root-relative paths; the token rides the query string, as for `/files/raw`. */
+/** URL of `/files/download` for these browser-root-relative paths; the session cookie authenticates it, never a URL token. */
 export function downloadUrl(connection: DownloadConnection, paths: readonly string[]): string {
   const params = paths.map((path) => `path=${encodeURIComponent(path)}`);
-  if (connection.token) params.push(`token=${encodeURIComponent(connection.token)}`);
   if (connection.workspace !== undefined) params.push(`workspace=${encodeURIComponent(connection.workspace)}`);
   return `${connection.serverUrl}/files/download?${params.join("&")}`;
 }

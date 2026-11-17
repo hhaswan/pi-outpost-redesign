@@ -211,14 +211,61 @@ exact browser origin. Remote listeners refuse plaintext HTTP by default:
    `localhost` and `127.0.0.1` are trusted automatically, so a connection from
    `https://outpost.example.com:3141` is rejected as a forbidden origin until you list it.
 
-Then open `https://outpost.example.com:3141/?token=<secret>` once. The token is stored locally
-and stripped from the URL.
+Then open `https://outpost.example.com:3141` and paste the token on the sign-in screen. The
+browser receives a session cookie and never stores the token; links with `?token=` no longer
+sign in. No certificate for a LAN address? See [Use HTTPS on your LAN](#use-https-on-your-lan-with-a-local-ca).
 
 The certificate must match the hostname (or IP address) in that URL. Protect the private
 key with service-account file permissions and restart after renewing it. You can also use
 an [SSH tunnel or TLS reverse proxy](deployment.md#remote-transport-https-or-ssh). Remember what
 you are exposing — an agent that can read your files, and write or run commands if you
 granted it that.
+
+## Use HTTPS on your LAN with a local CA
+
+On the host (needs `openssl`):
+
+```bash
+pi-outpost tls init --ip 192.168.1.20    # the address your devices type
+```
+
+It creates a private CA and a server certificate in `~/.config/pi-outpost/tls/` and writes
+`server.tls` into your configuration. Add `https://192.168.1.20:3141` to
+`server.allowedOrigins`, remove `server.allowInsecureHttp` if set, and restart. Running it
+again reuses the same CA, so devices never need to trust a new one; `pi-outpost tls renew`
+issues a new server certificate from it (yearly; Settings warns 30 days ahead). Back up
+`~/.config/pi-outpost/tls` — see [backups](deployment.md#where-the-tls-material-lives-and-backups).
+
+On each device, once:
+
+1. Open `https://192.168.1.20:3141/ca`. The browser warns this one time, because it does not
+   trust the CA yet. Compare the fingerprint on the page with the one in **Settings,
+   Security, Server certificate** on a device that already trusts the server (or with
+   `openssl x509 -in ~/.config/pi-outpost/tls/ca.crt -noout -fingerprint -sha256` on the host).
+2. Install the certificate as the page says for your system. On an iPhone or iPad: tap
+   **iPhone / iPad profile**, install it in Settings, then turn on full trust in **Settings,
+   General, About, Certificate Trust Settings**.
+3. Reload. The address bar shows a trusted connection.
+
+Settings, Security also shows a QR code of the `/ca` page, to open it on a phone.
+
+## Sign in, pair a device, sign out
+
+- **Sign in:** paste the token on the sign-in screen. The browser stays signed in for 14 days
+  after its last use; the token itself is not stored in the browser.
+- **Pair a device without typing the token:** on a signed-in device open **Settings,
+  Security, Pair a device**. Scan the QR code with the new device, or type the 10-character
+  code on its sign-in screen (**Pairing code**). A code works once, for 2 minutes. The new
+  device gets its own sign-in.
+- **Sign out:** **Settings, Security, Sign out** signs this browser out. **Sign out all
+  devices** signs every browser out at once (open tabs return to the sign-in screen). On
+  the host: `pi-outpost sessions revoke-all`.
+- **Lost a device, or shared the token by mistake:** **Rotate token** shows a new token once
+  (copy it) and, by default, signs every other device out. On the host:
+  `pi-outpost token rotate` (applies at the next restart; `--revoke-sessions` signs everyone
+  out). Rotation is refused when the token comes from `PI_OUTPOST_TOKEN`.
+
+Scripts keep using `Authorization: Bearer <token>`; they create no sign-in session.
 
 ## Run it permanently on a Linux server
 
@@ -906,6 +953,47 @@ a compact **Process** disclosure. They start collapsed. A subagent's raw transcr
 requires opening its own summary too. Assistant answers and errors remain visible.
 The saved-session picker nests children under their actual parent session; missing
 parents and filtered search matches remain reachable.
+
+## Manage sub-agents and their skills
+
+With the [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) package
+installed, **Agents** in the header (in the **⋯** controls sheet on a phone) lists every
+sub-agent the package sees for the current project, in its load order: built-in, package,
+global (`<agentDir>/agents`), shared (`<project>/.agents/agents`) and project
+(`<project>/.pi/agents`). Each card shows the source file, whether the agent is disabled,
+and whether it overrides or is overridden by an agent of the same name.
+
+Only global and project agents are edited here. **+ New agent** creates one in either
+scope; built-in, package and shared agents are read-only and offer **Copy to global** or
+**Copy to project** (a copy with the same name overrides the original). An editable agent
+has:
+
+- **Skills**: *All skills* (no `skills:` key), *No skills* (`skills: false`) or a
+  checklist written as `skills: a, b`; clearing every box writes `skills: false`. Only
+  skills pi-subagents' loader resolves for this project are selectable — those under
+  `<project>/.pi/skills`, `<project>/.agents/skills`, `<agentDir>/skills`,
+  `~/.agents/skills` or `~/.pi/skills`, not behind a symlinked root. Other loaded skills
+  are listed disabled with the reason, and an attached name that no longer resolves is
+  flagged.
+- **Tools**: the default (all built-in tools) or an allow-list of built-ins, with other
+  entries such as `ext:…` or `mcp__…` kept as typed.
+- **Model** (or inherit), **Thinking** (or inherit), **Prompt mode** and the **System
+  prompt** (the file body), plus enable/disable, rename and delete (with confirmation).
+
+Saving rewrites only the keys you changed; other keys, comments, order and line endings
+are kept. If the file changed on disk since it was opened, the save is refused —
+**Reload from disk** shows the current file. The browser names an agent by scope and name
+only, and the server writes nowhere but the two agent folders. pi-subagents re-reads the
+files on every call, so changes apply without a restart.
+
+**Run in this project** starts an enabled agent with a prompt through pi-subagents'
+`subagents:rpc:spawn` on the project's own runtime and shows the agent id it returned. It
+is unavailable on the `rpc` agent runtime and when pi-subagents is not loaded.
+
+Tool and skill limits shape what a sub-agent is offered; they are **not a security
+sandbox**. A sub-agent with `bash` can read any file the server account can, and every
+sub-agent runs with the session's privileges. Project agents are repository content: check
+the source file of an agent a cloned repository brings.
 
 ## Read activity and return to a workspace
 

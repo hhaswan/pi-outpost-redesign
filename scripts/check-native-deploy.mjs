@@ -6,6 +6,7 @@ import path from "node:path";
 import { execFileSync, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { get } from "node:http";
+import { get as httpsGet } from "node:https";
 import WebSocket, { WebSocketServer } from "ws";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { freePort, makeWorkspace, connect } from "../server/test/harness.mjs";
@@ -16,8 +17,15 @@ assert.equal(process.getuid(), 0);
 const repo = process.cwd();
 const script = await fs.readFile("scripts/deploy-custom-native.mjs", "utf8");
 const helpers = script.slice(script.indexOf("async function connection("), script.indexOf("async function verifyBrowser("));
-function helper(port, token) {
-  return new Function("WebSocket", "port", "authorization", "DEPLOY_ADDRESS", `${helpers}; return {connection,restore,quiet};`)(WebSocket, port, `Bearer ${token}`, DEPLOY_ADDRESS);
+function helper(port, token, tls) {
+  const live = { scheme: tls ? "https" : "http", authorization: `Bearer ${token}`, ...(tls ? { ca: tls.ca } : {}) };
+  return new Function("WebSocket", "port", "live", "DEPLOY_ADDRESS", `${helpers}; return {connection,restore,quiet};`)(WebSocket, port, live, DEPLOY_ADDRESS);
+}
+/** GET over HTTPS trusting only the given CA. */
+function httpsStatus(url, ca) {
+  return new Promise((resolve, reject) => {
+    httpsGet(url, { ca }, (response) => { response.resume(); resolve(response.statusCode); }).on("error", reject);
+  });
 }
 const mock = new WebSocketServer({ host: "127.0.0.1", port: 0 });
 await new Promise((resolve) => mock.once("listening", resolve));
@@ -135,8 +143,40 @@ try {
   assert.equal(afterRollback.hello.sessionId, second.getSessionId()); afterRollback.close();
   assert.equal((await fetch(`http://127.0.0.1:${port}/health`)).status, 200);
   console.log("PASS RollbackPreservesSelectionMadeAfterIngressReopened");
+
+  // The HTTPS cutover as the runbook does it: tls init, token rotate, then deploy with the
+  // previous configuration describing the still-running plain-HTTP server.
+  const cliEnv = { ...process.env, HOME: home, PI_OFFLINE: "1" };
+  delete cliEnv.XDG_CONFIG_HOME;
+  delete cliEnv.PI_OUTPOST_TOKEN;
+  const previousConfig = `${configPath}.pre-https`;
+  await fs.copyFile(configPath, previousConfig);
+  const cliEntry = path.join(repo, "cli/dist/pi-outpost.mjs");
+  await promisify(execFile)(process.execPath, [cliEntry, "tls", "init", "--ip", "127.0.0.1", "--config", configPath], { cwd: repo, env: cliEnv });
+  await promisify(execFile)(process.execPath, [cliEntry, "token", "rotate", "--config", configPath], { cwd: repo, env: cliEnv });
+  const cutover = JSON.parse(await fs.readFile(configPath, "utf8"));
+  assert.ok(cutover.server.tls?.caFile && cutover.server.token !== "test");
+  const ca = await fs.readFile(cutover.server.tls.caFile);
+  await promisify(execFile)(process.execPath, [path.join(repo, "scripts/deploy-custom-native.mjs"), configPath, service, "--previous-config", previousConfig], {
+    cwd: repo, timeout: 240_000, env: { ...process.env, HOME: home },
+  });
+  const tlsRecord = JSON.parse(await fs.readFile(resultPath, "utf8"));
+  releases.push(tlsRecord.release);
+  assert.equal(tlsRecord.status, "deployed");
+  assert.ok(tlsRecord.checks.some((check) => check.includes("Playwright over https")));
+  assert.equal(await httpsStatus(`https://127.0.0.1:${port}/health`, ca), 200);
+  const plain = await fetch(`http://127.0.0.1:${port}/health?token=x`, { redirect: "manual" });
+  assert.equal(plain.status, 301);
+  assert.equal(plain.headers.get("location"), `https://127.0.0.1:${port}/`);
+  const secure = await helper(port, cutover.server.token, { ca }).connection(root);
+  assert.equal(secure.hello.sessionId, second.getSessionId(), "the selection survived the cutover"); secure.close();
+  await assert.rejects(helper(port, "test", { ca }).connection(root), /closed/, "the old token is refused");
+  const sessionsFile = path.join(home, ".config/pi-outpost/sessions.json");
+  const leftBehind = await fs.readFile(sessionsFile, "utf8").then((text) => JSON.parse(text).sessions.length, () => 0);
+  assert.equal(leftBehind, 0, "the deployment check left no browser session behind");
+  console.log("PASS HttpsCutoverWithPreviousConfiguration");
   await fs.writeFile(path.join(repo, ".local/native-deploy-proof.json"), JSON.stringify({ result: "passed", checks: [
-    "exact saved session restored", "real systemd restart", "immutable custom release selected", "authenticated mobile browser and model search", "CLI bridge installed", "ingress unlocked", "browser failure triggers rollback without reverting a newer user session selection",
+    "exact saved session restored", "real systemd restart", "immutable custom release selected", "authenticated mobile browser and model search", "CLI bridge installed", "ingress unlocked", "browser failure triggers rollback without reverting a newer user session selection", "HTTPS cutover with tls init, token rotate and --previous-config",
   ] }, null, 2));
   console.log("PASS RealNativeDeploymentAndFreshSessionIdentity");
 } finally {

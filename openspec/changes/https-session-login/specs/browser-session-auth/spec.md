@@ -104,18 +104,12 @@ from its own address bar without storing or using it.
 
 ### Requirement: BearerTokenForNonBrowserClients
 
-Protected routes SHALL accept `Authorization: Bearer <master token>`. The WebSocket SHALL also
-accept the token in the subprotocol `pi-outpost.bearer.<base64url(token)>` and SHALL then select the
-subprotocol `pi-outpost`. Bearer authentication SHALL NOT create a session.
+Protected routes, the WebSocket included, SHALL accept `Authorization: Bearer <master token>`.
+Bearer authentication SHALL NOT create a session.
 
 #### Scenario: DeployScriptBearer
 - **WHEN** a client without cookie opens `/ws` with `Authorization: Bearer <master token>`
 - **THEN** the connection proceeds and `sessions.json` is unchanged
-
-#### Scenario: EmbedSubprotocolBearer
-- **GIVEN** an embed host origin listed in `server.allowedOrigins`
-- **WHEN** the widget opens `/ws` offering subprotocol `pi-outpost.bearer.<base64url(token)>`
-- **THEN** the connection proceeds with subprotocol `pi-outpost`
 
 ### Requirement: SignOutAndRevocation
 

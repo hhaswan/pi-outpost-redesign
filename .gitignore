@@ -67,3 +67,11 @@ RELEASE_NOTES.md
 
 # Exact CLI package handed from the release job to the Docker build.
 /deploy/docker/pi-outpost.tgz
+
+# TLS and sign-in material belongs in the user config directory (~/.config/pi-outpost),
+# never in a checkout. If a config dir or a copy of it ever lands here, keep it out of git.
+ca.key
+server.key
+**/pi-outpost/tls/
+sessions.json
+*.pre-https

@@ -11,7 +11,8 @@ agent resources; it should let the user manage sub-agents and their skills from 
 
 ## What Changes
 
-- An **Agents** panel in Settings listing the sub-agents visible to the current project, with
+- An **Agents** panel, opened from an **Agents** header button (and from the phone's "More
+  controls" sheet; a full-screen sheet on a phone, a dialog on wider screens), listing the sub-agents visible to the current project, with
   their source (global, project, shared `.agents/agents`, package, built-in) and override status.
 - **Create, duplicate, rename, delete, enable/disable** agent files in the two writable scopes
   (global and current project). Read-only sources can be duplicated into a writable scope.
@@ -41,11 +42,11 @@ its behaviour does not change.
 ## Impact
 
 - **Server**: new `server/src/subagentFiles.ts` (discovery, confinement, frontmatter edit),
-  WebSocket message handlers in `server/src/index.ts`, spawn/ping RPC added to
+  one WebSocket message handler in `server/src/index.ts`, spawn/ping RPC added to
   `server/src/subagentActivity.ts` (already holds the runtime's `pi.events`), shared wire types in
   `@pi-outpost/shared`.
-- **UI**: new `ui/src/components/AgentsPanel.tsx` opened from `SettingsMenu.tsx`; `useAgent.ts`
-  wire handling.
+- **UI**: new `ui/src/components/AgentsPanel.tsx` opened from `Header.tsx` (wide header and the
+  compact header's controls sheet); `useAgent.ts` wire handling.
 - **Tests**: server unit and wire tests, UI tests, running-app Playwright.
 - **No new dependencies.** No change to pi-subagents itself; it re-reads agent files on every
   Agent call, so edits apply without a restart.

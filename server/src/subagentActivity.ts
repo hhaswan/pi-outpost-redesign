@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 
 type Activity = { running: number; queued: number; known: boolean };
-type Activation = { snapshot: Activity; dispose: (notify?: boolean) => void };
+type EventBus = { on(channel: string, handler: (data: unknown) => void): () => void; emit(channel: string, data: unknown): void };
+type Activation = { snapshot: Activity; dispose: (notify?: boolean) => void; events?: EventBus };
 
 // This registry exposes snapshots only; each ledger belongs to one extension bus.
 const activations = new Map<string, Activation>();
@@ -18,6 +20,29 @@ export function hasActiveOrUncertainSubagents(sessionId: string): boolean {
   return activity !== undefined && (!activity.known || activity.running + activity.queued > 0);
 }
 
+/**
+ * One pi-subagents cross-extension RPC on this session's own event bus: subscribe to the
+ * request's reply channel, emit, and settle on the reply envelope or the timeout.
+ */
+export function subagentRpc(sessionId: string, method: "ping" | "spawn", params: Record<string, unknown>, timeoutMs = 10_000): Promise<unknown> {
+  const events = activations.get(sessionId)?.events;
+  if (!events) return Promise.reject(new Error("This project's runtime has no extension event bus"));
+  const requestId = randomUUID();
+  const channel = `subagents:rpc:${method}`;
+  return new Promise((resolve, reject) => {
+    let off = () => {};
+    const timer = setTimeout(() => { off(); reject(new Error(`pi-subagents did not answer ${method} within ${timeoutMs / 1000} s`)); }, timeoutMs);
+    off = events.on(`${channel}:reply:${requestId}`, (raw) => {
+      clearTimeout(timer);
+      off();
+      const reply = raw as { success?: unknown; data?: unknown; error?: unknown } | null;
+      if (reply?.success === true) resolve(reply.data);
+      else reject(new Error(typeof reply?.error === "string" ? reply.error : `pi-subagents refused ${method}`));
+    });
+    try { events.emit(channel, { ...params, requestId }); } catch (error) { clearTimeout(timer); off(); reject(error); }
+  });
+}
+
 /** Observe explicitly detached, top-level Agent calls on this runtime's private event bus. */
 export function createSubagentActivityExtension(sessionId: string, onChange: () => void): ExtensionFactory {
   return (pi) => {
@@ -30,6 +55,7 @@ export function createSubagentActivityExtension(sessionId: string, onChange: () 
     let historyLost = false;
     let disposed = false;
     const activation: Activation = {
+      events: pi.events,
       snapshot: { running: 0, queued: 0, known: true },
       dispose(notify = true) {
         if (disposed) return;

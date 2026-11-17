@@ -1221,11 +1221,13 @@ export type LoginPrompt =
 
 /** Server -> client */
 export type { McpConfigScope, McpConfigDocument, McpLiveServer, McpManagementOperation, McpManagementData, McpManagementReply } from "./mcpManagement.ts";
+export type { SubagentScope, SubagentSource, SubagentThinking, SubagentSkills, SubagentEntry, SubagentSkillInfo, SubagentManagementData, SubagentChanges, SubagentManagementOperation, SubagentManagementReply } from "./subagentManagement.ts";
 
 export type ServerMessage =
   | { type: "connection_probe_ack"; requestId: string }
   | ({ type: "cli_bridge_result" } & import("./cliBridge.ts").CliBridgeReply)
   | ({ type: "mcp_management_result" } & import("./mcpManagement.ts").McpManagementReply)
+  | ({ type: "subagent_management_result" } & import("./subagentManagement.ts").SubagentManagementReply)
   | ({ type: "hello" } & SessionSnapshot)
   | ({ type: "session_replaced" } & SessionSnapshot)
   /**
@@ -1708,6 +1710,7 @@ export type ClientMessage =
   | { type: "recent_sessions" }
   | { type: "cli_bridge"; requestId: string; operation: import("./cliBridge.ts").CliBridgeOperation }
   | { type: "mcp_management"; requestId: string; operation: import("./mcpManagement.ts").McpManagementOperation }
+  | { type: "subagent_management"; requestId: string; operation: import("./subagentManagement.ts").SubagentManagementOperation }
   /** Set a session's display name (any saved session, live or not). Empty name clears it. */
   | { type: "rename_session"; path: string; name: string }
   /** Find sessions by name, first message or transcript content (matched server-side). */

@@ -158,7 +158,9 @@ describe("GET /files/raw", () => {
   test("with a token configured, bytes need the token", async () => {
     assert.equal((await fetch(`${guarded.base}/files/raw?path=plot.png`)).status, 401);
     assert.equal((await fetch(`${guarded.base}/files/raw?path=plot.png&token=wrong`)).status, 401);
-    assert.equal((await fetch(`${guarded.base}/files/raw?path=plot.png&token=${TOKEN}`)).status, 200);
+    // TokenInRawUrlRejected: even the correct token, even beside a valid Bearer header.
+    assert.equal((await fetch(`${guarded.base}/files/raw?path=plot.png&token=${TOKEN}`)).status, 401);
+    assert.equal((await fetch(`${guarded.base}/files/raw?path=plot.png&token=${TOKEN}`, { headers: { Authorization: `Bearer ${TOKEN}` } })).status, 401);
     const bearer = await fetch(`${guarded.base}/files/raw?path=plot.png`, {
       headers: { Authorization: `Bearer ${TOKEN}` },
     });

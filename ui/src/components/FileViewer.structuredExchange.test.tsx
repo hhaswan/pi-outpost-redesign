@@ -215,10 +215,10 @@ describe("a figure referenced from a document being read", () => {
     expect(source.searchParams.get("path")).toBe("reports/q3/figures/power.svg");
   });
 
-  it("carries the token, since an img cannot send a header", () => {
+  it("never carries the token: the session cookie authenticates img", () => {
     setup("![f](figures/power.svg)\n", "notes.md", { token: "secret-token" });
     const source = new URL(screen.getByRole("img").getAttribute("src")!, "http://host");
-    expect(source.searchParams.get("token")).toBe("secret-token");
+    expect(source.searchParams.has("token")).toBe(false);
   });
 
   it("leaves an absolute reference exactly as written", () => {

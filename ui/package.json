@@ -51,6 +51,7 @@
     "katex": "^0.18.7",
     "mermaid": "^12.3.0",
     "pdfjs-dist": "6.4.299",
+    "qrcode-generator": "2.0.4",
     "react-markdown": "^10.1.0",
     "react-zoom-pan-pinch": "^4.2.0",
     "rehype-katex": "^7.0.1",

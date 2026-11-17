@@ -17,6 +17,9 @@ export interface HarnessServer {
   root: string;
   /** The config file the server loaded. */
   configFile: string;
+  /** The user config directory the server sees: sessions.json and tls/ live here. */
+  configDir: string;
+  /** The WebSocket URL; a token argument puts it in the query, which the server refuses. */
   wsUrl(token?: string): string;
   /** Everything the server printed so far. */
   log(): string;
@@ -62,5 +65,7 @@ export function makeWorkspace(files?: Record<string, string | Buffer | Uint8Arra
 /** Start a server confined to `root`; `config` is merged over the harness defaults. */
 export function startServer(root: string, config?: Record<string, unknown>, options?: StartServerOptions): Promise<HarnessServer>;
 export function connect(url: string, options?: WebSocket.ClientOptions): HarnessClient;
+/** WebSocket options carrying `Authorization: Bearer <token>`. */
+export function bearer(token: string, options?: WebSocket.ClientOptions): WebSocket.ClientOptions;
 /** A minimal valid PNG. */
 export const PNG_BYTES: Buffer;

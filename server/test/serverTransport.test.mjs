@@ -5,7 +5,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
-import { connect, makeWorkspace, startServer } from "./harness.mjs";
+import { bearer, connect, makeWorkspace, startServer } from "./harness.mjs";
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "tls");
 const certFile = path.join(fixtures, "test-cert.pem");
@@ -39,7 +39,7 @@ test("HttpsAndWss", async () => {
   assert.equal(JSON.parse(health.body).sessionId, undefined);
   assert.equal((await get(`${server.base}/branding`)).status, 401);
   assert.equal((await get(`${server.base}/branding`, { headers: { authorization: `Bearer ${token}` } })).status, 200);
-  const client = connect(server.wsUrl(token), { ca, origin: server.base });
+  const client = connect(server.wsUrl(), bearer(token, { ca, origin: server.base }));
   try {
     await client.open();
     assert.ok((await client.waitFor("hello", 15000)).sessionId);
@@ -50,7 +50,7 @@ test("HttpsAndWss", async () => {
     assert.equal(await denied.waitForClose(), 4401);
     assert.deepEqual(denied.received, []);
   }
-  const forbidden = connect(server.wsUrl(token), { ca, origin: "https://untrusted.example" });
+  const forbidden = connect(server.wsUrl(), bearer(token, { ca, origin: "https://untrusted.example" }));
   assert.equal(await forbidden.waitForClose(), 1008);
   assert.deepEqual(forbidden.received, []);
   await assert.rejects(get(`${server.base}/health`, { maxVersion: "TLSv1.1", minVersion: "TLSv1" }));
@@ -59,8 +59,10 @@ test("HttpsAndWss", async () => {
   assert.match(server.log(), /\[server\] https:\/\//);
 });
 
-test("NoPlaintextFallback", async () => {
-  await assert.rejects(get(`http://127.0.0.1:${server.port}/branding`, { headers: { authorization: `Bearer ${token}` } }, http));
+test("NoPlaintextFallback: plaintext gets only the fixed redirect, never the route", async () => {
+  const answer = await get(`http://127.0.0.1:${server.port}/branding`, { headers: { authorization: `Bearer ${token}` } }, http);
+  assert.equal(answer.status, 301);
+  assert.equal(answer.body, "");
 });
 
 test("RemoteHttpRefused before any HTTP listener exists", async () => {
@@ -78,7 +80,7 @@ test("ProtectedHopOptIn", async () => {
     assert.match(hop.log(), /HTTP is explicitly enabled.*unencrypted/);
     const response = await fetch(`${hop.base}/branding`, { headers: { "x-forwarded-proto": "https" } });
     assert.equal(response.status, 401);
-    const client = connect(hop.wsUrl(token));
+    const client = connect(hop.wsUrl(), bearer(token));
     try { assert.ok((await client.waitFor("hello", 15000)).sessionId); }
     finally { client.close(); }
   } finally { await hop.stop(); }

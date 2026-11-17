@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
 import { Packer } from "docx";
 import { docxDocument, markdownToDocx } from "@pi-outpost/shared/docx";
-import { connect, makeWorkspace, startServer } from "./harness.mjs";
+import { connect, makeWorkspace, startServer, bearer } from "./harness.mjs";
 import { readAllZipEntries } from "@pi-outpost/office/zip.ts";
 
 const TEMPLATE = fileURLToPath(new URL("./fixtures/docx-template.dotx", import.meta.url));
@@ -37,7 +37,7 @@ function post(server, body, token = TOKEN) {
 }
 
 async function hello(server) {
-  const client = connect(server.wsUrl(TOKEN));
+  const client = connect(server.wsUrl(), bearer(TOKEN));
   try {
     return await client.waitFor("hello", 30_000);
   } finally {

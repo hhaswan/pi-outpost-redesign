@@ -1,4 +1,5 @@
 import { CliSessions } from "./components/CliSessions";
+import { AgentsPanel } from "./components/AgentsPanel";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { ActivityStrip } from "./components/ActivityStrip";
@@ -56,6 +57,7 @@ import { ModelBar } from "./components/ModelBar";
 import { Onboarding } from "./components/Onboarding";
 import { Sidebar } from "./components/Sidebar";
 import { TokenGate } from "./components/TokenGate";
+import { SecuritySettings } from "./components/SecuritySettings";
 import { WorkPlanPanel } from "./components/WorkPlanPanel";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { OutcomePanel } from "./components/OutcomePanel";
@@ -123,12 +125,19 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
     state,
     authToken,
     submitToken,
+    submitPairingCode,
+    session,
+    signInNotice,
+    signOut,
+    rotateToken,
+    createPairingCode,
     prompt,
     abort,
     cancelPendingPrompt,
     setMcpManagerOpen,
     manageMcp,
     manageCliBridge,
+    manageSubagents,
     setModel,
     setThinking,
     newSession,
@@ -250,6 +259,8 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
   }, [boundKey]);
   const [cliSessionsOpen, setCliSessionsOpen] = useState(false);
   useEffect(() => { setCliSessionsOpen(false); }, [boundKey, state.sessionId]);
+  const [agentsOpen, setAgentsOpen] = useState(false);
+  useEffect(() => { setAgentsOpen(false); }, [boundKey]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarMounted, setSidebarMounted] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -943,7 +954,14 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
   if (state.authRequired) {
     return (
       <ThemeContext.Provider value={theme}>
-        <TokenGate title={state.branding.title} onSubmit={submitToken} />
+        <TokenGate
+          title={state.branding.title}
+          onSubmit={submitToken}
+          {...(embedded ? {} : { onSubmitCode: submitPairingCode })}
+          caAvailable={Boolean(session?.ca)}
+          urlTokenIgnored={signInNotice.urlTokenIgnored}
+          pairingError={signInNotice.pairingError}
+        />
       </ThemeContext.Provider>
     );
   }
@@ -1275,6 +1293,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             versions={state.versions}
             onBrowseServerPath={browseServerDirectory}
             onCloseServerBrowser={closeServerBrowser}
+            security={!embedded && session?.authRequired && session.signedIn ? <SecuritySettings session={session} onSignOut={signOut} onRotateToken={rotateToken} onCreatePairingCode={createPairingCode} /> : undefined}
             settingsPickerBlocked={headerPicker !== null && headerPicker !== "settings"}
             onSettingsPickerOpened={() => setHeaderPicker("settings")}
             onRestartSession={restartSession}
@@ -1295,6 +1314,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             // On the start screen no conversation is chosen yet: show none of the connected one.
             sessionName={state.startScreen ? undefined : state.sessionName}
             {...(!embedded && !state.workspaceLocked ? { onOpenCliSessions: () => setCliSessionsOpen(true) } : {})}
+            {...(!embedded ? { onOpenAgents: () => setAgentsOpen(true) } : {})}
             workPlanChip={state.workPlan && !state.startScreen && !isNarrowViewport && !workPlanDisplayedOpen && (
               <WorkPlanPanel plan={state.workPlan} open={false} onToggle={toggleWorkPlan} onOpenWorkspace={() => {}} />
             )}
@@ -1766,6 +1786,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
       )}
 
       <ExtensionNotifications notifications={state.notifications} onDismiss={dismissNotification} />
+      {agentsOpen && <AgentsPanel key={boundKey ?? "none"} state={state.subagentManagement} models={state.models} connected={state.connected} phone={isNarrowViewport} onRequest={manageSubagents} onClose={() => setAgentsOpen(false)} />}
       {cliSessionsOpen && <CliSessions state={state.cliBridge} connected={state.connected} onRequest={manageCliBridge} onClose={() => setCliSessionsOpen(false)} />}
       {state.mcpManagerOpen && <MCPManager key={state.workspace?.root ?? state.sessionId} onClose={() => setMcpManagerOpen(false)}
         state={state.mcpManagement} onRequest={manageMcp} busy={state.isStreaming || state.switching}

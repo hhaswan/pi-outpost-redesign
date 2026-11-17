@@ -24,9 +24,9 @@ function deps(response?: Response): DownloadDeps & { clicks: { href: string; dow
 }
 
 describe("downloadUrl", () => {
-  it("carries the origin, every path, the token and the project, all encoded", () => {
+  it("carries the origin, every path and the project, all encoded, and never the token", () => {
     expect(downloadUrl(connection, ["a b.txt", "docs/é"])).toBe(
-      "https://outpost.example:4322/files/download?path=a%20b.txt&path=docs%2F%C3%A9&token=t%26k&workspace=proj%201",
+      "https://outpost.example:4322/files/download?path=a%20b.txt&path=docs%2F%C3%A9&workspace=proj%201",
     );
     expect(downloadUrl({ serverUrl: "", token: null }, ["x"])).toBe("/files/download?path=x");
   });

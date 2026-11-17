@@ -29,6 +29,24 @@ evidence comes from targeted `rg` and reads at HEAD `42b1198`:
 - Live service: systemd `pi-outpost`, custom build pinned by `scripts/deploy-custom-native.mjs`,
   which refuses a config with `server.tls`.
 
+## User decisions (open questions answered)
+
+1. No embed widget is in use: the WebSocket bearer subprotocol and the embed object-URL fetches
+   are dropped. Bearer headers stay for scripts and non-browser clients. The embed e2e test that
+   relied on a cross-origin token socket (`e2e/embed.spec.ts`, "a token-protected backend works
+   across origins") is skipped with that reason; the bench probes that pass `&token=` say so.
+2. SANs: `10.11.3.77`, `127.0.0.1`, `localhost` and the host name only. The default address is the
+   configured literal host, else the source address of the default route (not every interface:
+   this host has many Docker bridges); `--ip` replaces it.
+3. `openssl` is an accepted dependency of `tls init|renew`.
+4. Plain HTTP on the TLS port keeps the fixed 301 redirect.
+5. TLS material must survive re-pull, re-clone, rebuild and redeploy: `tls init` reuses an
+   existing CA (only `--new-ca` replaces it, moving the old one aside, with a re-trust warning)
+   and keeps a valid server certificate; the TLS directory and `sessions.json` stay in the user
+   config directory; `.gitignore` guards key and session file names; the deploy preflight refuses
+   TLS paths in the repository and a certificate that does not chain to `caFile`; expiry under
+   30 days is logged and shown in Settings, never auto-renewed (that needs `ca.key`).
+
 ## Goals / Non-Goals
 
 Goals: trusted HTTPS on the LAN without a public CA; no token in URLs or browser storage;
@@ -46,13 +64,15 @@ installation on clients.
   (directory `0700`): `ca.key` (`0600`), `ca.crt`, `server.key` (`0600`), `server.crt`. Default
   SANs: the configured host when it is a literal address, otherwise every non-internal IPv4 address
   of the machine; plus `127.0.0.1`, `localhost`, `os.hostname()`. Live result:
-  `IP:10.11.3.77, IP:127.0.0.1, DNS:localhost, DNS:<hostname>`.
+  `IP:10.11.3.77, IP:127.0.0.1, DNS:localhost, DNS:<hostname>`. Superseded by decision 2:
+  the default is the configured literal host, else the default route's source address.
 - Generation shells out to `openssl` with `execFile` (no shell, no new npm dependency). ECDSA P-256,
   SHA-256. CA: 3650 days, `basicConstraints=critical,CA:TRUE,pathlen:0`,
   `keyUsage=critical,keyCertSign,cRLSign`. Server: 365 days (within Apple's 825-day limit for
   user-trusted CAs), `extendedKeyUsage=serverAuth`, `keyUsage=critical,digitalSignature`, SAN as
   above. Missing `openssl` fails with a message naming it and the "bring your own PEM files" path.
-- `init` refuses when `ca.key` exists (points to `renew`). `renew` re-issues only the server key and
+- `init` reuses an existing CA (decision 5) and keeps a server certificate with more than 30
+  days left; `--new-ca` replaces the CA. `renew` re-issues only the server key and
   certificate from the existing CA, so devices never reinstall anything for 10 years. Both commands
   write `server.tls.{certFile,keyFile,caFile}` into the loaded config file through the existing
   config persistence (permissions kept), and say a restart is needed.
@@ -103,8 +123,7 @@ token. If the factory proves fragile it can be dropped without touching anything
   sockets immediately.
 - Auth helper (one function used by every protected route):
   1. any `token` query parameter: reject `401` (WS: 4401) and log the route without the query;
-  2. `Authorization: Bearer <master token>` or, on `/ws` only, subprotocol
-     `pi-outpost.bearer.<base64url(token)>` (server answers with subprotocol `pi-outpost`): accept;
+  2. `Authorization: Bearer <master token>`: accept (no subprotocol, decision 1);
   3. session cookie: accept only when `Origin` is absent or its host equals the request `Host`
      (embed origins must use Bearer); 
   4. no token configured (loopback-only server): accept, as today.
@@ -145,8 +164,8 @@ lazy-loaded in the UI.
 - Settings, Security section: certificate fingerprint + QR of `https://<host>/ca`; "Pair a device"
   (QR, typed code, countdown); signed-in device count; "Sign out"; "Sign out all devices";
   "Rotate token".
-- Embed (cross-origin host with explicit token): WS uses the bearer subprotocol; `/files/raw` and
-  `/files/download` are fetched with `Authorization` and shown via object URLs.
+- Embed (cross-origin host with explicit token): dropped (decision 1). The token goes only in the
+  branding request's Bearer header, never in a URL.
 
 ## Threats
 
@@ -180,18 +199,24 @@ Must change (HTTPS and/or cookie/Bearer):
   `host-questions/serve.mts`): Bearer header or `/api/login`.
 - `server/test/harness.mjs` and `server/test/auth.test.mjs`, `files-raw.test.mjs`,
   `files-download.test.mjs`, `mcpManagement.test.ts`, CORS route inventory tests: URL token becomes
-  a rejection case; add cookie and subprotocol cases.
+  a rejection case; add cookie cases.
 - `e2e/global-setup.ts`, `e2e/secure-transport.spec.ts`, `e2e/embed.spec.ts`,
   `e2e/openwebui-embed.spec.ts`, other e2e specs passing tokens, `e2e/host/*`: sign-in flow and
-  embed bearer subprotocol.
+  the cross-origin token socket test skipped (decision 1).
 - `deploy/docker/browser.mjs`, `test.mjs`, `bootstrap.mjs`, `compose.yml`: container recipes keep
   the protected-hop HTTP exception; sign-in via `/api/login`.
 - UI unit tests: `authToken.test.ts`, `TokenGate.test.tsx`, `workspaceSelection.test.ts`,
   `useAgent.test.ts`.
 - Docs: `docs/getting-started.md`, `docs/how-to.md`, `docs/docker.md` (token links, TLS setup).
 
-Not affected: `scripts/native-deploy-network.mjs` (port-based iptables gate),
-`scripts/update-custom-native.sh` (no URLs), the CLI bridge extension, print mode.
+`scripts/update-custom-native.sh` gains an optional second argument, the previous configuration,
+passed to the deploy as `--previous-config`: during the cutover the running server still speaks
+HTTP with the old token while the configuration file already has `server.tls` and the rotated
+token. The live check signs in with Bearer through Playwright `extraHTTPHeaders` (the WebSocket
+included), so it creates no session and rotates nothing.
+
+Not affected: `scripts/native-deploy-network.mjs` (port-based iptables gate), the CLI bridge
+extension, print mode (it already sends Bearer).
 
 ## Cutover plan (live server)
 
@@ -200,11 +225,13 @@ Not affected: `scripts/native-deploy-network.mjs` (port-based iptables gate),
    remove `server.allowInsecureHttp`, change `allowedOrigins` entries from `http://10.11.3.77:3141`
    to `https://10.11.3.77:3141` (keep the embed origin if it is still used).
 3. `pi-outpost token rotate` (the old token crossed the LAN in cleartext).
-4. Deploy the new build with `scripts/update-custom-native.sh` (one restart). From then on
+4. Deploy the new build with `scripts/update-custom-native.sh <config> <config>.pre-https` (one
+   restart; the second argument describes the running HTTP server). From then on
    `http://10.11.3.77:3141` only answers the redirect; old `?token=` bookmarks stop working.
 5. On each device once: open `https://10.11.3.77:3141/ca`, accept the warning, install the CA
    (iOS: install profile, then Settings → General → About → Certificate Trust Settings → enable
    full trust), reload, sign in with the new token or scan a pairing QR from a signed-in device.
+The operator runbook is `docs/deployment.md` § HTTPS cutover runbook.
 6. Rollback: deploy the previous release and restore `.pre-https`. The previous build also serves
    HTTPS from the same `server.tls`, so a rollback that keeps TLS is also possible.
 

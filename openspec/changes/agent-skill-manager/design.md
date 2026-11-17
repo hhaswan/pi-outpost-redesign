@@ -10,7 +10,7 @@ pi-subagents (`/root/.pi/agent/npm/node_modules/@tintinweb/pi-subagents/src`):
   `PI_CODING_AGENT_DIR`) < `<cwd>/.agents/agents` < `<cwd>/.pi/agents`; later wins by name. Agent
   name = frontmatter `name` or the file's basename. `enabled: false` disables. `skills` (also
   `inherit_skills`): omitted/`true` inherit all, `false`/`none`/empty none, CSV listed names.
-  Built-in defaults (`default-agents.ts`) exist without files.
+  Built-in defaults (`default-agents.ts`) exist without files and rank below every file.
 - `skill-loader.ts`: a listed skill is looked up by name in `<cwd>/.pi/skills`,
   `<cwd>/.agents/skills`, `getAgentDir()/skills`, `~/.agents/skills`, `~/.pi/skills`, as
   `<root>/<name>.md` or a directory `<name>/SKILL.md` at any depth; symlinked roots are rejected,
@@ -78,9 +78,28 @@ and notifications already report them).
   is offered only on the `embedded` runtime and only for enabled agents; the reply's agent id or
   error is shown. Spawned agents report through pi-subagents' existing activity, which pi-outpost
   already surfaces.
-- **Wire**: WebSocket messages scoped to the connection's bound workspace (`subagents_list`,
-  `subagent_read`, `subagent_save`, `subagent_create`, `subagent_rename`, `subagent_delete`,
-  `subagent_spawn`), following existing Settings message patterns. No HTTP routes.
+- **Wire**: one WebSocket message, `subagent_management { requestId, operation }`, scoped to the
+  connection's bound workspace, with operations `list`, `create`, `duplicate`, `save`, `rename`,
+  `delete` and `spawn`; the reply `subagent_management_result` carries the refreshed list after
+  every mutation (and on a conflict). This follows the existing `mcp_management` pattern rather
+  than seven message types. Operations run one at a time in the server. No HTTP routes.
+- **Entry point**: an **Agents** button in the wide header and in the phone's "More controls"
+  sheet (not Settings). Phone: full-screen sheet; wider screens: a dialog. Touch targets follow
+  `ui/src/touch.ts`.
+- **Package and built-in tiers without importing package code**: package agents are found from
+  pi's configured packages (`DefaultPackageManager.listConfiguredPackages`) and their
+  `pi.subagents` / `pi-subagents` declarations, resolved as `package-resources.ts` does (exact
+  paths, `!` exclusions, inside the package). Built-in defaults are read from the installed
+  package's `dist/default-agents.js`, which has no imports; when it cannot be loaded (for example
+  inside a standalone executable) no built-ins are listed. The package's project-trust gate and
+  `packageAgents` setting are not mirrored (marked `shortcut:` in the code).
+- **Skill checklist interaction**: ticking or clearing a box while in "All skills" or "No
+  skills" switches to a selection that starts from what was shown, so one tap works on touch.
+- **Ping timing**: the list pings with a 2 s timeout (pi-subagents answers in-process at once);
+  Run pings first and then waits up to 10 s for the spawn reply.
+- **Verification against the real package**: a test (`server/test/subagentPackageAccept.test.ts`)
+  and the running-app probe load the written files with the installed package's own
+  `loadCustomAgents` and `preloadSkills` through jiti; skipped where the package is absent.
 
 ## Security
 

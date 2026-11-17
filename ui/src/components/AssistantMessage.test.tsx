@@ -124,7 +124,8 @@ describe("AssistantMessage", () => {
       setup({ item: item({ blocks: [{ type: "text", text: "![plot](out/plot.png)" }] }), token: "secret" });
       const img = screen.getByRole("img", { name: "plot" });
       expect(img.getAttribute("src")).toContain("/files/raw");
-      expect(img.getAttribute("src")).toContain("secret");
+      // The session cookie authenticates <img>; a URL token would be refused.
+      expect(img.getAttribute("src")).not.toContain("secret");
     });
 
     it("asks for the image in the project the conversation runs in", () => {

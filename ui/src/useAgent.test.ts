@@ -80,6 +80,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", () =>
     Promise.resolve({
       ok: true,
+      status: 200,
       json: () => Promise.resolve({}),
     }),
   );
@@ -632,11 +633,21 @@ describe("connect lifecycle", () => {
     expect(new URL(mockWs!.url).searchParams.has("workspace")).toBe(false);
   });
 
-  it("carries the token and the workspace together", () => {
+  it("EmbedToken: carries the workspace but never the host's token in the socket URL; branding gets it as Bearer", async () => {
+    const calls: [string, RequestInit | undefined][] = [];
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    });
     renderHook(() => useAgent("http://example.test", "s3cret", true, "/srv/beta"));
+    await waitFor(() => expect(calls.some(([url]) => url === "http://example.test/branding")).toBe(true));
+    const branding = calls.find(([url]) => url === "http://example.test/branding")!;
+    expect(branding[1]!.headers).toEqual({ Authorization: "Bearer s3cret" });
+    expect(calls.every(([url]) => !url.includes("s3cret"))).toBe(true);
 
     const params = new URL(mockWs!.url).searchParams;
-    expect(params.get("token")).toBe("s3cret");
+    expect(params.has("token")).toBe(false);
+    expect(mockWs!.url).not.toContain("s3cret");
     expect(params.get("workspace")).toBe("/srv/beta");
   });
 
@@ -648,6 +659,81 @@ describe("connect lifecycle", () => {
 
     act(() => mockWs!.disconnect(4401));
     await waitFor(() => expect(result.current.state.authRequired).toBe(true));
+  });
+});
+
+// openlore: spec=browser-session-auth
+describe("browser sign-in", () => {
+  afterEach(() => {
+    history.replaceState(null, "", "/");
+    vi.useRealTimers();
+  });
+
+  it("BadStoredToken: a 4401 close stops reconnecting and shows the sign-in screen", async () => {
+    const { result } = renderHook(() => useAgent());
+    act(() => mockWs!.open());
+    const closed = mockWs;
+    act(() => mockWs!.disconnect(4401));
+    await waitFor(() => expect(result.current.state.authRequired).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 1700));
+    expect(mockWs).toBe(closed);
+  });
+
+  it("asks /api/session on load, every 6 hours, and shows sign-in when it answers 401", async () => {
+    const intervals = vi.spyOn(window, "setInterval");
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", (url: string) => {
+      calls.push(url);
+      return Promise.resolve({ ok: false, status: url === "/api/session" ? 401 : 200, json: () => Promise.resolve({ signedIn: false, authRequired: true, ca: true }) });
+    });
+    const { result } = renderHook(() => useAgent());
+    await waitFor(() => expect(result.current.state.authRequired).toBe(true));
+    expect(result.current.session).toMatchObject({ signedIn: false, ca: true });
+    const before = calls.filter((url) => url === "/api/session").length;
+    const renewal = intervals.mock.calls.find(([, delay]) => delay === 6 * 60 * 60 * 1000);
+    expect(renewal).toBeDefined();
+    act(() => (renewal![0] as () => void)());
+    await waitFor(() => expect(calls.filter((url) => url === "/api/session").length).toBe(before + 1));
+  });
+
+  it("LegacyStoredTokenRemoved and TokenInUrl: the hook deletes the old token and sends none from the address", async () => {
+    localStorage.setItem("pi-outpost:token", "legacy");
+    history.replaceState(null, "", "/?token=from-url");
+    const calls: [string, RequestInit | undefined][] = [];
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    });
+    const { result } = renderHook(() => useAgent());
+    expect(localStorage.getItem("pi-outpost:token")).toBeNull();
+    expect(window.location.search).toBe("");
+    expect(mockWs!.url).not.toMatch(/token|legacy|from-url/);
+    await waitFor(() => expect(calls.length).toBeGreaterThan(0));
+    expect(JSON.stringify(calls)).not.toMatch(/legacy|from-url/);
+    expect(result.current.signInNotice.urlTokenIgnored).toBe(true);
+  });
+
+  it("PairingCodeStaysOutOfRequests: a /pair#code link posts the code once in a body, then connects", async () => {
+    history.replaceState(null, "", "/pair#ABCDE-FGHJK");
+    const calls: [string, RequestInit | undefined][] = [];
+    let settle!: () => void;
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      if (url === "/api/pair") return new Promise((resolve) => (settle = () => resolve({ ok: true, status: 200, json: () => Promise.resolve({ signedIn: true }) })));
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    });
+    renderHook(() => useAgent());
+    expect(window.location.pathname).toBe("/");
+    expect(window.location.hash).toBe("");
+    expect(mockWs).toBeNull();
+    await waitFor(() => expect(calls.some(([url]) => url === "/api/pair")).toBe(true));
+    await act(async () => settle());
+    await waitFor(() => expect(mockWs).not.toBeNull());
+    const pairs = calls.filter(([url]) => url === "/api/pair");
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]![1]!.body).toBe('{"code":"ABCDE-FGHJK"}');
+    expect(calls.every(([url]) => !url.includes("ABCDE"))).toBe(true);
+    expect(mockWs!.url).not.toContain("ABCDE");
   });
 });
 
@@ -1342,7 +1428,9 @@ describe("API methods", () => {
       result.current.resizeTerminal("live", 120, 40);
     });
     const previous = mockWs;
-    act(() => result.current.submitToken("new-token"));
+    await act(async () => {
+      await result.current.submitToken("new-token");
+    });
     await waitFor(() => expect(mockWs).not.toBe(previous));
     act(() => mockWs!.open());
     const hello = { type: "hello", sessionId: "sess_1", cwd: "/original", model: "", models: [], commands: [], items: [], isStreaming: false, thinkingLevel: "off", contextUsage: null, gitAvailable: false };
@@ -1381,7 +1469,7 @@ describe("API methods", () => {
     });
   });
 
-  it("submitToken stores the token and triggers reconnection", async () => {
+  it("submitToken trades the token for a session and reconnects", async () => {
     const { result } = renderHook(() => useAgent());
 
     act(() => mockWs!.open());
@@ -1390,8 +1478,8 @@ describe("API methods", () => {
     // Track old socket to verify it gets replaced
     const oldWs = mockWs;
 
-    act(() => {
-      result.current.submitToken("new-token");
+    await act(async () => {
+      expect(await result.current.submitToken("new-token")).toBeNull();
     });
 
     // Should create a new WebSocket

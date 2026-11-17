@@ -136,7 +136,9 @@ async function startServerOn(root, config, options, port) {
   // run's directory: the server is the code being measured, stop() gives it time to exit
   // cleanly and write it, and the run cuts each file down to server/src.
   // testChildEnvironment.test.ts holds every launch to this.
-  const env = { ...process.env, PI_OUTPOST_CONFIG: configPath, PI_OFFLINE: "1", NODE_V8_COVERAGE: serverCoverageSink() };
+  // XDG_CONFIG_HOME inside the workspace: sign-in sessions and certificates live under the
+  // user config directory, and a test must never write the developer's own.
+  const env = { ...process.env, PI_OUTPOST_CONFIG: configPath, PI_OFFLINE: "1", NODE_V8_COVERAGE: serverCoverageSink(), XDG_CONFIG_HOME: path.join(root, ".config") };
   for (const [key, value] of Object.entries(options.env ?? {})) {
     if (value === undefined) delete env[key];
     else env[key] = value;
@@ -205,6 +207,8 @@ async function startServerOn(root, config, options, port) {
     port,
     base,
     root,
+    /** The user config directory the server sees (sessions.json, tls/). */
+    configDir: path.join(env.XDG_CONFIG_HOME, "pi-outpost"),
     /** The config the server loaded — for tests that make it unwritable. */
     configFile: configPath,
     wsUrl: (token) => `${secure ? "wss" : "ws"}://127.0.0.1:${port}/ws${token ? `?token=${encodeURIComponent(token)}` : ""}`,
@@ -324,6 +328,11 @@ export function connect(url, options) {
     },
     close: () => ws.close(),
   };
+}
+
+/** WebSocket options that authenticate with the master token, the way scripts do. */
+export function bearer(token, options = {}) {
+  return { ...options, headers: { ...options.headers, Authorization: `Bearer ${token}` } };
 }
 
 /** A 4×4 PNG — enough to exercise the image content-type path. */

@@ -6,9 +6,10 @@
 
 The CLI SHALL provide `pi-outpost tls init` that creates, under `<userConfigDir>/tls/` (mode
 `0700`), a 10-year local CA and a 1-year `serverAuth` server certificate signed by it, with private
-keys in mode `0600`. Server SANs SHALL cover the host's address(es), `127.0.0.1`, `localhost`, the
-host name and any `--ip`/`--dns` values. The command SHALL write `server.tls.{certFile,keyFile,caFile}`
-into the loaded configuration and MUST refuse to overwrite an existing CA key.
+keys in mode `0600`, and SHALL write `server.tls.{certFile,keyFile,caFile}` into the loaded
+configuration. Server SANs SHALL be the `--ip` addresses (default: the configured literal host,
+else the default route's source address), `127.0.0.1`, `localhost`, the host name and `--dns`
+values only.
 
 #### Scenario: InitCreatesCaAndServerCertificate
 - **GIVEN** no `<userConfigDir>/tls/ca.key` exists and the configured host is `0.0.0.0` on a machine with address `10.11.3.77`
@@ -17,22 +18,42 @@ into the loaded configuration and MUST refuse to overwrite an existing CA key.
 - **AND** `server.crt` is signed by `ca.crt`, expires in 365 days and lists `IP:10.11.3.77`, `IP:127.0.0.1`, `DNS:localhost` and the host name
 - **AND** the configuration's `server.tls` names the three public/serving files and never `ca.key`
 
-#### Scenario: InitRefusesExistingCa
-- **GIVEN** `<userConfigDir>/tls/ca.key` exists
-- **WHEN** `pi-outpost tls init` runs
-- **THEN** it exits non-zero without modifying any file and names `pi-outpost tls renew`
-
 #### Scenario: OpensslMissing
 - **GIVEN** no `openssl` executable is on PATH
 - **WHEN** `pi-outpost tls init` runs
 - **THEN** it exits non-zero naming `openssl` and the option to configure existing PEM files
+
+### Requirement: ExistingCaIsReused
+
+`pi-outpost tls init` SHALL be idempotent: an existing CA SHALL be reused and never regenerated,
+and a server certificate signed by it with more than 30 days left SHALL be kept. It MUST NOT
+replace an existing CA unless `--new-ca` is given, which SHALL warn that every device must trust
+the new CA again and SHALL move the old CA aside rather than delete it.
+
+#### Scenario: InitReusesExistingCa
+- **GIVEN** a CA and a valid server certificate created by `tls init`
+- **WHEN** `pi-outpost tls init` runs again
+- **THEN** it exits zero, says the existing CA was reused, and every file in `<userConfigDir>/tls/` is byte-for-byte unchanged
+- **AND** when the server certificate is missing it is issued from the same, unchanged CA
+
+#### Scenario: InitNewCaRequiresFlag
+- **GIVEN** a CA created by `tls init`
+- **WHEN** `pi-outpost tls init --new-ca` runs
+- **THEN** a new CA is created, the output warns that every device must install and trust the new CA again, and the previous CA files are kept in a `replaced-<time>` directory
+
+#### Scenario: InitHalfCaRefused
+- **GIVEN** `ca.crt` exists without `ca.key`
+- **WHEN** `pi-outpost tls init` runs without `--new-ca`
+- **THEN** it exits non-zero, names the missing file and `--new-ca`, and changes nothing
 
 ### Requirement: ServerCertificateRenewal
 
 The CLI SHALL provide `pi-outpost tls renew` that issues a new server key and 1-year certificate
 from the existing CA with the same rules as `init`, leaves the CA key and certificate unchanged, and
 states that a restart is required. The server SHALL log the days until its certificate expires at
-startup and SHALL warn when fewer than 30 days remain.
+startup, SHALL warn when fewer than 30 days remain, and SHALL report the days left to signed-in
+clients so Settings shows the same notice. The server SHALL NOT renew by itself (it never opens
+the CA key).
 
 #### Scenario: RenewKeepsCa
 - **GIVEN** a CA created by `tls init`
@@ -44,6 +65,7 @@ startup and SHALL warn when fewer than 30 days remain.
 - **GIVEN** a server certificate expiring in 20 days
 - **WHEN** the server starts
 - **THEN** the startup output warns that the certificate expires in 20 days and names `pi-outpost tls renew`
+- **AND** `GET /api/session` reports 20 days left and Settings, Security shows the notice
 
 ### Requirement: CaFileValidation
 
@@ -114,3 +136,36 @@ route SHALL be reachable over plaintext.
 #### Scenario: HttpCannotReachApi
 - **WHEN** a plain HTTP `POST /api/login` arrives on the TLS port
 - **THEN** the login handler does not run and the connection receives only the fixed response
+
+### Requirement: TlsMaterialOutsideRepository
+
+CA and server keys and certificates and `sessions.json` SHALL live only in the user config
+directory, outside the repository and outside `.local/native-releases/`, so a re-pull, re-clone,
+rebuild or redeploy keeps them. The repository SHALL ignore `ca.key`, `server.key`,
+`sessions.json` and any `pi-outpost/tls/` directory. The deploy preflight SHALL refuse TLS paths
+inside the repository.
+
+#### Scenario: TlsInsideRepositoryRefused
+- **WHEN** `server.tls.certFile` names a path inside the repository
+- **THEN** the deploy preflight exits non-zero naming `server.tls.certFile` and the repository
+
+### Requirement: DeploymentPreservesTls
+
+The native updater and `scripts/deploy-custom-native.mjs` SHALL only read TLS files and SHALL
+preserve `server.tls` in the configuration. The deploy preflight SHALL refuse a server
+certificate that does not chain to `caFile` or has expired. The live deploy check SHALL talk
+HTTPS trusting `caFile` only when `server.tls` is set, and plain HTTP otherwise.
+
+#### Scenario: DeployLeavesTlsDirUntouched
+- **GIVEN** a configuration with `server.tls` from `tls init`
+- **WHEN** `scripts/deploy-custom-native.mjs <config> --check` runs
+- **THEN** it passes and every file in the TLS directory keeps its bytes, mode and mtime, and the configuration file is unchanged
+
+#### Scenario: MismatchedCertificateRefused
+- **WHEN** `server.tls.certFile` is not signed by `server.tls.caFile`
+- **THEN** the deploy preflight exits non-zero naming `pi-outpost tls renew` before any restart
+
+#### Scenario: HttpsCutoverDeploy
+- **GIVEN** a running plain-HTTP service, and its configuration changed by `tls init` and `token rotate`
+- **WHEN** the deployment runs with `--previous-config` naming the file the running service used
+- **THEN** it captures sessions over HTTP with the old token, restarts, verifies over HTTPS trusting `caFile` with the new token, and leaves no browser session behind

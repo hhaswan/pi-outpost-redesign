@@ -415,9 +415,9 @@ describe("FileViewer", () => {
       expect(onImageLoad).toHaveBeenCalledWith("plot.png");
     });
 
-    it("carries the auth token on the raw URL, since img cannot send headers", () => {
+    it("never puts the auth token on the raw URL: the session cookie authenticates img", () => {
       setup({ file: { status: "error", path: "plot.png", message: "binary" }, token: "secret-token" });
-      expect(screen.getByRole("img", { name: "plot.png" })).toHaveAttribute("src", expect.stringContaining("secret-token"));
+      expect(screen.getByRole("img", { name: "plot.png" }).getAttribute("src")).not.toContain("secret-token");
     });
 
     it("asks the raw route for the file in the project the viewer shows", () => {

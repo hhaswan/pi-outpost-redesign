@@ -76,7 +76,7 @@ async function ready() {
   throw new Error(`App did not become healthy:\n${compose(["logs", "--no-color"])}`);
 }
 async function terminal() {
-  socket = new WebSocket(`${base.replace("http", "ws")}/ws?token=${token}`);
+  socket = new WebSocket(`${base.replace("http", "ws")}/ws`, { headers: { Authorization: `Bearer ${token}` } });
   let output = "";
   let failure;
   socket.addEventListener("message", event => {

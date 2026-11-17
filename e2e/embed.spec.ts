@@ -216,7 +216,11 @@ test.describe("BrandingArrivesBeforeTheSession", () => {
   });
 });
 
-test("a token-protected backend works across origins, preflight and all", async ({ page }) => {
+// Out of scope since https-session-login: the server refuses URL tokens, and the widget's
+// header-based WebSocket transport (bearer subprotocol) was dropped because no embed is in use.
+// A cross-origin widget therefore cannot open a token-protected socket; this stays skipped
+// until that transport exists. The preflight itself is still covered below and in cors.test.mjs.
+test.skip("a token-protected backend works across origins, preflight and all", async ({ page }) => {
   // The path no curl-shaped test reaches: `Authorization` is not safelisted, so
   // the browser sends a preflight of its own accord and refuses to send the real
   // request until it is answered. A server that handled only the simple case
@@ -247,7 +251,7 @@ test("a workspace file is readable from the host page's origin", async ({ page }
   // answer a different one.
   const status = await page.evaluate(
     async ([base, token]) => {
-      const res = await fetch(`${base}/files/raw?path=readme.md&token=${encodeURIComponent(token!)}`);
+      const res = await fetch(`${base}/files/raw?path=readme.md`, { headers: { Authorization: `Bearer ${token!}` } });
       return { ok: res.ok, text: (await res.text()).slice(0, 20) };
     },
     [process.env.PI_E2E_GUARDED_URL!, process.env.PI_E2E_TOKEN!],

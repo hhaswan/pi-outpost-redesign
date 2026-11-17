@@ -640,7 +640,7 @@ export interface AppConfig {
   port: number;
   host: string;
   /** Native HTTPS/WSS. Paths are resolved before the listener reads the PEM files. */
-  tls?: { certFile: string; keyFile: string };
+  tls?: { certFile: string; keyFile: string; caFile?: string };
   /** Explicit exception for an operator-protected proxy/container hop. Default false. */
   allowInsecureHttp?: boolean;
   /** Extra exact Origins allowed on the WebSocket (for embedding in another app). */
@@ -1344,9 +1344,13 @@ export function loadConfig(
       const tls = asObject(server.tls, "server.tls");
       const certFile = optionalString(tls, "certFile", "server.tls.certFile");
       const keyFile = optionalString(tls, "keyFile", "server.tls.keyFile");
+      // The public CA certificate offered on /ca. Never the CA key: the server has no use for it.
+      const caFile = optionalString(tls, "caFile", "server.tls.caFile");
+      if (caFile !== undefined && !caFile.trim()) fail('"server.tls.caFile" must name a nonempty PEM certificate path');
       config.tls = {
         certFile: certFile?.trim() ? resolve(certFile) : "",
         keyFile: keyFile?.trim() ? resolve(keyFile) : "",
+        ...(caFile !== undefined ? { caFile: resolve(caFile) } : {}),
       };
     }
   }
@@ -1665,6 +1669,10 @@ export interface EditableSettings {
   userExtensionPaths?: string[];
   /** Projects held open (absolute, resolved). Absent leaves them untouched. */
   openProjects?: string[];
+  /** `server.tls`, written by `pi-outpost tls init|renew`. Absent leaves it untouched. */
+  serverTls?: { certFile: string; keyFile: string; caFile: string };
+  /** A new `server.token`, written by token rotation. Absent leaves it untouched. */
+  serverToken?: string;
 }
 
 /**
@@ -1832,6 +1840,21 @@ export function persistEditableSettings(
   // it is written rather than deleted if it does, since "no projects open" and "this
   // key was never set" mean the same thing to the loader.
   if (update.openProjects) raw.openProjects = update.openProjects.map((p) => path.resolve(p));
+  if (update.serverTls || update.serverToken !== undefined) {
+    const server =
+      typeof raw.server === "object" && raw.server !== null && !Array.isArray(raw.server)
+        ? { ...(raw.server as Record<string, unknown>) }
+        : {};
+    if (update.serverTls) {
+      server.tls = {
+        certFile: path.resolve(update.serverTls.certFile),
+        keyFile: path.resolve(update.serverTls.keyFile),
+        caFile: path.resolve(update.serverTls.caFile),
+      };
+    }
+    if (update.serverToken !== undefined) server.token = update.serverToken;
+    raw.server = server;
+  }
 
   const serialized = `${JSON.stringify(raw, null, 2)}\n`;
   const candidate = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.tmp`);

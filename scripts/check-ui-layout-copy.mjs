@@ -17,8 +17,9 @@ const {default:net}=await import('node:net');const port=await new Promise(r=>{co
 const s=await startServer(root,{sandbox:false,noExtensions:true,server:{allowedOrigins:[`http://${lan}:${port}`],port,host:'0.0.0.0',allowInsecureHttp:true,token:'probe-token-0123456789abcdef0123456789'}},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{PI_OFFLINE:'1',ANTHROPIC_API_KEY:'x'}});
 const b=await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH});
 try{for(const width of [1280,390]){
- const ctx=await b.newContext({viewport:{width,height:800}});const page=await ctx.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto(s.base.replace('127.0.0.1',lan)+'?token=probe-token-0123456789abcdef0123456789');
+ // Plain HTTP drops Secure cookies, so this insecure-context probe signs in the way scripts do: Bearer on every request.
+ const ctx=await b.newContext({viewport:{width,height:800},extraHTTPHeaders:{Authorization:'Bearer probe-token-0123456789abcdef0123456789'}});const page=await ctx.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(s.base.replace('127.0.0.1',lan));
  assert.equal(await page.evaluate(()=>window.isSecureContext),false,'must reproduce insecure plain HTTP');
  const phone=width<768;
  if(phone){
@@ -48,7 +49,7 @@ try{for(const width of [1280,390]){
   assert.equal(await page.getByRole('button',{name:'Copy code'}).count(),1,'copy button returns to idle after double click');
   assert.deepEqual(errors,[]);console.log(`PASS width ${width}: nothing floats on the phone, Plan in the nav opens a sheet, copy works on insecure HTTP`);await ctx.close();continue;
  }
- await page.getByRole('button',{name:'sessions',exact:true}).click();await page.getByText('Copy fixture',{exact:true}).first().click();
+ await page.getByRole('button',{name:'sessions',exact:true}).click();/* the menu's row, not the start screen's behind it */await page.getByRole('list',{name:'Saved sessions'}).getByText('Copy fixture',{exact:true}).first().click();
  const term=page.getByRole('button',{name:'Terminal sessions'});await term.waitFor();
  const apart=(a,c)=>a.x>=c.x+c.width||c.x>=a.x+a.width||a.y>=c.y+c.height||c.y>=a.y+a.height;
  const drawer=page.getByRole('complementary',{name:'Work Plan'});

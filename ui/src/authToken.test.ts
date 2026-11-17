@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { bootstrapToken, storedToken, storeToken } from "./authToken";
+import { bootstrapAuth, postApi, signInError } from "./authToken";
 
 beforeEach(() => {
   localStorage.clear();
@@ -7,6 +7,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 /** Put the page on a URL, as if it had been opened with these parameters. */
@@ -14,123 +15,58 @@ function openAt(url: string) {
   history.replaceState(null, "", url);
 }
 
-// ---------------------------------------------------------------------------
-// bootstrapToken
-// ---------------------------------------------------------------------------
-describe("bootstrapToken", () => {
-  it("falls back to localStorage when URL has no token", () => {
-    storeToken("sekret");
-    expect(bootstrapToken()).toBe("sekret");
+describe("bootstrapAuth", () => {
+  it("LegacyStoredTokenRemoved: deletes the token an earlier version stored", () => {
+    localStorage.setItem("pi-outpost:token", "old-secret");
+    bootstrapAuth();
+    expect(localStorage.getItem("pi-outpost:token")).toBeNull();
   });
 
-  it("returns null when no token is stored", () => {
-    expect(bootstrapToken()).toBeNull();
-  });
-
-  it("preserves a token already in localStorage", () => {
-    storeToken("stored-token");
-    expect(bootstrapToken()).toBe("stored-token");
-  });
-
-  it("captures a token from the URL and persists it", () => {
-    openAt("/?token=from-url");
-    expect(bootstrapToken()).toBe("from-url");
-    expect(storedToken()).toBe("from-url");
-  });
-
-  it("strips the token from the address bar, so it cannot linger in history", () => {
-    // The whole point of the module: a token in the URL survives screenshots,
-    // browser history and shared links until it is taken back out
-    openAt("/?token=from-url");
-    bootstrapToken();
-    expect(window.location.search).not.toContain("token");
-  });
-
-  it("keeps the rest of the URL intact while stripping the token", () => {
+  it("TokenInUrl / TokenInPageUrlIgnored: strips ?token= without storing or returning it", () => {
     openAt("/app?token=from-url&view=tree#section");
-    bootstrapToken();
+    const boot = bootstrapAuth();
+    expect(boot.urlTokenIgnored).toBe(true);
+    expect(JSON.stringify(boot)).not.toContain("from-url");
     expect(window.location.pathname).toBe("/app");
     expect(window.location.search).toBe("?view=tree");
     expect(window.location.hash).toBe("#section");
+    expect(localStorage.length).toBe(0);
   });
 
-  it("leaves a URL without a token alone", () => {
+  it("leaves an address without a token alone", () => {
     openAt("/app?view=tree");
-    bootstrapToken();
+    expect(bootstrapAuth()).toEqual({ urlTokenIgnored: false, pairingCode: null });
     expect(window.location.search).toBe("?view=tree");
   });
 
-  it("lets a fresh URL token replace a stored one", () => {
-    storeToken("old");
-    openAt("/?token=new");
-    expect(bootstrapToken()).toBe("new");
-    expect(storedToken()).toBe("new");
+  it("PairingCodeStaysOutOfRequests: takes the code from /pair#<code> and clears the fragment", () => {
+    openAt("/pair#ABCDE-FGHJK");
+    expect(bootstrapAuth().pairingCode).toBe("ABCDE-FGHJK");
+    expect(window.location.pathname).toBe("/");
+    expect(window.location.hash).toBe("");
   });
 
-  it("still drives the session from the URL when storage is unavailable", () => {
-    // A sandboxed iframe throws on localStorage: the token cannot persist, but it
-    // must still authenticate this session rather than being dropped
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+  it("survives storage that throws (sandboxed iframe)", () => {
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
       throw new Error("SecurityError");
     });
-    openAt("/?token=from-url");
-    expect(bootstrapToken()).toBe("from-url");
-  });
-
-  it("returns null when storage is unavailable and the URL carries nothing", () => {
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("SecurityError");
-    });
-    expect(bootstrapToken()).toBeNull();
+    openAt("/?token=x");
+    expect(bootstrapAuth().urlTokenIgnored).toBe(true);
   });
 });
 
-// ---------------------------------------------------------------------------
-// storedToken
-// ---------------------------------------------------------------------------
-describe("storedToken", () => {
-  it("returns null when nothing is stored", () => {
-    expect(storedToken()).toBeNull();
+describe("postApi and signInError", () => {
+  it("posts JSON with the cookie and reads the answer", async () => {
+    const fetched = vi.fn(async () => new Response(JSON.stringify({ signedIn: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetched);
+    expect(await postApi("", "/api/login", { token: "t" })).toEqual({ status: 200, body: { signedIn: true } });
+    expect(fetched).toHaveBeenCalledWith("/api/login", expect.objectContaining({ method: "POST", credentials: "same-origin", body: '{"token":"t"}' }));
   });
 
-  it("ignores a token in the URL — the host page owns its own parameters", () => {
-    openAt("/?token=from-url");
-    expect(storedToken()).toBeNull();
-    expect(window.location.search).toBe("?token=from-url");
-  });
-
-  it("returns null rather than throwing when storage is unavailable", () => {
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("SecurityError");
-    });
-    expect(storedToken()).toBeNull();
-  });
-
-  it("returns the stored token", () => {
-    storeToken("my-token");
-    expect(storedToken()).toBe("my-token");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// storeToken
-// ---------------------------------------------------------------------------
-describe("storeToken", () => {
-  it("writes the token to localStorage", () => {
-    storeToken("hello");
-    expect(localStorage.getItem("pi-outpost:token")).toBe("hello");
-  });
-
-  it("overwrites a previous token", () => {
-    storeToken("first");
-    storeToken("second");
-    expect(storedToken()).toBe("second");
-  });
-
-  it("swallows a storage failure instead of breaking the session", () => {
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("SecurityError");
-    });
-    expect(() => storeToken("hello")).not.toThrow();
+  it("names each refusal", () => {
+    expect(signInError(401, "token")).toMatch(/not correct/);
+    expect(signInError(401, "code")).toMatch(/expired/);
+    expect(signInError(429, "token")).toMatch(/Too many attempts/);
+    expect(signInError(0, "code")).toMatch(/could not be reached/);
   });
 });

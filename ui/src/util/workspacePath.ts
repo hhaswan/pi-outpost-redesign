@@ -60,10 +60,9 @@ export function hasPathExtractionTool(path: string): boolean {
 }
 
 /**
- * URL of the server's raw-bytes endpoint for a workspace file. `<img>` cannot
- * send headers, so the auth token rides the query string (same trade-off as
- * the WebSocket URL). `serverUrl` is the embed widget's backend origin, "" when
- * same-origin.
+ * URL of the server's raw-bytes endpoint for a workspace file. `<img>` sends the
+ * session cookie; the token never goes in the URL, which the server refuses.
+ * `serverUrl` is the embed widget's backend origin, "" when same-origin.
  *
  * `workspace` is the id of the project the connection is bound to (the snapshot's
  * `workspace.id`). The path is relative to *that* project's root; a server holding
@@ -76,10 +75,11 @@ export function rawFileUrl(
   revision?: number,
   workspace?: string,
 ): string {
-  const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
+  // shortcut: `token` is no longer used (URL tokens are refused); a cross-origin embed with a token gets no image until a header-based fetch exists.
+  void token;
   const revisionParam = revision === undefined ? "" : `&v=${encodeURIComponent(String(revision))}`;
   const workspaceParam = workspace === undefined ? "" : `&workspace=${encodeURIComponent(workspace)}`;
-  return `${serverUrl}/files/raw?path=${encodeURIComponent(path)}${tokenParam}${revisionParam}${workspaceParam}`;
+  return `${serverUrl}/files/raw?path=${encodeURIComponent(path)}${revisionParam}${workspaceParam}`;
 }
 
 /** The id `/files/raw` takes for a project: its `id`, or its `root` from a server that predates ids. */

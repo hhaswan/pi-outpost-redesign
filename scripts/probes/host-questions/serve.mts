@@ -6,7 +6,9 @@
  * `npm run bench`, open http://127.0.0.1:4321/?server=http%3A%2F%2F127.0.0.1%3A4332&theme=light and
  * send any message: the agent runs `curl https://example.com/` and the dialog asks about example.com.
  * PROBE_COMMAND replaces the command (e.g. an internal page by its name). In a container, set
- * PROBE_HOST=0.0.0.0 and PROBE_TOKEN, and add `&token=<it>` to the page's URL.
+ * PROBE_HOST=0.0.0.0 and PROBE_TOKEN. A cross-origin widget can no longer pass the token in a URL
+ * (the server refuses URL tokens), so with PROBE_TOKEN only Bearer clients connect; out of scope of
+ * https-session-login, which dropped the widget's header-based transport.
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";

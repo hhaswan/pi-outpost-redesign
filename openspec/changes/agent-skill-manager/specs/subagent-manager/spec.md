@@ -9,6 +9,10 @@ The Agents panel SHALL list every sub-agent pi-subagents would see for the curre
 built-in agents. Each card SHALL show the agent name, description, source file, enabled state and
 whether it overrides or is overridden by an agent of the same name in a higher-priority source.
 
+#### Scenario: OpenedFromHeaderOnEveryViewport
+- **WHEN** the user chooses **Agents** in the wide header, or in the phone's "More controls" sheet
+- **THEN** the panel opens as a dialog on wide screens and as a full-screen sheet on a phone, with touch-sized controls on coarse pointers
+
 #### Scenario: ProjectOverridesGlobal
 - **GIVEN** `reviewer.md` exists in both `<agentDir>/agents` and `<root>/.pi/agents`
 - **WHEN** the Agents panel opens for that project

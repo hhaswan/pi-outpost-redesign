@@ -114,6 +114,8 @@ interface HeaderProps {
   agentResourceOperations: AgentResourceOperationState;
   onBrowseServerPath: (path: string) => void;
   onCloseServerBrowser: () => void;
+  /** Settings' Security section (sign-in, pairing, token), for the standalone signed-in app. */
+  security?: ReactNode;
   /** Another header picker owns the server-browse listing: Settings closes its own. */
   settingsPickerBlocked?: boolean;
   /** Settings opened a picker, so the other header controls close theirs. */
@@ -172,6 +174,8 @@ interface HeaderProps {
   sessionName?: string | null;
   /** Opens the CLI sessions panel: beside sessions in the wide bar, in the compact bar's sheet. */
   onOpenCliSessions?: () => void;
+  /** Opens the sub-agent manager (pi-subagents agent files and their skills). */
+  onOpenAgents?: () => void;
   /** The closed Work Plan chip, shown beside sessions in the wide bar. */
   workPlanChip?: React.ReactNode;
 }
@@ -867,6 +871,7 @@ export function Header(props: HeaderProps) {
   );
   const settingsMenu = (
     <SettingsMenu
+      security={props.security}
       credentials={props.credentials}
       login={props.login}
       onStartLogin={props.onStartLogin}
@@ -994,6 +999,16 @@ export function Header(props: HeaderProps) {
           onSearchSessions={props.onSearchSessions}
           onClearSessionSearch={props.onClearSessionSearch}
         />
+        {props.onOpenAgents && (
+          <button
+            type="button"
+            onClick={props.onOpenAgents}
+            aria-haspopup="dialog"
+            className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
+          >
+            Agents
+          </button>
+        )}
         {props.onOpenCliSessions && (
           <button
             type="button"
@@ -1091,6 +1106,16 @@ function CompactHeader({ parts, ...props }: HeaderProps & { parts: CompactParts 
             {parts.outcomeButton(closing(props.onToggleOutcome))}
             {parts.treeMenu(closing(props.onNavigateTree), closing(props.onForkSession))}
             {parts.newSessionButton(closing(props.onNewSession))}
+            {props.onOpenAgents && (
+              <button
+                type="button"
+                onClick={closing(props.onOpenAgents)}
+                aria-haspopup="dialog"
+                className={`${HEADER_CONTROL} border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500`}
+              >
+                Agents
+              </button>
+            )}
             {props.onOpenCliSessions && (
               <button
                 type="button"

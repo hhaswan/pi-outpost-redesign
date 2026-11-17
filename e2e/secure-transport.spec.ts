@@ -48,14 +48,18 @@ test("HttpsBrowserAndReconnect", async ({ browser }) => {
   page.on("websocket", (socket) => sockets.push(socket.url()));
   page.on("pageerror", (error) => errors.push(error.message));
   try {
-    await page.goto(`${base}/?token=${token}`);
+    // SignInWithToken: the sign-in screen trades the token for a cookie; nothing is stored in the page.
+    await page.goto(base);
+    await page.getByLabel("Access token", { exact: true }).fill(token);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
     await leaveStartScreen(page);
+    expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(token);
+    expect((await context.cookies()).find((cookie) => cookie.name === "__Host-pi-outpost-session")?.httpOnly).toBe(true);
     await expect(page.getByTitle("connected", { exact: true })).toBeVisible();
     const composer = page.locator("textarea");
     await expect(composer).toBeVisible();
     expect(sockets.length).toBeGreaterThan(0);
     expect(sockets.every((url) => url.startsWith("wss://"))).toBe(true);
-    expect(new URL(page.url()).searchParams.has("token")).toBe(false);
     await page.getByTitle("Show files", { exact: true }).click();
     await expect(page.getByText("https-proof.txt", { exact: true })).toBeVisible();
     // Socket-open precedes the initial workspace snapshot. Wait for actual project
@@ -79,10 +83,17 @@ test("HttpsBrowserAndReconnect", async ({ browser }) => {
     expect(sockets.every((url) => url.startsWith("wss://"))).toBe(true);
     expect(errors).toEqual([]);
 
-    // Wrong-token and recovery use the actual auth screen, not a direct tool call.
-    await page.goto(`${base}/?token=wrong`);
+    // TokenInPageUrlIgnored and BadStoredToken, through the actual sign-in screen: a URL token is
+    // stripped unused, a wrong token is refused, the right one signs in again.
+    await context.clearCookies();
+    await page.goto(`${base}/?token=${token}`);
     await expect(page.getByTitle("connected", { exact: true })).not.toBeVisible();
     await expect(page.getByLabel("Access token", { exact: true })).toBeVisible();
+    expect(new URL(page.url()).searchParams.has("token")).toBe(false);
+    await expect(page.getByRole("status")).toContainText("no longer sign in");
+    await page.getByLabel("Access token", { exact: true }).fill("wrong");
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("not correct");
     await page.getByLabel("Access token", { exact: true }).fill(token);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     await expect(page.getByTitle("connected", { exact: true })).toBeVisible();

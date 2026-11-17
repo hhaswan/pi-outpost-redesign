@@ -65,6 +65,17 @@ Usage
                                  sign in to a provider, or store an API key
   pi-outpost logout --provider <name>
                                  remove this server's stored provider credential
+  pi-outpost tls init [--ip <addr>]... [--dns <name>]... [--new-ca]
+                                 create a local CA and a server certificate under
+                                 <user config dir>/tls/ and write "server.tls" (needs openssl).
+                                 An existing CA is reused, never replaced, unless --new-ca
+                                 (then every device must trust the new CA again)
+  pi-outpost tls renew [--ip <addr>]... [--dns <name>]...
+                                 issue a new server certificate from the same CA
+  pi-outpost token rotate [--revoke-sessions]
+                                 write a new random "server.token" and print it once
+                                 (applies at restart; --revoke-sessions signs every browser out)
+  pi-outpost sessions revoke-all sign every browser out, the running server included
   pi-outpost build-exe [options] build a standalone executable from this installation
   pi-outpost update [--check]    move to the newest published version, or just look
   pi-outpost update --extensions [--check]
@@ -181,7 +192,7 @@ Agent runtime
 export class CliError extends Error {}
 
 export interface ParsedCli {
-  command: "serve" | "print" | "init" | "config" | "doctor" | "login" | "logout" | "build-exe" | "update" | "help" | "version";
+  command: "serve" | "print" | "init" | "config" | "doctor" | "login" | "logout" | "build-exe" | "update" | "tls" | "token" | "sessions" | "help" | "version";
   flags: CliOptions;
   /** `-p`: one turn, its answer on stdout. `prompt` is `-` for stdin. */
   print: { prompt?: string; json: boolean; grants: PrintGrants; model?: string };
@@ -192,6 +203,8 @@ export interface ParsedCli {
   logout: { provider?: string };
   buildExe: { out?: string; force: boolean };
   update: { check: boolean; extensions: boolean; all: boolean };
+  /** `tls init|renew`, `token rotate`, `sessions revoke-all`: the action and its flags. */
+  auth: { action?: string; ips: string[]; dns: string[]; revokeSessions: boolean; newCa: boolean };
   /** undefined when neither --open nor --no-open was given, so config still decides. */
   open?: boolean;
 }
@@ -200,8 +213,10 @@ export interface ParsedCli {
 export type PrintGrants = "refuse" | "once" | "session";
 const PRINT_GRANTS: readonly string[] = ["refuse", "once", "session"] satisfies PrintGrants[];
 
-type Command = "init" | "config" | "doctor" | "login" | "logout" | "build-exe" | "update";
-const COMMANDS: readonly string[] = ["init", "config", "doctor", "login", "logout", "build-exe", "update"] satisfies Command[];
+type Command = "init" | "config" | "doctor" | "login" | "logout" | "build-exe" | "update" | "tls" | "token" | "sessions";
+const COMMANDS: readonly string[] = ["init", "config", "doctor", "login", "logout", "build-exe", "update", "tls", "token", "sessions"] satisfies Command[];
+/** The commands that take an action word, and the actions each accepts. */
+const AUTH_ACTIONS: Record<string, readonly string[]> = { tls: ["init", "renew"], token: ["rotate"], sessions: ["revoke-all"] };
 
 function integerFlag(value: string | undefined, name: string): number | undefined {
   if (value === undefined) return undefined;
@@ -243,6 +258,10 @@ export function parseCli(argv: string[]): ParsedCli {
         grants: { type: "string" },
         model: { type: "string" },
         confine: { type: "boolean", default: false },
+        ip: { type: "string", multiple: true },
+        dns: { type: "string", multiple: true },
+        "revoke-sessions": { type: "boolean", default: false },
+        "new-ca": { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
         version: { type: "boolean", short: "v", default: false },
       },
@@ -255,8 +274,14 @@ export function parseCli(argv: string[]): ParsedCli {
   }
 
   const { values, positionals } = parsed;
-  const [positional, ...rest] = positionals;
+  const [positional, ...afterCommand] = positionals;
+  const actions = positional !== undefined && Object.hasOwn(AUTH_ACTIONS, positional) ? AUTH_ACTIONS[positional] : undefined;
+  const action = actions ? afterCommand.shift() : undefined;
+  const rest = afterCommand;
   if (rest.length > 0) throw new CliError(`unexpected argument "${rest[0]}" — see "pi-outpost --help"`);
+  if (actions && (action === undefined || !actions.includes(action))) {
+    throw new CliError(`"pi-outpost ${positional}" needs one of: ${actions.join(", ")} — see "pi-outpost --help"`);
+  }
   if (positional !== undefined && !COMMANDS.includes(positional)) {
     throw new CliError(`unknown command "${positional}" — see "pi-outpost --help"`);
   }
@@ -281,6 +306,15 @@ export function parseCli(argv: string[]): ParsedCli {
   }
   if (values.confine && command !== "config") {
     throw new CliError('"--confine" belongs to "pi-outpost config" — see "pi-outpost --help"');
+  }
+  if ((values.ip || values.dns) && command !== "tls") {
+    throw new CliError('"--ip" and "--dns" belong to "pi-outpost tls" — see "pi-outpost --help"');
+  }
+  if (values["new-ca"] && !(command === "tls" && action === "init")) {
+    throw new CliError('"--new-ca" belongs to "pi-outpost tls init" — see "pi-outpost --help"');
+  }
+  if (values["revoke-sessions"] && command !== "token") {
+    throw new CliError('"--revoke-sessions" belongs to "pi-outpost token rotate" — see "pi-outpost --help"');
   }
   if (values.global && command !== "init") {
     throw new CliError('"--global" belongs to "pi-outpost init" — see "pi-outpost --help"');
@@ -340,6 +374,7 @@ export function parseCli(argv: string[]): ParsedCli {
     logout: { provider: values.provider },
     buildExe: { out: values.out, force: values.force },
     update: { check: values.check, extensions: values.extensions, all: values.all },
+    auth: { ...(action ? { action } : {}), ips: values.ip ?? [], dns: values.dns ?? [], revokeSessions: values["revoke-sessions"], newCa: values["new-ca"] },
     // Left undefined unless asked for, so configuration still has its say.
     ...(values.open ? { open: true } : values["no-open"] ? { open: false } : {}),
   };

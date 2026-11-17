@@ -108,11 +108,11 @@ describe("hasPathExtractionTool", () => {
 });
 
 describe("rawFileUrl", () => {
-  it("builds a URL with path and optional token", () => {
+  it("builds a URL with the path and never a token, which the server refuses in URLs", () => {
     const url = rawFileUrl("https://api.example.com", "src/index.ts", "my-token");
     expect(url).toContain("/files/raw?path=");
     expect(url).toContain("src%2Findex.ts");
-    expect(url).toContain("token=my-token");
+    expect(url).not.toContain("token");
   });
 
   it("omits token when null", () => {

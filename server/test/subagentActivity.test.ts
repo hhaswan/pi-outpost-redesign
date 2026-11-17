@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createSubagentActivityExtension, getSubagentActivity } from "../src/subagentActivity.js";
+import { createSubagentActivityExtension, getSubagentActivity, subagentRpc } from "../src/subagentActivity.js";
 
 function fixture(sessionId: string) {
   const channels = new Map<string, Set<(data: unknown) => void>>();
@@ -225,4 +225,60 @@ test("uncertain activated child ledger cannot authorize workspace retirement", a
     assert.equal(canRetire(), false);
   } finally { f.close(); }
   assert.equal(canRetire(), true, "an absent ledger does not lock unrelated RPC workspaces");
+});
+
+function rpcFixture(sessionId: string, answer?: (channel: string, data: { requestId: string }, emit: (channel: string, data: unknown) => void) => void) {
+  const channels = new Map<string, Set<(data: unknown) => void>>();
+  const emitted: Array<{ channel: string; data: unknown }> = [];
+  const emit = (channel: string, data: unknown) => {
+    emitted.push({ channel, data });
+    for (const handler of [...(channels.get(channel) ?? [])]) handler(data);
+    if (channel.startsWith("subagents:rpc:") && !channel.includes(":reply:")) answer?.(channel, data as { requestId: string }, emit);
+  };
+  const pi = {
+    events: {
+      on: (name: string, handler: (data: unknown) => void) => {
+        const set = channels.get(name) ?? new Set();
+        channels.set(name, set);
+        set.add(handler);
+        return () => { set.delete(handler); };
+      },
+      emit,
+    },
+    on: () => () => {},
+  } as unknown as ExtensionAPI;
+  createSubagentActivityExtension(sessionId, () => {})(pi);
+  return { emitted, listeners: () => [...channels.entries()].filter(([name, set]) => name.includes(":reply:") && set.size > 0).length };
+}
+
+// openlore: scenario=RunSpawnsInCurrentProject spec=subagent-manager
+test("spawn emits subagents:rpc:spawn on this session's bus and resolves with the reply id", async () => {
+  const f = rpcFixture("rpc-reply", (channel, data, emit) => {
+    queueMicrotask(() => emit(`${channel}:reply:${data.requestId}`, { success: true, data: channel.endsWith("spawn") ? { id: "agent-7" } : { version: 2 } }));
+  });
+  assert.deepEqual(await subagentRpc("rpc-reply", "ping", {}), { version: 2 });
+  assert.deepEqual(await subagentRpc("rpc-reply", "spawn", { type: "reviewer", prompt: "check README" }), { id: "agent-7" });
+  const spawn = f.emitted.find((entry) => entry.channel === "subagents:rpc:spawn")!.data as Record<string, unknown>;
+  assert.equal(spawn.type, "reviewer");
+  assert.equal(spawn.prompt, "check README");
+  assert.equal(typeof spawn.requestId, "string");
+  assert.equal(f.listeners(), 0, "reply listeners are released");
+  await assert.rejects(subagentRpc("no-such-session", "ping", {}), /no extension event bus/);
+});
+
+test("an error envelope rejects with pi-subagents' message", async () => {
+  rpcFixture("rpc-error", (channel, data, emit) => emit(`${channel}:reply:${data.requestId}`, { success: false, error: "Unknown agent type: nope" }));
+  await assert.rejects(subagentRpc("rpc-error", "spawn", { type: "nope", prompt: "x" }), /Unknown agent type: nope/);
+});
+
+// openlore: scenario=RunTimeout spec=subagent-manager
+test("a bus that never replies times out after the given period and drops its listener", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const f = rpcFixture("rpc-silent");
+  const pending = subagentRpc("rpc-silent", "spawn", { type: "reviewer", prompt: "x" });
+  t.mock.timers.tick(9_999);
+  assert.equal(f.listeners(), 1);
+  t.mock.timers.tick(1);
+  await assert.rejects(pending, /did not answer spawn within 10 s/);
+  assert.equal(f.listeners(), 0);
 });

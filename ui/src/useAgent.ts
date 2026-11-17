@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { randomId } from "./util/randomId";
-import type { CliBridgeOperation, CliBridgeReply, McpManagementOperation, McpManagementReply, RecentSession } from "@pi-outpost/shared";
+import type { CliBridgeOperation, CliBridgeReply, McpManagementOperation, McpManagementReply, RecentSession, SubagentManagementOperation, SubagentManagementReply } from "@pi-outpost/shared";
 import type { LoginEvent, LoginPrompt, OutpostChanges, OutpostUpdateNotice, PiPackageInfo, SandboxGrantDecision, SandboxGrantState, SessionSnapshot } from "@pi-outpost/shared";
 type PiPackageScope = PiPackageInfo["scope"];
 import type { ProjectAppearance, StructuredConformance } from "@pi-outpost/shared/structured-exchange/profile";
 import { workspaceKey } from "./util/workspaceKey";
 import { readWorkspaceSelection, writeWorkspaceSelection, type WorkspaceSelection } from "./util/workspaceSelection";
-import { bootstrapToken, storedToken, storeToken } from "./authToken";
+import { bootstrapAuth, postApi, signInError, type AuthBootstrap, type SessionInfo } from "./authToken";
 import { repoForPath } from "./util/gitRepos";
 import type {
   AgentResourceInventory,
@@ -332,6 +332,8 @@ export interface OlderHistory {
 export interface AgentState {
   cliBridge: (CliBridgeReply & { loading: boolean }) | null;
   mcpManagement: (McpManagementReply & { loading: boolean }) | null;
+  /** The Agents panel's last request and reply; its data is kept while the next request runs. */
+  subagentManagement: (SubagentManagementReply & { loading: boolean }) | null;
   connected: boolean;
   /**
    * The project this connection is bound to; null on a single-project server,
@@ -560,6 +562,7 @@ export interface LoginFlowState {
 const initialState: AgentState = {
   cliBridge: null,
   mcpManagement: null,
+  subagentManagement: null,
   login: null,
   connected: false,
   workspace: null,
@@ -662,6 +665,7 @@ type Action =
   | { type: "set_mcp_manager_open"; open: boolean }
   | { type: "cli_bridge_started"; requestId: string }
   | { type: "mcp_management_started"; requestId: string }
+  | { type: "subagent_management_started"; requestId: string }
   | { type: "login_started"; flowId: string; provider: string; method: "oauth" | "api_key" }
   | { type: "login_answered" }
   | { type: "login_dismissed" }
@@ -798,6 +802,7 @@ function applySnapshot(state: AgentState, message: ServerMessage & { sessionId: 
     serverRestarting: false,
     cliBridge: null,
     mcpManagement: null,
+    subagentManagement: null,
     mcpManagerOpen: false,
     restartNeeded: message.restartNeeded ?? [],
     connected: true,
@@ -937,6 +942,7 @@ function followMoves(state: AgentState, moves: readonly [from: string, to: strin
 function reduce(state: AgentState, action: Action): AgentState {
   if (action.type === "set_mcp_manager_open") return { ...state, mcpManagerOpen: action.open };
   if (action.type === "cli_bridge_started") return { ...state, cliBridge: { ...state.cliBridge, requestId: action.requestId, loading: true, error: undefined, submitted: undefined } };
+  if (action.type === "subagent_management_started") return { ...state, subagentManagement: { ...state.subagentManagement, requestId: action.requestId, loading: true, error: undefined, conflict: undefined, message: undefined, spawnedId: undefined } };
   if (action.type === "mcp_management_started") return { ...state, mcpManagement: { ...state.mcpManagement, requestId: action.requestId, loading: true, error: undefined, message: undefined } };
   if (action.type === "connected") return { ...state, connected: true, authRequired: false };
   if (action.type === "workspace_switching") return { ...state, switching: true };
@@ -975,6 +981,7 @@ function reduce(state: AgentState, action: Action): AgentState {
     const outcome = state.outcome?.status === "loading" ? { ...state.outcome, status: "error" as const, message: "Connection lost while loading Outcome." } : state.outcome;
     return { ...state, connected: false, switching: false, openFile, outcome,
       cliBridge: null,
+      subagentManagement: state.subagentManagement ? { ...state.subagentManagement, loading: false, ...(state.subagentManagement.loading ? { error: "Connection lost; the last change may or may not have been saved. Refresh before retrying." } : {}) } : null,
       mcpManagement: state.mcpManagement ? { ...state.mcpManagement, loading: false, error: state.mcpManagement.loading ? "Connection lost; refresh MCP status after reconnecting" : state.mcpManagement.error } : null };
   }
   // Fetched independently of the WS "hello" so it renders before the session is ready
@@ -1404,6 +1411,9 @@ function reduce(state: AgentState, action: Action): AgentState {
         ...state,
         cliBridge: { ...state.cliBridge, ...message, loading: false },
       };
+    case "subagent_management_result":
+      if (state.subagentManagement?.requestId !== message.requestId) return state;
+      return { ...state, subagentManagement: { ...state.subagentManagement, ...message, loading: false } };
     case "mcp_management_result":
       if (state.mcpManagement?.requestId !== message.requestId) return state;
       return { ...state, mcpManagement: { ...state.mcpManagement, ...message, loading: false, reloadRequired: message.reloadRequired ?? state.mcpManagement.reloadRequired } };
@@ -2003,17 +2013,16 @@ function reduce(state: AgentState, action: Action): AgentState {
 }
 
 /** `serverUrl.replace(/^http/, "ws") + "/ws"`, or same-origin `/ws` when unset. */
-function wsUrlFor(serverUrl: string, token: string | null, workspace?: string): string {
+function wsUrlFor(serverUrl: string, workspace?: string): string {
   const base = serverUrl
     ? `${serverUrl.replace(/^http/, "ws")}/ws`
     : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
-  // Browsers cannot set headers on WebSockets — the token rides a query parameter,
-  // and so does the project an embedding host binds its widget to. A root the
+  // The session cookie authenticates the socket; a URL token is refused by the server and
+  // never sent. The project an embedding host binds its widget to rides the query. A root the
   // server does not have open falls back to the default there rather than
   // failing: a project closed server-side should leave a working widget, not a
   // dead socket.
   const query = new URLSearchParams();
-  if (token) query.set("token", token);
   if (workspace) query.set("workspace", workspace);
   const search = query.toString();
   return search ? `${base}?${search}` : base;
@@ -2087,8 +2096,48 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
    */
   const lastReveal = useRef<{ path: string; at: number } | null>(null);
   if (authNonce === 0 && tokenRef.current === null) {
-    tokenRef.current = explicitToken ?? (embedded ? storedToken() : bootstrapToken());
+    // An embed host's token goes out as a Bearer header on fetches; nothing is stored.
+    tokenRef.current = explicitToken ?? null;
   }
+  /** Read once: the legacy token removed, a URL token stripped, a pairing code taken from the address. */
+  const bootRef = useRef<AuthBootstrap | null>(null);
+  if (bootRef.current === null) bootRef.current = embedded ? { urlTokenIgnored: false, pairingCode: null } : bootstrapAuth();
+  /** A pairing link being redeemed: the socket waits for its cookie instead of failing without one. */
+  const pairingRef = useRef(bootRef.current.pairingCode);
+  const pairingStartedRef = useRef(false);
+  const [session, setSession] = useState<SessionInfo | null>(null);
+  const [pairingError, setPairingError] = useState<string | null>(null);
+  const refreshSession = useCallback(async () => {
+    if (embedded) return;
+    try {
+      const response = await fetch(`${serverUrl}/api/session`, { credentials: "same-origin" });
+      const info = (await response.json()) as SessionInfo;
+      setSession(info);
+      if (response.status === 401) dispatch({ type: "auth_required" });
+    } catch {
+      // Unreachable or an older server without /api/session: the socket says the rest
+    }
+  }, [serverUrl, embedded]);
+  // On load, after every sign-in, and every 6 hours: a tab that only holds a socket still renews its session.
+  useEffect(() => {
+    if (embedded) return;
+    const code = pairingRef.current;
+    if (code !== null) {
+      // Once only, whatever re-runs this effect: a code redeems a single time.
+      if (pairingStartedRef.current) return;
+      pairingStartedRef.current = true;
+      const settle = (status: number) => {
+        pairingRef.current = null;
+        if (status !== 200) setPairingError(signInError(status, "code"));
+        setAuthNonce((n) => n + 1);
+      };
+      void postApi(serverUrl, "/api/pair", { code }).then(({ status }) => settle(status), () => settle(0));
+      return;
+    }
+    void refreshSession();
+    const timer = window.setInterval(() => void refreshSession(), 6 * 60 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [serverUrl, embedded, authNonce, refreshSession]);
   // Mirrors of state read from inside the stable onmessage closure below (which
   // must not be recreated per-render, so it can't close over fresh `state`).
   const fileTreeRef = useRef(state.fileTree);
@@ -2443,7 +2492,7 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
       // Ask for this tab's project at connect: the server's default project would
       // otherwise flash its conversation until the restore below switches away.
       const savedRoot = restoreSelection ? selectionsRef.current.get(serverUrl)?.root : undefined;
-      const socket = new WebSocket(wsUrlFor(serverUrl, tokenRef.current, workspaceRoot ?? savedRoot));
+      const socket = new WebSocket(wsUrlFor(serverUrl, workspaceRoot ?? savedRoot));
       socketRef.current = socket;
       let probeTimer: number | undefined;
       let deadline: number | undefined;
@@ -2885,7 +2934,8 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
       socketRef.current.close();
     };
     window.addEventListener("offline", onOffline);
-    connect();
+    // A pairing link connects once its code has become a cookie (authNonce re-runs this).
+    if (pairingRef.current === null) connect();
     return () => {
       window.removeEventListener("offline", onOffline);
       disposed = true;
@@ -3072,6 +3122,12 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
       dispatch({ type: "cli_bridge_started", requestId });
       sendMessage({ type: "cli_bridge", requestId, operation });
     },
+    manageSubagents: (operation: SubagentManagementOperation) => {
+      if (!state.connected) return;
+      const requestId = `agents:${randomId()}`;
+      dispatch({ type: "subagent_management_started", requestId });
+      sendMessage({ type: "subagent_management", requestId, operation });
+    },
     manageMcp: (operation: McpManagementOperation) => {
       if (!state.connected) return;
       const requestId = `mcp:${randomId()}`;
@@ -3129,12 +3185,61 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
       dispatch({ type: "workspace_switching" });
       sendMessage({ type: "open_side_session", root });
     },
-    /** TokenGate submission: persist the token and reconnect with it. */
-    submitToken: (token: string) => {
-      storeToken(token);
-      tokenRef.current = token;
+    /** What the server says about this browser's sign-in (null before it answered, or in a widget). */
+    session,
+    /** The URL token that was stripped unused, and a pairing link that failed: for the sign-in screen. */
+    signInNotice: { urlTokenIgnored: bootRef.current.urlTokenIgnored, pairingError },
+    /** Sign-in screen: trade the token for a session cookie, then reconnect. Resolves to an error, or null. */
+    submitToken: async (token: string): Promise<string | null> => {
+      try {
+        const { status } = await postApi(serverUrl, "/api/login", { token });
+        if (status !== 200) return signInError(status, "token");
+      } catch {
+        return "The server could not be reached.";
+      }
       dispatch({ type: "auth_retrying" });
       setAuthNonce((n) => n + 1);
+      return null;
+    },
+    /** Sign-in screen: redeem a pairing code typed by hand. */
+    submitPairingCode: async (code: string): Promise<string | null> => {
+      try {
+        const { status } = await postApi(serverUrl, "/api/pair", { code });
+        if (status !== 200) return signInError(status, "code");
+      } catch {
+        return "The server could not be reached.";
+      }
+      setPairingError(null);
+      dispatch({ type: "auth_retrying" });
+      setAuthNonce((n) => n + 1);
+      return null;
+    },
+    /** Settings: sign this browser out, or every browser. The server closes the sockets. */
+    signOut: async (everywhere: boolean) => {
+      await postApi(serverUrl, everywhere ? "/api/sessions/revoke-all" : "/api/logout").catch(() => undefined);
+      dispatch({ type: "auth_required" });
+      void refreshSession();
+    },
+    /** Settings: a new token, shown once; other sessions are signed out unless told otherwise. */
+    rotateToken: async (revokeOtherSessions: boolean): Promise<{ token?: string; error?: string }> => {
+      try {
+        const { status, body } = await postApi(serverUrl, "/api/token/rotate", { revokeOtherSessions });
+        void refreshSession();
+        if (status === 200 && typeof body.token === "string") return { token: body.token };
+        return { error: typeof body.message === "string" ? body.message : `Rotation failed (${status}).` };
+      } catch {
+        return { error: "The server could not be reached." };
+      }
+    },
+    /** Settings: a one-time code for another device. */
+    createPairingCode: async (): Promise<{ code?: string; expiresAt?: number; error?: string }> => {
+      try {
+        const { status, body } = await postApi(serverUrl, "/api/pair/create");
+        if (status === 200 && typeof body.code === "string") return { code: body.code, expiresAt: Number(body.expiresAt) };
+        return { error: status === 429 ? "Too many codes. Wait a minute." : typeof body.message === "string" ? body.message : `No code (${status}).` };
+      } catch {
+        return { error: "The server could not be reached." };
+      }
     },
     prompt: (text: string, images?: WireImage[]) => {
       if (text.trim() === "/mcp") {

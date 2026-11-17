@@ -59,7 +59,7 @@ describe("referenceUrl", () => {
     const url = referenceUrl("docs/report.md", "figures/whole.svg", "http://localhost:3141", "t0ken");
 
     expect(url).toBe(rawFileUrl("http://localhost:3141", resolveRelativeHref("docs/report.md", "figures/whole.svg"), "t0ken"));
-    expect(url).toBe("http://localhost:3141/files/raw?path=docs%2Ffigures%2Fwhole.svg&token=t0ken");
+    expect(url).toBe("http://localhost:3141/files/raw?path=docs%2Ffigures%2Fwhole.svg");
   });
 
   it("resolves against the document's own directory, up as well as down", () => {
@@ -82,7 +82,7 @@ describe("loadReference", () => {
 
     const picture = await loadReference("docs/report.md", "figures/plot.png", "http://localhost:3141", "t0ken");
 
-    expect(fetched).toHaveBeenCalledWith("http://localhost:3141/files/raw?path=docs%2Ffigures%2Fplot.png&token=t0ken");
+    expect(fetched).toHaveBeenCalledWith("http://localhost:3141/files/raw?path=docs%2Ffigures%2Fplot.png");
     expect(picture).toEqual({ kind: "raster", type: "png", width: 120, height: 60, bytes });
   });
 

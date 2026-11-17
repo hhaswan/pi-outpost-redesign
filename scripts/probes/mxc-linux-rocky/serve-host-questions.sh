@@ -2,7 +2,9 @@
 # The office's shape: pi-outpost in a Rocky Linux 9 container, the agent's shell under Bubblewrap
 # (MXC on Linux), `sandbox.allowedHosts` set, and a scripted agent fetching an unlisted host.
 # Run `npm run bench` first (host page on 4321), then open
-#   http://127.0.0.1:4321/?server=http%3A%2F%2F127.0.0.1%3A4333&token=probe-token-0123456789abcdef0123456789abcdef&theme=light
+#   http://127.0.0.1:4321/?server=http%3A%2F%2F127.0.0.1%3A4333&theme=light
+#   (The server refuses URL tokens since https-session-login: a cross-origin widget with PROBE_TOKEN
+#   set no longer authenticates; known and out of scope there.)
 # and send any message: the host question appears; the output names the Rocky release.
 # Stop with: docker rm -f hq-rocky
 set -euo pipefail

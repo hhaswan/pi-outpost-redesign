@@ -12,6 +12,7 @@ import { abortCli, findCliOwner, followCliEvents, manageCliBridge, isCliSessionC
 import type { CliBridgeEvent, CliBridgeRegistration } from "../../shared/src/cliBridge.ts";
 import { cliSessionDirectory, externalCliHistory, forgetCliHistory, searchCliHistory } from "./externalCliHistory.ts";
 import { manageMcp } from "./mcpManagement.ts";
+import { manageSubagents } from "./subagentFiles.ts";
 import fs from "node:fs/promises";
 import { watch as watchFile, type FSWatcher } from "node:fs";
 import rateLimit from "@fastify/rate-limit";
@@ -114,7 +115,10 @@ import { readPrompt, runPrintTurn } from "./printMode.ts";
 import { checkRunner, type RunnerCheck } from "./terminalSandbox.ts";
 import { isPowerShell } from "./confinedBash.ts";
 import { browsableUrl, openBrowser, shouldOpenBrowser } from "./openBrowser.ts";
-import { listenerTls } from "./serverTransport.ts";
+import { certificateDaysLeft, certificateHosts, installPlainHttpRedirect, listenerTls, readPublicCa, type PublicCa } from "./serverTransport.ts";
+import { readSessionCookie, sessionCookie, SessionStore } from "./authSessions.ts";
+import { newToken, rotationRefusal, runAuthCommand, sessionStoreFile } from "./authCommands.ts";
+import { caPage, mobileconfig } from "./localCa.ts";
 import {
   currentEvidence,
   detectChannel,
@@ -563,6 +567,10 @@ const config = await (async () => {
     process.exit(1);
   }
 })();
+// Certificates, the token and browser sessions: files only, then out.
+if (cli.command === "tls" || cli.command === "token" || cli.command === "sessions") {
+  process.exit(await runAuthCommand({ command: cli.command, ...cli.auth }, config));
+}
 // The configuration names the sandbox, so none of the agent's tools may write it — the default
 // sandbox makes the project writable, and the project often holds this very file.
 protectFromWrites(config.configFile);
@@ -941,7 +949,8 @@ function originAllowed(origin: string): boolean {
  * timingSafeEqual's equal-length requirement without an early return that
  * would leak the token's length.
  */
-const expectedTokenDigest =
+// `let`: in-app token rotation swaps it without a restart.
+let expectedTokenDigest =
   config.token !== undefined ? createHash("sha256").update(config.token).digest() : undefined;
 
 function tokenValid(candidate: unknown): boolean {
@@ -953,6 +962,77 @@ function tokenValid(candidate: unknown): boolean {
 
 /** WS close code for a bad/missing token (app-reserved range): tells the client to show the token screen instead of retrying. */
 const WS_CLOSE_UNAUTHORIZED = 4401;
+
+/**
+ * Browser sign-in sessions (cookie `__Host-pi-outpost-session`), kept in
+ * `<userConfigDir>/sessions.json`. Only a token-protected server has any.
+ */
+const sessionStore = config.token !== undefined ? new SessionStore(sessionStoreFile()) : undefined;
+/** Open sockets that a session cookie authenticated, so revocation and expiry can close them. */
+const sessionSockets = new Map<WebSocket, string>();
+
+/** Close, with 4401, every socket whose session was revoked or has expired. */
+function closeRevokedSockets(): void {
+  for (const [socket, id] of sessionSockets) {
+    if (sessionStore?.valid(id)) continue;
+    sessionSockets.delete(socket);
+    socket.close(WS_CLOSE_UNAUTHORIZED, "unauthorized");
+  }
+}
+// The CLI revokes by editing the file; a sweep is how that reaches open sockets.
+if (sessionStore) {
+  setInterval(() => {
+    sessionStore.reloadIfChanged();
+    closeRevokedSockets();
+  }, 15_000).unref();
+}
+
+type Caller = { via: "open" } | { via: "bearer" } | { via: "session"; id: string; cookie: string; renewed: boolean };
+
+/** The request's Origin, when it has one, names this server's own host. */
+function originIsOwnHost(req: FastifyRequest): boolean {
+  const origin = req.headers.origin;
+  if (origin === undefined) return false;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The one credential check for every protected route.
+ *
+ * A `token` query parameter refuses the request whatever else it carries: a URL token
+ * ends up in history, logs and Referer. Then the Bearer token (scripts, native clients),
+ * then the session cookie — only from this server's own pages, so an embedding origin
+ * must bring the Bearer token. A server without a token accepts everyone, as before.
+ */
+function authenticate(req: FastifyRequest): Caller | undefined {
+  if (new URL(req.url ?? "/", "http://localhost").searchParams.has("token")) return undefined;
+  if (expectedTokenDigest === undefined) return { via: "open" };
+  const authorization = req.headers.authorization;
+  if (authorization?.startsWith("Bearer ") && tokenValid(authorization.slice("Bearer ".length))) return { via: "bearer" };
+  const cookie = readSessionCookie(req.headers.cookie);
+  if (cookie && (req.headers.origin === undefined || originIsOwnHost(req))) {
+    const session = sessionStore?.check(cookie);
+    if (session) return { via: "session", id: session.id, cookie, renewed: session.renewed };
+  }
+  return undefined;
+}
+
+/** For HTTP routes: the caller, or undefined after a 401 was sent. A renewed session gets its cookie again. */
+function requireAuth(req: FastifyRequest, reply: FastifyReply, route: string): Caller | undefined {
+  const caller = authenticate(req);
+  if (!caller) {
+    // The route only: a rejected query may be carrying the token itself.
+    console.warn(`[server] rejected ${route} request with bad or missing credentials from ${String(req.ip).replace(/[\r\n]/g, " ")}`);
+    void reply.code(401).send({ error: "unauthorized" });
+    return undefined;
+  }
+  if (caller.via === "session" && caller.renewed) reply.header("Set-Cookie", sessionCookie(caller.cookie));
+  return caller;
+}
 
 let handleWsConnection: (socket: WebSocket, workspaceRoot?: string) => void = (socket) => {
   socket.close(1013, "starting up");
@@ -1017,8 +1097,20 @@ const MAX_IMAGES = 6;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // of base64 text
 
 let httpsOptions: Awaited<ReturnType<typeof listenerTls>>;
+/** The CA certificate the public /ca routes hand out, when `server.tls.caFile` names one. */
+let publicCa: PublicCa | undefined;
+/** Days the serving certificate has left, for the startup log and the Settings notice. */
+let tlsDaysLeft: number | undefined;
 try {
   httpsOptions = await listenerTls(config);
+  if (config.tls?.caFile) publicCa = await readPublicCa(config.tls.caFile);
+  if (config.tls) {
+    const days = await certificateDaysLeft(config.tls.certFile);
+    tlsDaysLeft = days;
+    // A notice, never a renewal: renewing needs the CA key, which this process never opens.
+    if (days < 30) console.warn(`[server] the TLS certificate expires in ${days} days: run "pi-outpost tls renew" and restart`);
+    else console.log(`[server] the TLS certificate expires in ${days} days`);
+  }
 } catch (error) {
   complain(error);
   await holdConsoleIfOwned();
@@ -1072,11 +1164,7 @@ app.addHook("onRequest", async (req, reply) => {
   await reply.code(allowed ? 204 : 403).send();
 });
 app.get("/branding", (req, reply) => {
-  const auth = req.headers.authorization;
-  if (!tokenValid(auth?.startsWith("Bearer ") ? auth.slice("Bearer ".length) : undefined)) {
-    console.warn(`[server] rejected /branding request with bad or missing token from ${String(req.ip).replace(/[\r\n]/g, " ")}`);
-    return reply.code(401).send({ error: "unauthorized" });
-  }
+  if (!requireAuth(req, reply, "/branding")) return reply;
   return config.branding;
 });
 app.get("/ws", { websocket: true }, (socket, req) => {
@@ -1086,17 +1174,18 @@ app.get("/ws", { websocket: true }, (socket, req) => {
     socket.close(1008, "forbidden origin");
     return;
   }
-  // Browsers cannot set headers on WebSockets, so they send the token as a query
-  // parameter. Native clients may use the usual Bearer header. Close AFTER the
+  // Browsers send the session cookie; native clients the Bearer header. Close AFTER the
   // handshake with an app code — a pre-handshake rejection reads as an opaque 1006.
   const url = new URL(req.url ?? "/ws", "http://localhost");
-  const authorization = req.headers.authorization;
-  const bearer = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : undefined;
-  const token = bearer ?? url.searchParams.get("token");
-  if (!tokenValid(token ?? undefined)) {
-    console.warn(`[server] rejected ws connection with bad or missing token from ${String(req.ip).replace(/[\r\n]/g, " ")}`);
+  const caller = authenticate(req);
+  if (!caller) {
+    console.warn(`[server] rejected ws connection with bad or missing credentials from ${String(req.ip).replace(/[\r\n]/g, " ")}`);
     socket.close(WS_CLOSE_UNAUTHORIZED, "unauthorized");
     return;
+  }
+  if (caller.via === "session") {
+    sessionSockets.set(socket, caller.id);
+    socket.on("close", () => sessionSockets.delete(socket));
   }
   // The standalone interface — the server's own address, or a development origin — may
   // restart the server; a page embedding the widget may not.
@@ -1123,6 +1212,124 @@ app.get("/health", (req, reply) => {
   if (!health.ok) return reply.code(503).send({ ok: false });
   // With auth enabled, the public health probe must not leak the session id
   return config.token !== undefined ? { ok: health.ok } : health;
+});
+
+// --- Sign-in, sessions, pairing and the public CA ---------------------------------
+
+/** A mutating /api request must come from this server's own pages (CSRF), cookie or not. */
+function refuseForeignOrigin(req: FastifyRequest, reply: FastifyReply): boolean {
+  if (originIsOwnHost(req)) return false;
+  void reply.code(403).send({ error: "forbidden" });
+  return true;
+}
+/** A short, non-identifying label for a session: the browser's own description, cut. */
+const sessionLabel = (req: FastifyRequest) => String(req.headers["user-agent"] ?? "unknown").replace(/[\r\n]/g, " ").slice(0, 80);
+const clearedCookie = sessionCookie("", 0);
+/** Redemptions across all addresses in the last minute: the global cap behind the per-address one. */
+const pairAttempts: number[] = [];
+const PAIR_ATTEMPTS_PER_MINUTE = 30;
+
+app.get("/api/session", (req, reply) => {
+  reply.header("Cache-Control", "no-store");
+  const caller = authenticate(req);
+  if (!caller) return reply.code(401).send({ signedIn: false, authRequired: true, ca: publicCa !== undefined });
+  if (caller.via === "session" && caller.renewed) reply.header("Set-Cookie", sessionCookie(caller.cookie));
+  return {
+    signedIn: true,
+    authRequired: expectedTokenDigest !== undefined,
+    via: caller.via,
+    sessions: sessionStore?.count() ?? 0,
+    ca: publicCa ? { fingerprint: publicCa.fingerprint } : null,
+    canRotate: expectedTokenDigest !== undefined && rotationRefusal() === undefined,
+    ...(tlsDaysLeft !== undefined ? { certificateDaysLeft: tlsDaysLeft } : {}),
+  };
+});
+app.post("/api/login", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, (req, reply) => {
+  if (refuseForeignOrigin(req, reply)) return reply;
+  if (!sessionStore) return { signedIn: true, authRequired: false };
+  const token = (req.body as { token?: unknown } | undefined)?.token;
+  if (typeof token !== "string" || !tokenValid(token)) {
+    console.warn(`[server] rejected sign-in with a wrong token from ${String(req.ip).replace(/[\r\n]/g, " ")}`);
+    return reply.code(401).send({ error: "unauthorized" });
+  }
+  return reply.header("Set-Cookie", sessionCookie(sessionStore.create(sessionLabel(req), "token"))).header("Cache-Control", "no-store").send({ signedIn: true });
+});
+app.post("/api/logout", (req, reply) => {
+  if (refuseForeignOrigin(req, reply)) return reply;
+  const caller = requireAuth(req, reply, "/api/logout");
+  if (!caller) return reply;
+  if (caller.via === "session") {
+    sessionStore?.remove(caller.id);
+    closeRevokedSockets();
+  }
+  return reply.header("Set-Cookie", clearedCookie).send({ signedIn: false });
+});
+app.post("/api/sessions/revoke-all", (req, reply) => {
+  if (refuseForeignOrigin(req, reply)) return reply;
+  if (!requireAuth(req, reply, "/api/sessions/revoke-all")) return reply;
+  sessionStore?.removeAll();
+  closeRevokedSockets();
+  return reply.header("Set-Cookie", clearedCookie).send({ signedIn: false });
+});
+app.post("/api/token/rotate", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, (req, reply) => {
+  if (refuseForeignOrigin(req, reply)) return reply;
+  const caller = requireAuth(req, reply, "/api/token/rotate");
+  if (!caller) return reply;
+  reply.header("Cache-Control", "no-store");
+  if (expectedTokenDigest === undefined) return reply.code(409).send({ error: "no-token", message: "This server has no token to rotate." });
+  const refusal = rotationRefusal();
+  if (refusal) return reply.code(409).send({ error: "refused", message: refusal });
+  const token = newToken();
+  try {
+    persistEditableSettings(config, { serverToken: token });
+  } catch (error) {
+    return reply.code(409).send({ error: "refused", message: error instanceof Error ? error.message : String(error) });
+  }
+  config.token = token;
+  expectedTokenDigest = createHash("sha256").update(token).digest();
+  sessionStore?.clearPairingCodes();
+  if ((req.body as { revokeOtherSessions?: unknown } | undefined)?.revokeOtherSessions !== false) {
+    sessionStore?.removeAll(caller.via === "session" ? caller.id : undefined);
+    closeRevokedSockets();
+  }
+  console.log("[server] the token was rotated from the interface");
+  return { token };
+});
+app.post("/api/pair/create", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, (req, reply) => {
+  if (refuseForeignOrigin(req, reply)) return reply;
+  if (!requireAuth(req, reply, "/api/pair/create")) return reply;
+  if (!sessionStore) return reply.code(409).send({ error: "no-token", message: "Sign-in is not enabled on this server." });
+  return reply.header("Cache-Control", "no-store").send(sessionStore.createPairingCode());
+});
+app.post("/api/pair", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, (req, reply) => {
+  if (refuseForeignOrigin(req, reply)) return reply;
+  const now = Date.now();
+  while (pairAttempts.length > 0 && pairAttempts[0]! <= now - 60_000) pairAttempts.shift();
+  if (pairAttempts.length >= PAIR_ATTEMPTS_PER_MINUTE) return reply.code(429).send({ error: "rate-limited" });
+  pairAttempts.push(now);
+  if (!sessionStore) return { signedIn: true, authRequired: false };
+  const code = (req.body as { code?: unknown } | undefined)?.code;
+  if (typeof code !== "string" || code.length > 32 || !sessionStore.redeemPairingCode(code)) {
+    console.warn(`[server] rejected a pairing code from ${String(req.ip).replace(/[\r\n]/g, " ")}`);
+    return reply.code(401).send({ error: "unauthorized" });
+  }
+  return reply.header("Set-Cookie", sessionCookie(sessionStore.create(sessionLabel(req), "pair"))).header("Cache-Control", "no-store").send({ signedIn: true });
+});
+
+// Public on purpose: a device must fetch the CA before it can trust anything else here.
+// Only the `caFile` contents are served; no route reads any other file of the TLS directory.
+const CA_PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:";
+app.get("/ca", (_req, reply) => {
+  if (!publicCa) return reply.code(404).send({ error: "not-found" });
+  return reply.header("Content-Type", "text/html; charset=utf-8").header("Content-Security-Policy", CA_PAGE_CSP).header("Cache-Control", "no-store").send(caPage(publicCa, config.branding.title ?? "pi-outpost"));
+});
+app.get("/ca.crt", (_req, reply) => {
+  if (!publicCa) return reply.code(404).send({ error: "not-found" });
+  return reply.header("Content-Type", "application/x-x509-ca-cert").header("Content-Disposition", 'attachment; filename="pi-outpost-ca.crt"').send(publicCa.der);
+});
+app.get("/ca.mobileconfig", (_req, reply) => {
+  if (!publicCa) return reply.code(404).send({ error: "not-found" });
+  return reply.header("Content-Type", "application/x-apple-aspen-config").header("Content-Disposition", 'attachment; filename="pi-outpost-ca.mobileconfig"').send(mobileconfig(publicCa));
 });
 
 /** Only these render inline; SVG additionally gets a scripts-off CSP below. */
@@ -1178,11 +1385,7 @@ app.post("/files/docx-template", { config: { rateLimit: { max: DOCX_TEMPLATE_EXP
     console.warn("[server] rejected /files/docx-template request with foreign host");
     return reply.code(403).send({ error: "forbidden" });
   }
-  const auth = req.headers.authorization;
-  if (!tokenValid(auth?.startsWith("Bearer ") ? auth.slice("Bearer ".length) : undefined)) {
-    console.warn("[server] rejected /files/docx-template request with bad or missing token");
-    return reply.code(401).send({ error: "unauthorized" });
-  }
+  if (!requireAuth(req, reply, "/files/docx-template")) return reply;
   const templatePath = config.docx.template;
   if (templatePath === undefined) return reply.code(404).send({ error: "no-template", message: "No Word template is configured (docx.template)." });
   if (!Buffer.isBuffer(req.body)) return reply.code(415).send({ error: "unsupported", message: "Send the document as a .docx body." });
@@ -1226,21 +1429,14 @@ function rawFileWorkspace(named: string | undefined): Workspace | undefined {
 }
 
 // Raw bytes for workspace files referenced in assistant messages (inline
-// images). `<img>` cannot send headers, so the token rides the query string —
-// same trade-off as the WebSocket.
+// images). `<img>` sends the session cookie; a URL token is refused.
 app.get("/files/raw", async (req, reply) => {
   const query = req.query as Record<string, unknown>;
   if (!hostAllowed(req.headers.host)) {
     console.warn("[server] rejected /files/raw request with foreign host");
     return reply.code(403).send({ error: "forbidden" });
   }
-  const auth = req.headers.authorization;
-  const bearer = auth?.startsWith("Bearer ") ? auth.slice("Bearer ".length) : undefined;
-  const queryToken = typeof query.token === "string" ? query.token : undefined;
-  if (!tokenValid(bearer) && !tokenValid(queryToken)) {
-    console.warn("[server] rejected /files/raw request with bad or missing token");
-    return reply.code(401).send({ error: "unauthorized" });
-  }
+  if (!requireAuth(req, reply, "/files/raw")) return reply;
   const relPath = typeof query.path === "string" ? query.path : undefined;
   if (!relPath) return reply.code(400).send({ error: "missing path" });
   const target = rawFileWorkspace(typeof query.workspace === "string" ? query.workspace : undefined);
@@ -1280,21 +1476,15 @@ app.get("/files/raw", async (req, reply) => {
 
 // A workspace entry, to save on the machine the browser runs on — the one way to get
 // a file off a remote server. Not /files/raw: that route's ceilings and inline image
-// types are what make it safe for <img>, and this one has neither. The token rides
-// the query string for the same reason as there: an <a download> sends no header.
+// types are what make it safe for <img>, and this one has neither. An <a download>
+// sends the session cookie, as <img> does there.
 app.get("/files/download", async (req, reply) => {
   const query = req.query as Record<string, unknown>;
   if (!hostAllowed(req.headers.host)) {
     console.warn("[server] rejected /files/download request with foreign host");
     return reply.code(403).send({ error: "forbidden" });
   }
-  const auth = req.headers.authorization;
-  const bearer = auth?.startsWith("Bearer ") ? auth.slice("Bearer ".length) : undefined;
-  const queryToken = typeof query.token === "string" ? query.token : undefined;
-  if (!tokenValid(bearer) && !tokenValid(queryToken)) {
-    console.warn("[server] rejected /files/download request with bad or missing token");
-    return reply.code(401).send({ error: "unauthorized" });
-  }
+  if (!requireAuth(req, reply, "/files/download")) return reply;
   const paths = (Array.isArray(query.path) ? query.path : [query.path]).filter((value): value is string => typeof value === "string");
   if (paths.length === 0) return reply.code(400).send({ error: "missing path" });
   const target = rawFileWorkspace(typeof query.workspace === "string" ? query.workspace : undefined);
@@ -1411,6 +1601,8 @@ for (const candidate of webDistCandidates) {
 // Prefer the inlined UI (self-contained SEA/npm bundle) — no web/ folder needed
 // next to the executable. Falls back to fastifyStatic from disk for dev/npm
 // builds that don't embed it.
+/** Answers with the app's index.html, from whichever source serves the UI. */
+let sendIndex: ((reply: FastifyReply) => unknown) | undefined;
 if (EMBEDDED_WEB && Object.keys(EMBEDDED_WEB).length > 0) {
   const serveAsset = (reply: any, url: string) => {
     const asset = EMBEDDED_WEB[url];
@@ -1422,6 +1614,7 @@ if (EMBEDDED_WEB && Object.keys(EMBEDDED_WEB).length > 0) {
     reply.header("Cache-Control", cacheControlFor(url));
     reply.send(Buffer.from(asset.b64, "base64"));
   };
+  sendIndex = (reply) => serveAsset(reply, "/index.html");
   app.get("/*", async (req: any, reply: any) => {
     const url = (req.params["*"] as string) || "";
     if (url === "" || url.endsWith("/")) {
@@ -1432,8 +1625,11 @@ if (EMBEDDED_WEB && Object.keys(EMBEDDED_WEB).length > 0) {
   console.log(`[server] serving web UI from embedded bundle (${Object.keys(EMBEDDED_WEB).length} assets)`);
 } else if (WEB_DIST !== undefined) {
   await app.register(fastifyStatic, { root: WEB_DIST });
+  sendIndex = (reply) => reply.sendFile("index.html");
   console.log(`[server] serving web UI from ${WEB_DIST}`);
 }
+// The pairing link opens the app itself; the code stays in the fragment, never in a request.
+app.get("/pair", (_req, reply) => (sendIndex ? sendIndex(reply) : reply.code(404).send({ error: "not-found" })));
 
 /**
  * The one startup step that used to fail without a sentence.
@@ -1445,6 +1641,19 @@ if (EMBEDDED_WEB && Object.keys(EMBEDDED_WEB).length > 0) {
  * copy of the message with it. `holdConsoleIfOwned()` is the same hold the config
  * and flag failures above now do, for the same reason.
  */
+// Plain HTTP on the TLS port: one fixed redirect for a host this server answers to.
+if (httpsOptions && config.tls) {
+  const certHosts = await certificateHosts(config.tls.certFile).catch(() => [] as string[]);
+  const originHosts = config.allowedOrigins.flatMap((origin) => {
+    try {
+      return [new URL(origin).hostname.replace(/^\[|\]$/g, "")];
+    } catch {
+      return [];
+    }
+  });
+  const redirectHosts = new Set(["localhost", "127.0.0.1", "::1", ...certHosts, ...originHosts, ...(HOST === "0.0.0.0" || HOST === "::" ? [] : [HOST])]);
+  installPlainHttpRedirect(app.server as unknown as import("node:tls").Server, (hostname) => redirectHosts.has(hostname.toLowerCase()));
+}
 try {
   await app.listen({ port: PORT, host: HOST });
 } catch (error) {
@@ -7272,6 +7481,27 @@ function handleClientMessage(socket: WebSocket, raw: string): void {
       }).catch((error: unknown) => {
         if (clients.get(socket) === workspace) send(socket, { type: "mcp_management_result", requestId, error: error instanceof Error ? error.message : "MCP operation failed" });
       }).finally(() => { if (mutation) workspace.replacingSession = false; });
+      return;
+    }
+    case "subagent_management": {
+      if (typeof message.requestId !== "string" || message.requestId.length > 128) return;
+      const requestId = message.requestId;
+      if (Buffer.byteLength(raw) > 512 * 1024) {
+        send(socket, { type: "subagent_management_result", requestId, error: "Agent request is too large" });
+        return;
+      }
+      const agent = workspace.started ? workspace.agent : undefined;
+      const snapshot = agent?.ok ? agent.snapshot() : undefined;
+      void manageSubagents({
+        root: workspace.root,
+        agentDir: AGENT_DIR,
+        inventorySkills: () => (snapshot?.resources ?? []).filter((resource) => resource.kind === "skill").map((resource) => ({ name: resource.name, ...(resource.path ? { path: resource.path } : {}) })),
+        runtime: { kind: config.agentRuntime.mode, ...(agent?.kind === "embedded" && snapshot ? { sessionId: snapshot.sessionId } : {}) },
+      }, message.operation).then((result) => {
+        if (clients.get(socket) === workspace) send(socket, { type: "subagent_management_result", requestId, ...result });
+      }).catch((error: unknown) => {
+        if (clients.get(socket) === workspace) send(socket, { type: "subagent_management_result", requestId, error: error instanceof Error ? error.message : "Agent operation failed" });
+      });
       return;
     }
     case "switch_workspace": {

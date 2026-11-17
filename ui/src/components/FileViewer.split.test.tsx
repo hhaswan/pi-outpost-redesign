@@ -436,7 +436,7 @@ describe("editing a document beside its rendering", () => {
       const source = new URL(image.getAttribute("src")!, "http://host");
       expect(source.pathname).toBe("/files/raw");
       expect(source.searchParams.get("path")).toBe("reports/q3/figures/power.svg");
-      expect(source.searchParams.get("token")).toBe("t");
+      expect(source.searchParams.has("token")).toBe(false);
     });
 
     it("never goes stale, because there is no text it cannot render", () => {

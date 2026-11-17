@@ -20,7 +20,9 @@ the LAN will trust, so the live deployment still runs the plaintext exception.
   `localhost`, the host name), stores them under `<userConfigDir>/tls/` with private keys `0600`,
   and writes `server.tls` (plus the new `server.tls.caFile`) into the loaded configuration.
   `pi-outpost tls renew` re-issues the server certificate from the same CA. Same port 3141.
-  The running server never reads the CA private key.
+  `tls init` is idempotent (an existing CA is reused; only `--new-ca` replaces it, with a
+  re-trust warning). The running server never reads the CA private key. The TLS directory and
+  `sessions.json` live outside the repository so re-clones, rebuilds and redeploys keep them.
 - **CA download page.** Public, unauthenticated `GET /ca`, `/ca.crt` and `/ca.mobileconfig` on the
   HTTPS port: SHA-256 fingerprint and per-OS install steps (iOS profile + full trust, macOS
   Keychain, Windows, Android). Linked from the sign-in screen and from Settings (with a QR code of
@@ -31,8 +33,9 @@ the LAN will trust, so the live deployment still runs the plaintext exception.
   master token for an `HttpOnly; Secure; SameSite=Strict` `__Host-` cookie with a 14-day sliding
   expiry, backed by a revocable server-side store (`<userConfigDir>/sessions.json`, `0600`, hashed
   ids). The browser no longer stores the token. `?token=` is rejected on every route.
-  `Authorization: Bearer <master token>` stays for non-browser clients, deploy scripts and the embed
-  widget (WebSocket via a subprotocol, since browsers cannot set headers there).
+  `Authorization: Bearer <master token>` stays for non-browser clients and deploy scripts. No embed
+  widget is in use, so no header-based WebSocket transport is added: a cross-origin widget cannot
+  open a token-protected socket (known, out of scope).
 - **Sign out, sign out everywhere, rotate token** in Settings and on the CLI
   (`pi-outpost token rotate [--revoke-sessions]`, `pi-outpost sessions revoke-all`). Revocation also
   closes open WebSockets.

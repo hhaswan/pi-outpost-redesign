@@ -89,8 +89,9 @@ anything.
 > network without a sandbox **and** an auth token: set `server.token` (or the
 > `PI_OUTPOST_TOKEN` environment variable, which wins) to a long random secret, e.g.
 > `openssl rand -hex 32`. Binding off loopback without one is **refused**, not merely
-> discouraged. Clients authenticate by opening `https://host:3141/?token=<secret>` once
-> (stored locally, stripped from the URL) or via the embed widget's `token` option. Use a
+> discouraged. Browsers sign in on the sign-in screen with the token, which is traded for a
+> session cookie and never stored ([details](how-to.md#sign-in-pair-a-device-sign-out)); `?token=`
+> links are refused. Scripts send `Authorization: Bearer <token>`. Use a
 > [native HTTPS/WSS, a TLS reverse proxy or an SSH tunnel](deployment.md#remote-transport-https-or-ssh)
 > for transport encryption. Remote HTTP refuses startup by default; local HTTP remains available.
 >

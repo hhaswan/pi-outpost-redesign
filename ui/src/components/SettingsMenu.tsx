@@ -1,6 +1,6 @@
 import { TOUCH_DESCENDANTS } from "../touch";
 import { Credits } from "./Credits";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PiPackageInfo } from "@pi-outpost/shared";
 import type { AgentState } from "../useAgent";
 import { PiPackages, type PiPackageEdits } from "./PiPackages";
@@ -54,6 +54,8 @@ function credentialSourceLabel(source: string | undefined, label: string | undef
 type PickerField = "root" | "writableRoot";
 
 interface SettingsMenuProps {
+  /** The Security section, drawn first when the app is signed in to a token-protected server. */
+  security?: ReactNode;
   credentials?: CredentialStatus | null;
   login?: LoginFlowState | null;
   onStartLogin?: (provider: string, method: "oauth" | "api_key") => void;
@@ -151,6 +153,7 @@ interface SettingsMenuProps {
 }
 
 export function SettingsMenu({
+  security,
   credentials, login, onStartLogin, onAnswerLogin, onCancelLogin, onDismissLogin, onLogoutProvider,
   gitHostCredential, onSetGitHostCredential, onRemoveGitHostCredential,
   extensionPaths,
@@ -351,6 +354,7 @@ export function SettingsMenu({
 
           <div className="min-h-0 overflow-y-auto p-4">
             {creditsOpen ? <Credits /> : <>
+            {security}
             {/* Truthy, not `!== null`: a prop that never arrives must not take the whole
                 panel down with it — every other section here is unrelated to git. */}
             {gitUnavailable && (

@@ -6,7 +6,8 @@ import { chromium } from "playwright";
 // openlore: scenario=PreservesTheBrowserTerminal spec=docker-python-deployment
 export async function checkBrowser({ base, token, workspace }) {
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  // Bearer on every request, the WebSocket included: URL tokens are refused, and this hop is plain HTTP.
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
   let output = "";
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -31,7 +32,7 @@ export async function checkBrowser({ base, token, workspace }) {
     await page.keyboard.press("Enter");
   }
   try {
-    await page.goto(`${base}/?token=${token}`);
+    await page.goto(base);
     await page.getByRole("button", { name: /terminal$/i }).click({ timeout: 60_000 });
     await terminal().waitFor({ state: "visible" });
     await command("python3 -c \"from pathlib import Path; Path('browser-proof.txt').write_text('from the real UI'); print('BROWSER_'+'PYTHON_OK')\"");

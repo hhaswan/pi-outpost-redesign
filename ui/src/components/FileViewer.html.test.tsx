@@ -35,7 +35,7 @@ describe("an HTML file in the viewer", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens rendered, its resources fetched by the viewer with the token, none of it in the page", async () => {
+  it("opens rendered, its resources fetched by the viewer (cookie, no URL token), none of it in the page", async () => {
     const fetched: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -58,7 +58,7 @@ describe("an HTML file in the viewer", () => {
     expect(fetched).toHaveLength(3);
     for (const url of fetched) {
       expect(new URL(url).pathname).toBe("/files/raw");
-      expect(new URL(url).searchParams.get("token")).toBe("secret-token");
+      expect(new URL(url).searchParams.has("token")).toBe(false);
       expect(new URL(url).searchParams.get("workspace")).toBe("p1");
     }
   });

@@ -91,6 +91,12 @@ function agentApi(state: ReturnType<typeof agentState>) {
     state,
     authToken: null,
     submitToken: vi.fn(),
+    submitPairingCode: vi.fn(),
+    session: null,
+    signInNotice: { urlTokenIgnored: false, pairingError: null },
+    signOut: vi.fn(),
+    rotateToken: vi.fn(),
+    createPairingCode: vi.fn(),
     prompt: vi.fn(),
     abort: vi.fn(),
     cancelPendingPrompt: vi.fn(),
@@ -542,10 +548,10 @@ describe("App — authRequired", () => {
     mockUseAgent.mockReturnValue(agentApi(agentState({ connected: false, authRequired: true, sessionId: "" })));
   });
 
-  it("renders the TokenGate when auth is required", () => {
+  it("renders the sign-in screen when auth is required", () => {
     render(<App />);
-    // TokenGate should show some form of token input
-    expect(screen.getByDisplayValue("")).toBeDefined(); // token input
+    expect(screen.getByLabelText("Access token")).toBeInTheDocument();
+    expect(screen.getByLabelText("Pairing code")).toBeInTheDocument();
   });
 });
 

@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { connect, makeWorkspace, startServer } from "./harness.mjs";
+import { bearer, connect, makeWorkspace, startServer } from "./harness.mjs";
 
 const TOKEN = "test-token-auth";
 /** App close code the client keys on to show the token screen instead of retrying. */
@@ -25,24 +25,24 @@ describe("auth", () => {
     await open?.stop();
   });
 
-  test("a valid token connects and gets the snapshot", async () => {
-    const client = connect(guarded.wsUrl(TOKEN));
+  test("WsWithValidToken: a valid Bearer token connects and gets the snapshot", async () => {
+    const client = connect(guarded.wsUrl(), bearer(TOKEN));
     await client.open();
     const hello = await client.waitFor("hello", 15_000);
     assert.ok(hello.sessionId);
     client.close();
   });
 
-  test("a missing or wrong token is closed with 4401 and gets no data", async () => {
-    for (const url of [guarded.wsUrl(), guarded.wsUrl("wrong")]) {
-      const client = connect(url);
+  test("WsWithBadToken / TokenInWsUrlRejected: missing, wrong or URL tokens close with 4401 and get no data", async () => {
+    for (const [url, options] of [[guarded.wsUrl()], [guarded.wsUrl(), bearer("wrong")], [guarded.wsUrl("wrong")], [guarded.wsUrl(TOKEN)], [guarded.wsUrl(TOKEN), bearer(TOKEN)]]) {
+      const client = connect(url, options);
       const code = await client.waitForClose();
       assert.equal(code, WS_CLOSE_UNAUTHORIZED);
       assert.deepEqual(client.received, [], "a rejected socket must receive nothing");
     }
   });
 
-  test("/branding needs a Bearer token; /health hides the session id", async () => {
+  test("BrandingRequiresBearer / HealthRedacted: /branding needs a credential; /health hides the session id", async () => {
     assert.equal((await fetch(`${guarded.base}/branding`)).status, 401);
     const ok = await fetch(`${guarded.base}/branding`, { headers: { Authorization: `Bearer ${TOKEN}` } });
     assert.equal(ok.status, 200);

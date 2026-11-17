@@ -118,7 +118,9 @@ describe("GET /files/download", () => {
       assert.equal(res.status, 401);
       assert.deepEqual(await res.json(), { error: "unauthorized" }, "a refusal carries nothing of the file");
     }
-    const ok = await fetch(url(guarded, "a.txt", `&token=${TOKEN}`));
+    // A URL token is refused even when correct: it would sit in history and logs.
+    assert.equal((await fetch(url(guarded, "a.txt", `&token=${TOKEN}`))).status, 401);
+    const ok = await fetch(url(guarded, "a.txt"), { headers: { Authorization: `Bearer ${TOKEN}` } });
     assert.equal(ok.status, 200);
     assert.equal(await ok.text(), "a");
   });

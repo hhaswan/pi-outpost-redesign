@@ -20,6 +20,15 @@ pi-outpost login --provider <name>
                               run account sign-in, or store an API key
 pi-outpost logout --provider <name>
                               remove this server's stored credential
+pi-outpost tls init [--ip <addr>]... [--dns <name>]... [--new-ca]
+                              local CA + server certificate in <user config dir>/tls/, writes
+                              server.tls; reuses an existing CA unless --new-ca (needs openssl)
+pi-outpost tls renew [--ip <addr>]... [--dns <name>]...
+                              new server certificate from the existing CA
+pi-outpost token rotate [--revoke-sessions]
+                              new server.token, printed once (applies at restart)
+pi-outpost sessions revoke-all
+                              sign every browser out, the running server included
 pi-outpost build-exe [options]
                               build a standalone executable from this installation
 pi-outpost update [--check]   move to the newest published version, or just look
