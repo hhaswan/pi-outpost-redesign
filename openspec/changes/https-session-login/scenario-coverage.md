@@ -1,6 +1,6 @@
 # Scenario coverage
 
-Enumerated with `rg '^#### Scenario:' openspec/changes/https-session-login` (55 scenarios).
+Enumerated with `rg '^#### Scenario:' openspec/changes/https-session-login` (56 scenarios).
 OpenLore is not installed on this host; coverage was checked with `rg` and by reading assertions.
 `server/test/*` run with `node --import tsx/esm --test`; `ui/src/*` with `vitest`; probes with node.
 
@@ -16,6 +16,7 @@ OpenLore is not installed on this host; coverage was checked with `rg` and by re
 | auth / BadStoredToken | covered | `useAgent.test.ts` "BadStoredToken: a 4401 close stops reconnecting…" |
 | auth / EmbedToken | covered | `useAgent.test.ts` "EmbedToken: … branding gets it as Bearer"; `ui/src/util/workspacePath.test.ts`, `download.test.ts` (no token in URLs) |
 | browser-session-auth / LoginSetsHardenedCookie | covered | `sessionAuth.test.mjs` "LoginSetsHardenedCookie"; browser-side attributes in `check-https-login.mjs` |
+| browser-session-auth / PlainHttpSessionUntilCutover | covered | `server/test/authSessions.test.ts` "cookie attributes and parsing (PlainHttpSessionUntilCutover)" (both names, no `Secure` without TLS, `__Host-` wins); wire: `sessionAuth.test.mjs` "LoginSetsHardenedCookie / PlainHttpSessionUntilCutover" (plain HTTP: no `Secure`/`__Host-`, one startup warning) and `localCa.test.mjs` "ExpiryWarning and CaRoutesAbsentWithoutCaFile" (TLS: exact `__Host-…; Secure` cookie, no warning, http-era name still read, logout clears both); UI: `ui/src/components/SecuritySettings.test.tsx` "PlainHttpSessionUntilCutover…" and "QrPairing…" (origin-relative QR); browser: `scripts/check-https-login.mjs` plain-HTTP pass (LAN address, `isSecureContext` false, login form, cookie not Secure, reload, notice, QR pairing, sign-out, monkey; fails with `[]` cookies when the server sends `Secure`); deploy: `scripts/check-native-deploy.mjs` asserts the deploy's "live browser login form over plain http at a LAN origin (insecure context)" check ran and left no session |
 | browser-session-auth / LoginWrongToken | covered | `sessionAuth.test.mjs` "LoginWrongToken" |
 | browser-session-auth / LoginRateLimited | covered | `sessionAuth.test.mjs` "LoginRateLimited and PairingRedeemRateLimited…" (11th with the right token gets 429, no cookie) |
 | browser-session-auth / LoginCrossOriginRefused | covered | `sessionAuth.test.mjs` "LoginCrossOriginRefused" |

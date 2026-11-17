@@ -127,7 +127,31 @@ async function verifyBrowser(){
  await page.getByText('No models found.',{exact:true}).waitFor();await page.keyboard.press('Escape');
  if(await page.evaluate(()=>document.body.scrollWidth>innerWidth))throw Error('Live mobile overflow');
  if(errors)throw Error('Live browser page errors');record.checks.push(`live authenticated Playwright over ${live.scheme}: fresh tab start screen, refreshed tab restored directly, activity, CLI panel, mobile bounds, zero page errors`);
+ if(live.scheme==='http')await verifyPlainHttpLogin(browser);
  }finally{await browser.close();}
+}
+/* Without TLS, Bearer proves nothing about browsers: a Secure cookie on plain http is dropped and
+   nobody can sign in. Sign in through the form as a browser does, from a configured LAN origin
+   (an insecure context) when there is one, reload, then sign out so no session is left behind. */
+async function verifyPlainHttpLogin(browser){
+ const lanOrigin=(config.server.allowedOrigins??[]).map(o=>{try{return new URL(o);}catch{return undefined;}}).find(u=>u&&u.protocol==='http:'&&Number(u.port||80)===port&&!/^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/.test(u.hostname));
+ const origin=lanOrigin?lanOrigin.origin:`http://127.0.0.1:${port}`;
+ // A name is mapped to loopback so the check never leaves the host; an IP literal is reached directly.
+ const mapped=lanOrigin&&!/^[\d.]+$|^\[/.test(lanOrigin.hostname);
+ const context=await (mapped?await chromium.launch({headless:true,args:[`--host-resolver-rules=MAP ${lanOrigin.hostname} 127.0.0.1`],...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})}):browser).newContext({viewport:{width:390,height:900}});
+ try{const page=await context.newPage();let errors=0;page.on('pageerror',()=>errors++);
+ await page.goto(origin);await page.getByTestId('sign-in').waitFor({timeout:90000});
+ if(lanOrigin&&await page.evaluate(()=>window.isSecureContext))throw Error('The plain-HTTP login check did not run in an insecure context');
+ await page.getByLabel('Access token',{exact:true}).fill(live.authorization.slice('Bearer '.length));
+ await page.getByRole('button',{name:'Connect',exact:true}).click();
+ await page.getByTestId('sign-in').waitFor({state:'detached',timeout:30000});
+ await page.reload();await page.getByTestId('start-screen').or(page.getByRole('region',{name:'Activity',exact:true})).first().waitFor({timeout:90000});
+ if(await page.getByTestId('sign-in').count())throw Error('Browser sign-in over plain HTTP did not survive a reload');
+ const out=await page.evaluate(async()=>[(await fetch('/api/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,(await fetch('/api/session')).status]);
+ if(out[0]!==200||out[1]!==401)throw Error(`Plain-HTTP sign-out failed: ${out}`);
+ if(errors)throw Error('Live browser page errors during the plain-HTTP login check');
+ record.checks.push(`live browser login form over plain http at ${lanOrigin?'a LAN origin (insecure context)':'loopback'}: signed in, reload kept the session, signed out`);
+ }finally{await context.close();if(mapped)await context.browser()?.close();}
 }
 await fs.mkdir(path.join(root,'.local'),{recursive:true,mode:0o700});
 await fs.access(path.join(source,'pi-outpost.mjs'));await fs.access(path.join(source,'extensions/cli-session-bridge.mjs'));

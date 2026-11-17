@@ -13,7 +13,8 @@ import { after, before, describe, test } from "node:test";
 import { bearer, connect, makeWorkspace, PNG_BYTES, startServer } from "./harness.mjs";
 
 const TOKEN = "session-auth-test-token";
-const COOKIE = "__Host-pi-outpost-session";
+/** Plain loopback HTTP: the server issues the cookie without `Secure` and so without `__Host-`. */
+const COOKIE = "pi-outpost-session";
 const SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -45,7 +46,7 @@ function client(server) {
 function cookieValue(res) {
   const header = res.headers.get("set-cookie");
   assert.ok(header, "a Set-Cookie header");
-  return /__Host-pi-outpost-session=([^;]*)/.exec(header)[1];
+  return /(?:^|[,;]\s*)pi-outpost-session=([^;]*)/.exec(header)[1];
 }
 
 async function readStore(server) {
@@ -94,14 +95,17 @@ describe("browser session auth", () => {
     await server?.stop();
   });
 
-  test("LoginSetsHardenedCookie", async () => {
+  // The TLS half (`__Host-`, `Secure`) is in localCa.test.mjs "LoginSetsHardenedCookie over TLS".
+  test("LoginSetsHardenedCookie / PlainHttpSessionUntilCutover (no TLS: no Secure, no __Host-)", async () => {
     const res = await api.post("/api/login", { token: TOKEN });
     assert.equal(res.status, 200);
     const header = res.headers.get("set-cookie");
-    for (const attribute of ["HttpOnly", "Secure", "SameSite=Strict", "Path=/", "Max-Age=1209600"]) {
+    for (const attribute of ["HttpOnly", "SameSite=Strict", "Path=/", "Max-Age=1209600"]) {
       assert.ok(header.split(/;\s*/).includes(attribute), `cookie has ${attribute}: ${header}`);
     }
-    assert.match(header, /^__Host-pi-outpost-session=[A-Za-z0-9_-]{43};/);
+    assert.match(header, /^pi-outpost-session=[A-Za-z0-9_-]{43};/);
+    assert.doesNotMatch(header, /Secure|__Host-/i, "a browser on http drops a Secure cookie");
+    assert.equal(server.log().match(/sessions travel unencrypted/g)?.length, 1, "one startup warning");
     assert.doesNotMatch(header, /Domain=/i);
     const body = await res.text();
     assert.ok(!body.includes(TOKEN) && !body.includes(cookieValue(res)), "the body carries neither the token nor the cookie");

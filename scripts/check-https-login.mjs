@@ -6,6 +6,11 @@
  * browser, a reused pairing code is refused, plain http:// redirects to https://. Phone and
  * desktop widths, then monkey passes: double submit, code reuse, rapid sign-out/sign-in.
  *
+ * Then the same server without TLS, as the live deployment runs before its HTTPS cutover
+ * (`allowInsecureHttp`, opened by LAN address so the page is an insecure context): token
+ * sign-in sets a non-Secure `pi-outpost-session` cookie, reload keeps it, Settings says
+ * "Not encrypted", QR pairing over http signs in a second browser, sign-out signs out.
+ *
  * Chromium trusts only this server's key (--ignore-certificate-errors-spki-list), never
  * every certificate. Everything lives in a temporary directory; nothing touches ~/.config.
  */
@@ -13,6 +18,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash, createPublicKey, X509Certificate } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { freePort, makeWorkspace, startServer } from '../server/test/harness.mjs';
@@ -43,6 +49,7 @@ const stored = () => (fs.existsSync(sessionsFile) ? JSON.parse(fs.readFileSync(s
 
 const browser = await chromium.launch({ headless: true, args: [`--ignore-certificate-errors-spki-list=${spki}`], ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}) });
 const pageErrors = [];
+let plainServer;
 const signIn = (page) => page.getByTestId('sign-in');
 async function openSettings(page) {
   const more = page.getByRole('button', { name: 'More controls', exact: true });
@@ -163,10 +170,91 @@ try {
   assert.ok(!server.log().includes('leak'), 'the redirected query reached the log');
   assert.deepEqual(pageErrors, []);
   console.log('PASS HttpsSessionLogin: /ca public, token sign-in, reload, QR pairing, sign out all, code reuse refused, http redirect, monkey bursts');
+  await plainHttpPass();
 } catch (error) {
   console.error(server.log().split('\n').slice(-20).join('\n'));
+  if (plainServer) console.error(plainServer.log().split('\n').slice(-20).join('\n'));
   throw error;
 } finally {
   await browser.close();
   await server.stop();
+  await plainServer?.stop();
+}
+
+/** PlainHttpSessionUntilCutover: no TLS, LAN address, a real login form and cookie. */
+async function plainHttpPass() {
+  const lan = Object.values(os.networkInterfaces()).flat().find((entry) => entry.family === 'IPv4' && !entry.internal)?.address;
+  assert.ok(lan, 'a non-loopback IPv4 address for the insecure-context pass');
+  const plainRoot = await makeWorkspace({ 'README.md': '# plain\n' });
+  const plainPort = await freePort();
+  plainServer = await startServer(plainRoot, { sandbox: false, noExtensions: true, server: { host: '0.0.0.0', port: plainPort, token, allowInsecureHttp: true, allowedOrigins: [`http://${lan}:${plainPort}`] } }, { entry, env: { PI_OFFLINE: '1', ANTHROPIC_API_KEY: 'x' } });
+  assert.equal(plainServer.log().match(/sessions travel unencrypted/g)?.length, 1, 'one startup warning');
+  const plainBase = `http://${lan}:${plainPort}`;
+  const plainSessions = path.join(plainServer.configDir, 'sessions.json');
+  const plainStored = () => (fs.existsSync(plainSessions) ? JSON.parse(fs.readFileSync(plainSessions, 'utf8')).sessions : []);
+  for (const width of [390, 1280]) {
+    if (fs.existsSync(plainSessions)) fs.rmSync(plainSessions);
+    const { context: contextA, page: a } = await newPage(width);
+    await a.goto(plainBase);
+    assert.equal(await a.evaluate(() => window.isSecureContext), false, 'must reproduce insecure plain HTTP');
+    await signIn(a).waitFor({ timeout: 30000 });
+    // Monkey: double click plus Enter is still one login.
+    let logins = 0;
+    a.on('request', (request) => { if (new URL(request.url()).pathname === '/api/login') logins++; });
+    await a.getByLabel('Access token', { exact: true }).fill(token);
+    await a.getByRole('button', { name: 'Connect', exact: true }).dblclick();
+    await a.keyboard.press('Enter').catch(() => {});
+    await signIn(a).waitFor({ state: 'detached', timeout: 30000 });
+    assert.equal(logins, 1, `double submit sent ${logins} logins`);
+    const cookies = await contextA.cookies();
+    assert.equal(cookies.find((entry) => entry.name.startsWith('__Host-')), undefined);
+    const cookie = cookies.find((entry) => entry.name === 'pi-outpost-session');
+    assert.ok(cookie && cookie.httpOnly && !cookie.secure && cookie.sameSite === 'Strict' && cookie.path === '/', JSON.stringify(cookies));
+    assert.equal(plainStored().length, 1);
+    if (await a.getByTestId('start-screen').count()) await leaveStartScreen(a);
+
+    await a.reload();
+    await a.getByRole('region', { name: 'Activity', exact: true }).or(a.getByTestId('start-screen')).first().waitFor({ timeout: 30000 });
+    assert.equal(await signIn(a).count(), 0, 'reload over http asked to sign in again');
+    if (await a.getByTestId('start-screen').count()) await leaveStartScreen(a);
+
+    await openSettings(a);
+    assert.equal((await a.getByTestId('plain-http-notice').textContent()).trim(), 'Not encrypted — set up HTTPS (docs)');
+    await a.getByRole('button', { name: 'Create code', exact: true }).click();
+    const pairUrl = await a.getByRole('img', { name: 'QR code to pair a device' }).getAttribute('data-qr-text');
+    assert.match(pairUrl, new RegExp(`^${plainBase.replace(/[.]/g, '\\.')}/pair#[0-9A-Z]{5}-[0-9A-Z]{5}$`));
+    if (width < 768) assert.ok(await a.evaluate(() => document.body.scrollWidth <= innerWidth), 'phone overflow with Settings open');
+
+    const { context: contextB, page: b } = await newPage(width);
+    await b.goto(pairUrl);
+    await b.getByTestId('start-screen').or(b.getByRole('region', { name: 'Activity', exact: true })).first().waitFor({ timeout: 30000 });
+    assert.equal(await signIn(b).count(), 0, 'QR pairing over http did not sign in');
+    assert.equal((await contextB.cookies()).find((entry) => entry.name === 'pi-outpost-session')?.secure, false);
+    assert.equal(plainStored().length, 2);
+
+    // Sign out A: signed out, after a reload too; B stays in.
+    await a.getByRole('button', { name: 'Sign out', exact: true }).click();
+    await signIn(a).waitFor({ timeout: 15000 });
+    assert.equal((await contextA.cookies()).find((entry) => entry.name === 'pi-outpost-session'), undefined, 'logout cleared the cookie');
+    await a.reload();
+    await signIn(a).waitFor({ timeout: 15000 });
+    assert.equal(await b.evaluate(() => fetch('/api/session').then((response) => response.status)), 200);
+    assert.equal(plainStored().length, 1);
+
+    // Monkey: rapid sign-in / sign-out ends signed in with B plus one session for A.
+    for (let round = 0; round < 3; round++) {
+      await signInWithToken(a);
+      if (await a.getByTestId('start-screen').count()) await leaveStartScreen(a);
+      await openSettings(a);
+      await a.getByRole('button', { name: 'Sign out', exact: true }).click();
+      await signIn(a).waitFor({ timeout: 15000 });
+    }
+    await signInWithToken(a);
+    assert.equal(plainStored().length, 2, `sessions after the burst: ${plainStored().length}`);
+    await contextA.close();
+    await contextB.close();
+    console.log(`PASS plain-http sign-in at ${width}px`);
+  }
+  assert.deepEqual(pageErrors, []);
+  console.log('PASS PlainHttpSessionUntilCutover: LAN http login form, non-Secure cookie, reload, Not encrypted notice, QR pairing over http, sign out, monkey bursts');
 }

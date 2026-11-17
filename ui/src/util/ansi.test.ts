@@ -87,3 +87,24 @@ describe("stripAnsi", () => {
   });
 });
 
+
+describe("OSC 8 hyperlinks and other controls", () => {
+  const link = (label: string, url: string, st = `${ESC}\\`) => `${ESC}]8;;${url}${st}${label}${ESC}]8;;${st}`;
+
+  it("turns an http(s) OSC 8 link into a segment with href, with ST or BEL terminators", () => {
+    expect(parseAnsi(`see ${link("docs", "https://a.example/x")} now`)).toEqual([
+      { text: "see " },
+      { text: "docs", href: "https://a.example/x" },
+      { text: " now" },
+    ]);
+    expect(parseAnsi(link("b", "http://b.example/", "\u0007"))).toEqual([{ text: "b", href: "http://b.example/" }]);
+  });
+
+  it("refuses non-http targets and drops other OSC and control characters", () => {
+    expect(parseAnsi(link("x", "javascript:alert(1)"))).toEqual([{ text: "x" }]);
+    expect(stripAnsi(`${ESC}]0;title\u0007a\u0000b\u0008c${ESC}d\te\nf`)).toBe("abc\te\nf");
+    expect(stripAnsi(link("label", "https://a.example/"))).toBe("label");
+    // An unterminated OSC is consumed to the end rather than shown.
+    expect(stripAnsi(`ok${ESC}]8;;https://a.example/`)).toBe("ok");
+  });
+});

@@ -9,6 +9,8 @@ interface SecuritySettingsProps {
   onCreatePairingCode: () => Promise<{ code?: string; expiresAt?: number; error?: string }>;
 }
 
+export const HTTPS_DOCS = "https://github.com/laurentftech/pi-outpost/blob/main/docs/deployment.md#remote-transport-https-or-ssh";
+
 const smallButton =
   "rounded-full border border-zinc-300 px-3 py-1 text-[11px] text-zinc-700 transition hover:-translate-y-px hover:border-zinc-400 disabled:translate-y-0 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500";
 
@@ -48,6 +50,11 @@ export function SecuritySettings({ session, onSignOut, onRotateToken, onCreatePa
   return (
     <section className="mb-4" data-testid="security-settings">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Security</h3>
+      {window.location.protocol === "http:" && (
+        <p className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300" role="status" data-testid="plain-http-notice">
+          Not encrypted — set up HTTPS (<a href={HTTPS_DOCS} target="_blank" rel="noopener noreferrer" className="underline">docs</a>)
+        </p>
+      )}
       {session.certificateDaysLeft !== undefined && session.certificateDaysLeft < 30 && (
         <p className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300" role="status" data-testid="certificate-expiry">
           The server certificate expires in {session.certificateDaysLeft} days. On the host, run <span className="font-mono">pi-outpost tls renew</span> and restart. Devices keep trusting the same CA.
@@ -79,7 +86,7 @@ export function SecuritySettings({ session, onSignOut, onRotateToken, onCreatePa
         </div>
         {pairing && (pairingLive ? (
           <div className="mt-2 flex flex-col items-center gap-1" data-testid="pairing-code">
-            <QrCode text={`https://${host}/pair#${pairing.code}`} label="QR code to pair a device" />
+            <QrCode text={`${window.location.origin}/pair#${pairing.code}`} label="QR code to pair a device" />
             <span className="font-mono text-base tracking-widest text-zinc-800 dark:text-zinc-200">{pairing.code}</span>
             <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Scan it, or type the code on the other device's sign-in screen. {secondsLeft} s left, single use.</span>
           </div>

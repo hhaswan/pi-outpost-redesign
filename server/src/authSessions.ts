@@ -11,6 +11,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 export const SESSION_COOKIE = "__Host-pi-outpost-session";
+/** The cookie on a server without TLS: browsers drop `Secure` (and so `__Host-`) cookies on http. */
+export const PLAIN_SESSION_COOKIE = "pi-outpost-session";
 export const SESSION_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
 /** A request renews a session once a day at most. */
 const RENEW_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -37,17 +39,22 @@ interface StoreFile {
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
-export function sessionCookie(value: string, maxAgeSeconds = SESSION_LIFETIME_MS / 1000): string {
-  return `${SESSION_COOKIE}=${value}; Max-Age=${maxAgeSeconds}; Path=/; HttpOnly; Secure; SameSite=Strict`;
+/** `secure`: the server has TLS. Without it the cookie loses `Secure` and the `__Host-` prefix, nothing else. */
+export function sessionCookie(value: string, secure: boolean, maxAgeSeconds = SESSION_LIFETIME_MS / 1000): string {
+  return secure
+    ? `${SESSION_COOKIE}=${value}; Max-Age=${maxAgeSeconds}; Path=/; HttpOnly; Secure; SameSite=Strict`
+    : `${PLAIN_SESSION_COOKIE}=${value}; Max-Age=${maxAgeSeconds}; Path=/; HttpOnly; SameSite=Strict`;
 }
 
+/** Either name, `__Host-` first: a browser keeps its http-era cookie across the HTTPS cutover. */
 export function readSessionCookie(header: string | undefined): string | undefined {
   if (!header) return undefined;
+  const found = new Map<string, string>();
   for (const part of header.split(";")) {
     const [name, ...rest] = part.trim().split("=");
-    if (name === SESSION_COOKIE) return rest.join("=") || undefined;
+    if ((name === SESSION_COOKIE || name === PLAIN_SESSION_COOKIE) && !found.has(name)) found.set(name, rest.join("="));
   }
-  return undefined;
+  return found.get(SESSION_COOKIE) || found.get(PLAIN_SESSION_COOKIE) || undefined;
 }
 
 /** `XXXXX-XXXXX` with case, dashes, spaces and look-alikes (I/L -> 1, O -> 0) forgiven. */

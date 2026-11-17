@@ -78,7 +78,9 @@ try {
   const id = manager.getSessionId();
   await fs.writeFile(configPath, JSON.stringify({ cwd: root, agentDir, sandbox: false, noExtensions: true,
     noSkills: true, noPromptTemplates: true, webContext: false, openBrowser: false, offline: true,
-    server: { host: "127.0.0.1", port, token: "test" } }), { mode: 0o600 });
+    // A named LAN-style origin: the deploy's plain-HTTP login check maps it to loopback, so the page is an
+    // insecure context (where a Secure cookie would be dropped) while nothing listens beyond 127.0.0.1.
+    server: { host: "127.0.0.1", port, token: "test", allowedOrigins: [`http://deploy-proof.test:${port}`] } }), { mode: 0o600 });
   await fs.writeFile(unit, `[Unit]\nDescription=Disposable custom deployment proof\n[Service]\nWorkingDirectory=${repo}\nEnvironment="HOME=${home}" "PI_OFFLINE=1" "ANTHROPIC_API_KEY=fixture-no-model-calls"\nExecStart=${process.execPath} ${path.join(repo, "cli/dist/pi-outpost.mjs")} --config ${configPath}\n`);
   systemctl("daemon-reload"); systemctl("start", service);
   let healthy = false;
@@ -110,6 +112,9 @@ try {
   assert.equal(proofRecord.status, "deployed");
   releases.push(proofRecord.release);
   assert.equal(proofRecord.restoredSessions, 1);
+  assert.ok(proofRecord.checks.some((check) => check.startsWith("live browser login form over plain http at a LAN origin (insecure context)")), "PlainHttpSessionUntilCutover: the deploy signed in through the form");
+  const plainSessions = await fs.readFile(path.join(home, ".config/pi-outpost/sessions.json"), "utf8").then((text) => JSON.parse(text).sessions.length, () => 0);
+  assert.equal(plainSessions, 0, "the login check signed out again");
   assert.ok(systemctl("show", service, "-p", "ExecStart", "--value").includes(path.join(proofRecord.release, "dist/pi-outpost.mjs")));
   const fresh = await helper(port, "test").connection(root);
   assert.equal(fresh.hello.sessionId, id); fresh.close();
@@ -176,7 +181,7 @@ try {
   assert.equal(leftBehind, 0, "the deployment check left no browser session behind");
   console.log("PASS HttpsCutoverWithPreviousConfiguration");
   await fs.writeFile(path.join(repo, ".local/native-deploy-proof.json"), JSON.stringify({ result: "passed", checks: [
-    "exact saved session restored", "real systemd restart", "immutable custom release selected", "authenticated mobile browser and model search", "CLI bridge installed", "ingress unlocked", "browser failure triggers rollback without reverting a newer user session selection", "HTTPS cutover with tls init, token rotate and --previous-config",
+    "exact saved session restored", "real systemd restart", "immutable custom release selected", "authenticated mobile browser and model search", "browser login form over plain http from an insecure context, then sign-out", "CLI bridge installed", "ingress unlocked", "browser failure triggers rollback without reverting a newer user session selection", "HTTPS cutover with tls init, token rotate and --previous-config",
   ] }, null, 2));
   console.log("PASS RealNativeDeploymentAndFreshSessionIdentity");
 } finally {

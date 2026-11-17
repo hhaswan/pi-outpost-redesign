@@ -25,14 +25,24 @@ describe("SecuritySettings", () => {
     expect(qr.querySelector("path")!.getAttribute("d")!.length).toBeGreaterThan(100);
   });
 
-  it("QrPairing: a pairing QR of https://<host>/pair#<code>, the typed code and a countdown", async () => {
+  it("QrPairing: a pairing QR of <this origin>/pair#<code> (http before the cutover), the typed code and a countdown", async () => {
     const props = renderSecurity();
     fireEvent.click(screen.getByRole("button", { name: "Create code" }));
     const qr = await screen.findByRole("img", { name: "QR code to pair a device" });
     expect(props.onCreatePairingCode).toHaveBeenCalledTimes(1);
-    expect(qr.getAttribute("data-qr-text")).toBe(`https://${window.location.host}/pair#ABCDE-FGHJK`);
+    expect(qr.getAttribute("data-qr-text")).toBe(`${window.location.origin}/pair#ABCDE-FGHJK`);
     expect(screen.getByTestId("pairing-code")).toHaveTextContent("ABCDE-FGHJK");
     expect(screen.getByTestId("pairing-code")).toHaveTextContent(/1[12]\d s left, single use/);
+  });
+
+  it("PlainHttpSessionUntilCutover: a page on http shows one 'Not encrypted' notice with the HTTPS docs link", () => {
+    expect(window.location.protocol).toBe("http:");
+    renderSecurity();
+    const notice = screen.getByTestId("plain-http-notice");
+    expect(notice).toHaveTextContent("Not encrypted — set up HTTPS (docs)");
+    const link = screen.getByRole("link", { name: "docs" });
+    expect(link).toHaveAttribute("href", expect.stringContaining("docs/deployment.md#remote-transport-https-or-ssh"));
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
 
   it("SignOutAndRevocation: the session count, Sign out and Sign out all devices", () => {

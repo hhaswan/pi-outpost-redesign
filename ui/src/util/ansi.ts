@@ -21,6 +21,8 @@ export interface AnsiSegment {
   dim?: boolean;
   italic?: boolean;
   underline?: boolean;
+  /** An OSC 8 hyperlink target: http(s) only, anything else stays plain text. */
+  href?: string;
 }
 
 /**
@@ -62,8 +64,24 @@ function indexedColor(index: number): string | undefined {
   return `rgb(${level(Math.floor(value / 36))} ${level(Math.floor(value / 6) % 6)} ${level(value % 6)})`;
 }
 
-/** CSI sequences (colour and cursor alike) plus the two-character escapes. */
-const ANSI_PATTERN = /\u001B\[[0-9;:]*[A-Za-z]|\u001B[()][A-Za-z0-9]|\u001B[A-Za-z]/g;
+/**
+ * OSC sequences (`ESC ]` … BEL or `ESC \\`, OSC 8 hyperlinks among them), CSI sequences
+ * (colour and cursor alike), the two-character escapes, then any other control
+ * character (a lone ESC included) except tab, newline and carriage return.
+ */
+const ANSI_PATTERN = /\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\|$)|\u001B\[[0-9;:]*[A-Za-z]|\u001B[()][A-Za-z0-9]|\u001B[A-Za-z]|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+
+/** The target of an OSC 8 opener when it is an http(s) URL; undefined closes or refuses the link. */
+function hyperlinkTarget(sequence: string): string | undefined {
+  // ESC ] 8 ; params ; URI terminator
+  const uri = sequence.replace(/^\u001B\]8;[^;]*;/, "").replace(/(?:\u0007|\u001B\\)$/, "");
+  try {
+    const url = new URL(uri);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Everything an SGR run can say, as it is being accumulated. */
 type Style = Omit<AnsiSegment, "text">;
@@ -119,9 +137,16 @@ export function parseAnsi(text: string): AnsiSegment[] {
     if (match.index > index) segments.push({ text: text.slice(index, match.index), ...style });
     index = match.index + match[0].length;
     const sequence = match[0];
+    if (sequence.startsWith("\u001B]8;")) {
+      const href = hyperlinkTarget(sequence);
+      style = { ...style };
+      if (href) style.href = href;
+      else delete style.href;
+      continue;
+    }
     // Only SGR ("m") carries style; every other CSI is cursor or screen control and
-    // has no meaning in a div, so it is simply consumed.
-    if (sequence.endsWith("m")) {
+    // has no meaning in a div, so it is simply consumed. So is every other OSC.
+    if (sequence.startsWith("\u001B[") && sequence.endsWith("m")) {
       const body = sequence.slice(2, -1);
       const params = body === "" ? [0] : body.split(/[;:]/).map((part) => (part === "" ? 0 : Number(part)));
       style = applySgr(style, params);

@@ -3,8 +3,48 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { ExtensionDialog, parseMultiSelect, parseOptionLine, splitTitle } from "./ExtensionDialog";
 import type { DialogRequest } from "../useAgent";
 
+/** pi-mcp-adapter's terminalHyperlink: OSC 8 with ST terminators. */
+const hyperlink = (label: string, url: string) => `\u001B]8;;${url}\u001B\\${label}\u001B]8;;\u001B\\`;
+
 describe("ExtensionDialog", () => {
   const mockOnRespond = vi.fn();
+
+  describe("terminal hyperlinks in extension text", () => {
+    const url = "https://maccai.example/oauth/authorize?response_type=code&client_id=pi&redirect_uri=http%3A%2F%2F127.0.0.1%3A43123%2Fcallback&state=" + "x".repeat(120);
+    const title = `Complete maccai OAuth\n\n${hyperlink("Open authorization page", url)}\n${hyperlink(url, url)}\n\nApprove access, then paste the full callback URL from the browser address bar below.`;
+
+    it("the maccai OAuth input shows one 'Open authorization page' button-link and one URL link, no escapes", () => {
+      const { container } = render(<ExtensionDialog request={{ type: "extension_ui_request", id: "oauth", method: "input", title, placeholder: "\u001B[2mhttp://127.0.0.1/callback?code=…\u001B[22m" }} onRespond={mockOnRespond} />);
+      expect(screen.getByRole("heading", { name: "Complete maccai OAuth" })).toBeInTheDocument();
+      const open = screen.getAllByRole("link", { name: "Open authorization page" });
+      expect(open).toHaveLength(1);
+      expect(open[0]).toHaveAttribute("href", url);
+      expect(open[0]).toHaveAttribute("target", "_blank");
+      expect(open[0]).toHaveAttribute("rel", "noopener noreferrer");
+      expect(open[0].className).toMatch(/rounded-full/);
+      expect(open[0].className).toMatch(/min-h-11/);
+      const links = screen.getAllByRole("link");
+      expect(links).toHaveLength(2);
+      expect(links[1]).toHaveTextContent(url);
+      expect(links[1]).toHaveAttribute("href", url);
+      expect(links[1].className).toMatch(/break-all/);
+      const html = container.innerHTML;
+      expect(html).not.toMatch(/\u001B|\]8;;/);
+      expect(container.textContent!.split(url).length - 1).toBe(1);
+      expect(screen.getByText(/Approve access, then paste/)).toBeInTheDocument();
+      expect(screen.getByRole("textbox")).toHaveAttribute("placeholder", "http://127.0.0.1/callback?code=…");
+    });
+
+    it("a javascript: or data: target is not linked, and markup in the label stays text", () => {
+      const evil = `Pick\n\n${hyperlink("click <img src=x onerror=alert(1)>", "javascript:alert(1)")} ${hyperlink("data", "data:text/html,<b>x</b>")} \u001B]0;window title\u0007tail\u0007`;
+      const { container } = render(<ExtensionDialog request={{ type: "extension_ui_request", id: "evil", method: "confirm", title: evil, message: hyperlink("docs", "https://ok.example/") }} onRespond={mockOnRespond} />);
+      expect(screen.getAllByRole("link").map((link: HTMLElement) => link.getAttribute("href"))).toEqual(["https://ok.example/"]);
+      expect(container.querySelector("img")).toBeNull();
+      expect(container.textContent).toContain("click <img src=x onerror=alert(1)>");
+      expect(container.textContent).not.toContain("window title");
+      expect(container.innerHTML).not.toMatch(/javascript:|\u001B|\u0007/);
+    });
+  });
 
   afterEach(() => {
     vi.clearAllMocks();

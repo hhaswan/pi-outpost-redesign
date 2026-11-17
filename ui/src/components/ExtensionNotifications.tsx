@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { ExtensionNotification } from "../useAgent";
+import { AnsiText } from "./AnsiText";
 
 const STYLES: Record<NonNullable<ExtensionNotification["notifyType"]>, string> = {
   info: "border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950/60 dark:text-blue-200",
@@ -32,7 +33,7 @@ function NotificationToast({ notification, onDismiss }: { notification: Extensio
       role="status"
       className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm shadow-lg ${STYLES[notification.notifyType ?? "info"]}`}
     >
-      <span className="min-w-0 flex-1 break-words">{notification.message}</span>
+      <span className="min-w-0 flex-1 break-words"><AnsiText text={notification.message} /></span>
       {/* The escape hatch: whatever else goes wrong, a toast covering the panel
           behind it is one click away from gone. */}
       <button

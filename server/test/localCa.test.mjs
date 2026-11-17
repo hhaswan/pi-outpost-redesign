@@ -44,7 +44,7 @@ function cli(args, configFile, xdg, env = {}) {
   });
 }
 
-function request(url, { ca, method = "GET", path: rawPath, headers } = {}) {
+function request(url, { ca, method = "GET", path: rawPath, headers, body } = {}) {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
     const req = https.request({ host: target.hostname, port: target.port, path: rawPath ?? `${target.pathname}${target.search}`, method, ca, headers, timeout: 5000 }, (res) => {
@@ -54,7 +54,7 @@ function request(url, { ca, method = "GET", path: rawPath, headers } = {}) {
     });
     req.on("timeout", () => req.destroy(new Error("timed out")));
     req.on("error", reject);
-    req.end();
+    req.end(body);
   });
 }
 
@@ -292,6 +292,19 @@ describe("certificate expiry and absent CA routes", { skip }, () => {
       const session = await request(`${server.base}/api/session`, { ca: fs.readFileSync(certFile), headers: { Authorization: `Bearer ${TOKEN}` } });
       assert.equal(session.status, 200);
       assert.equal(JSON.parse(session.body.toString()).certificateDaysLeft, 20);
+      // LoginSetsHardenedCookie over TLS / PlainHttpSessionUntilCutover (https half)
+      assert.doesNotMatch(server.log(), /sessions travel unencrypted/);
+      const login = await request(`${server.base}/api/login`, { ca: fs.readFileSync(certFile), method: "POST", body: JSON.stringify({ token: TOKEN }), headers: { "Content-Type": "application/json", Origin: server.base } });
+      assert.equal(login.status, 200);
+      const [cookie] = login.headers["set-cookie"];
+      assert.match(cookie, /^__Host-pi-outpost-session=[A-Za-z0-9_-]{43}; Max-Age=1209600; Path=\/; HttpOnly; Secure; SameSite=Strict$/);
+      const value = /=([^;]*)/.exec(cookie)[1];
+      // The http-era name is still read after the cutover, and logout clears both names.
+      const plainEra = await request(`${server.base}/api/session`, { ca: fs.readFileSync(certFile), headers: { Cookie: `pi-outpost-session=${value}` } });
+      assert.equal(plainEra.status, 200);
+      const logout = await request(`${server.base}/api/logout`, { ca: fs.readFileSync(certFile), method: "POST", body: "{}", headers: { "Content-Type": "application/json", Origin: server.base, Cookie: `__Host-pi-outpost-session=${value}` } });
+      assert.equal(logout.status, 200);
+      assert.deepEqual(logout.headers["set-cookie"].map((line) => line.split("=")[0]).sort(), ["__Host-pi-outpost-session", "pi-outpost-session"]);
     } finally {
       await server.stop();
     }

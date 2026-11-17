@@ -75,10 +75,14 @@ test("sliding renewal: only after a day, to 14 days from the request", () =>
     assert.equal(sessions.check(cookie), undefined, "expired");
   }));
 
-test("cookie attributes and parsing", () => {
-  assert.equal(sessionCookie("v"), "__Host-pi-outpost-session=v; Max-Age=1209600; Path=/; HttpOnly; Secure; SameSite=Strict");
+test("cookie attributes and parsing (PlainHttpSessionUntilCutover)", () => {
+  assert.equal(sessionCookie("v", true), "__Host-pi-outpost-session=v; Max-Age=1209600; Path=/; HttpOnly; Secure; SameSite=Strict");
+  assert.equal(sessionCookie("v", false), "pi-outpost-session=v; Max-Age=1209600; Path=/; HttpOnly; SameSite=Strict");
+  assert.equal(sessionCookie("", false, 0), "pi-outpost-session=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict");
   assert.equal(readSessionCookie("a=b; __Host-pi-outpost-session=xyz; c=d"), "xyz");
-  assert.equal(readSessionCookie("pi-outpost-session=xyz"), undefined);
+  assert.equal(readSessionCookie("pi-outpost-session=xyz"), "xyz");
+  assert.equal(readSessionCookie("pi-outpost-session=old; __Host-pi-outpost-session=new"), "new", "__Host- wins");
+  assert.equal(readSessionCookie("x-pi-outpost-session=xyz; pi-outpost-session="), undefined);
 });
 
 test("CLI: tls, token and sessions take an action word and their own flags", () => {

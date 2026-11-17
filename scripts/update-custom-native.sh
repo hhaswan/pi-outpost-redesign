@@ -39,6 +39,7 @@ npm run check:custom-build
 "$node" scripts/check-session-tree.mjs
 "$node" scripts/check-shared-session.mjs
 "$node" scripts/check-https-login.mjs
+"$node" scripts/check-extension-hyperlinks.mjs
 "$node" --test scripts/deploy-tls-preflight.test.mjs
 "$node" scripts/check-agent-manager.mjs
 "$node" scripts/check-native-deploy.mjs

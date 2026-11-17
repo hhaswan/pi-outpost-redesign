@@ -1,5 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import type { DialogRequest } from "../useAgent";
+import { stripAnsi } from "../util/ansi";
+import { AnsiText } from "./AnsiText";
 
 type DialogResponse = { id: string; value: string } | { id: string; confirmed: boolean } | { id: string; cancelled: true };
 
@@ -126,7 +128,7 @@ export function ExtensionDialog({ request, onRespond }: ExtensionDialogProps) {
       {/* The one deliberate refusal: none of the options fit, and the extension
           hears "cancelled" rather than an answer nobody meant to give. */}
       <div className="mb-3 flex items-start gap-3">
-        <h2 id={headingId} className="min-w-0 flex-1 break-words text-sm font-semibold text-zinc-900 dark:text-zinc-100">{heading}</h2>
+        <h2 id={headingId} className="min-w-0 flex-1 break-words text-sm font-semibold text-zinc-900 dark:text-zinc-100"><AnsiText text={heading} /></h2>
         <button
           type="button"
           onClick={cancel}
@@ -141,7 +143,8 @@ export function ExtensionDialog({ request, onRespond }: ExtensionDialogProps) {
       {/* Option lists and previews the walker folded into the title: the host lays them out. */}
       {body && !multiSelect && (
         <pre className="mb-3 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-zinc-50 p-2 font-mono text-xs text-zinc-600 dark:bg-zinc-950 dark:text-zinc-400">
-          {body}
+          {/* Terminal text from the extension: OSC 8 links become safe links, other escapes go. */}
+          <AnsiText text={body} buttonLinks />
         </pre>
       )}
 
@@ -175,7 +178,7 @@ export function ExtensionDialog({ request, onRespond }: ExtensionDialogProps) {
 
       {request.method === "confirm" && (
         <>
-          <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">{request.message}</p>
+          <p className="mb-4 break-words text-sm text-zinc-600 dark:text-zinc-400"><AnsiText text={request.message} buttonLinks /></p>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => onRespond({ id: request.id, confirmed: false })} className={buttonBase}>
               No
@@ -239,7 +242,7 @@ export function ExtensionDialog({ request, onRespond }: ExtensionDialogProps) {
             autoFocus
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={request.placeholder}
+            placeholder={request.placeholder === undefined ? undefined : stripAnsi(request.placeholder)}
             onKeyDown={(e) => {
               if (e.key === "Enter") onRespond({ id: request.id, value: text });
               if (e.key === "Escape") cancel();

@@ -964,7 +964,7 @@ function tokenValid(candidate: unknown): boolean {
 const WS_CLOSE_UNAUTHORIZED = 4401;
 
 /**
- * Browser sign-in sessions (cookie `__Host-pi-outpost-session`), kept in
+ * Browser sign-in sessions (cookie `__Host-pi-outpost-session`, `pi-outpost-session` without TLS), kept in
  * `<userConfigDir>/sessions.json`. Only a token-protected server has any.
  */
 const sessionStore = config.token !== undefined ? new SessionStore(sessionStoreFile()) : undefined;
@@ -1030,7 +1030,7 @@ function requireAuth(req: FastifyRequest, reply: FastifyReply, route: string): C
     void reply.code(401).send({ error: "unauthorized" });
     return undefined;
   }
-  if (caller.via === "session" && caller.renewed) reply.header("Set-Cookie", sessionCookie(caller.cookie));
+  if (caller.via === "session" && caller.renewed) reply.header("Set-Cookie", sessionCookie(caller.cookie, secureCookie));
   return caller;
 }
 
@@ -1117,6 +1117,9 @@ try {
   process.exit(1);
 }
 const app = Fastify({ logger: false, ...(httpsOptions ? { https: httpsOptions } : {}) });
+/** Session cookies are `Secure` only when this server speaks TLS itself. */
+const secureCookie = httpsOptions !== undefined;
+if (!secureCookie && config.token !== undefined) console.warn("[server] no TLS: browser sign-in sessions travel unencrypted until HTTPS is configured (pi-outpost tls init)");
 // An exceeded frame limit *closes the socket* rather than answering, and a torn-down
 // connection reports nothing the client can show the user — so the limit is stated
 // here next to every cap it has to clear, rather than inherited from ws's 100 MB
@@ -1224,7 +1227,8 @@ function refuseForeignOrigin(req: FastifyRequest, reply: FastifyReply): boolean 
 }
 /** A short, non-identifying label for a session: the browser's own description, cut. */
 const sessionLabel = (req: FastifyRequest) => String(req.headers["user-agent"] ?? "unknown").replace(/[\r\n]/g, " ").slice(0, 80);
-const clearedCookie = sessionCookie("", 0);
+/** Both names: after the HTTPS cutover a browser may still hold its http-era cookie. */
+const clearedCookie = [sessionCookie("", false, 0), ...(secureCookie ? [sessionCookie("", true, 0)] : [])];
 /** Redemptions across all addresses in the last minute: the global cap behind the per-address one. */
 const pairAttempts: number[] = [];
 const PAIR_ATTEMPTS_PER_MINUTE = 30;
@@ -1233,7 +1237,7 @@ app.get("/api/session", (req, reply) => {
   reply.header("Cache-Control", "no-store");
   const caller = authenticate(req);
   if (!caller) return reply.code(401).send({ signedIn: false, authRequired: true, ca: publicCa !== undefined });
-  if (caller.via === "session" && caller.renewed) reply.header("Set-Cookie", sessionCookie(caller.cookie));
+  if (caller.via === "session" && caller.renewed) reply.header("Set-Cookie", sessionCookie(caller.cookie, secureCookie));
   return {
     signedIn: true,
     authRequired: expectedTokenDigest !== undefined,
@@ -1252,7 +1256,7 @@ app.post("/api/login", { config: { rateLimit: { max: 10, timeWindow: "1 minute" 
     console.warn(`[server] rejected sign-in with a wrong token from ${String(req.ip).replace(/[\r\n]/g, " ")}`);
     return reply.code(401).send({ error: "unauthorized" });
   }
-  return reply.header("Set-Cookie", sessionCookie(sessionStore.create(sessionLabel(req), "token"))).header("Cache-Control", "no-store").send({ signedIn: true });
+  return reply.header("Set-Cookie", sessionCookie(sessionStore.create(sessionLabel(req), "token"), secureCookie)).header("Cache-Control", "no-store").send({ signedIn: true });
 });
 app.post("/api/logout", (req, reply) => {
   if (refuseForeignOrigin(req, reply)) return reply;
@@ -1313,7 +1317,7 @@ app.post("/api/pair", { config: { rateLimit: { max: 10, timeWindow: "1 minute" }
     console.warn(`[server] rejected a pairing code from ${String(req.ip).replace(/[\r\n]/g, " ")}`);
     return reply.code(401).send({ error: "unauthorized" });
   }
-  return reply.header("Set-Cookie", sessionCookie(sessionStore.create(sessionLabel(req), "pair"))).header("Cache-Control", "no-store").send({ signedIn: true });
+  return reply.header("Set-Cookie", sessionCookie(sessionStore.create(sessionLabel(req), "pair"), secureCookie)).header("Cache-Control", "no-store").send({ signedIn: true });
 });
 
 // Public on purpose: a device must fetch the CA before it can trust anything else here.

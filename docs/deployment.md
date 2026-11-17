@@ -132,6 +132,11 @@ browsers sign in again.
 Browsers never keep the token. The sign-in screen posts it once to `POST /api/login`, which
 sets the cookie `__Host-pi-outpost-session` (`HttpOnly; Secure; SameSite=Strict; Path=/`,
 14 days, renewed on use once a day; the app checks `/api/session` on load and every 6 hours).
+A server without TLS (loopback, or `allowInsecureHttp` before the HTTPS cutover) sets
+`pi-outpost-session` instead, the same but without `Secure`, because browsers drop `Secure`
+cookies on `http://`. The cookie then crosses the network unencrypted: the server logs a
+warning at startup and Settings, Security shows "Not encrypted". The server reads either
+name, so a browser stays signed in across the cutover.
 Sessions are kept hashed in `~/.config/pi-outpost/sessions.json`. A `?token=` in any URL is
 refused (401, WebSocket close 4401); old `?token=` bookmarks no longer sign in.
 `Authorization: Bearer <token>` keeps working for scripts and non-browser clients and creates
@@ -143,7 +148,7 @@ cross-origin widget cannot open a token-protected WebSocket (out of scope; no wi
 | Sign this browser out | **Sign out** | |
 | Sign every browser out (open sockets close at once in-app, within 15 s from the CLI) | **Sign out all devices** | `pi-outpost sessions revoke-all` |
 | New token (old one refused at once in-app; at restart from the CLI) | **Rotate token** (shown once; other devices signed out by default) | `pi-outpost token rotate [--revoke-sessions]` |
-| Pair another device | **Pair a device**: QR of `https://<host>/pair#<code>` and the typed code (10 characters, 2 minutes, single use) | |
+| Pair another device | **Pair a device**: QR of `<this page's origin>/pair#<code>` and the typed code (10 characters, 2 minutes, single use) | |
 
 Rotation is refused when the token comes from `PI_OUTPOST_TOKEN`. Login and pairing are
 rate-limited (10 attempts a minute per address).

@@ -7,13 +7,27 @@
 When a token is configured, `POST /api/login` with body `{ "token": <master token> }` SHALL,
 on a timing-safe match, create a session and answer with a cookie
 `__Host-pi-outpost-session` that is `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/` and expires in
-14 days. A wrong or missing token SHALL answer 401 without a cookie. The route SHALL be
+14 days. A server without TLS of its own (loopback, or `allowInsecureHttp` before the HTTPS
+cutover) SHALL instead set `pi-outpost-session` with the same attributes except `Secure`,
+because browsers drop `Secure` and `__Host-` cookies on `http://`; it SHALL log one startup
+warning that sessions travel unencrypted, and Settings, Security SHALL show the one-line notice
+"Not encrypted — set up HTTPS (docs)" on a page served over `http:`. The server SHALL accept
+either cookie name, preferring `__Host-`, and logout SHALL clear every name it may have set. A wrong or missing token SHALL answer 401 without a cookie. The route SHALL be
 rate-limited per client address and SHALL require an `Origin` equal to the server's own origin.
 
 #### Scenario: LoginSetsHardenedCookie
 - **WHEN** a same-origin client posts the correct token to `/api/login`
 - **THEN** the response sets `__Host-pi-outpost-session` with `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/` and `Max-Age=1209600`
 - **AND** the response body does not contain the token or the cookie value
+
+#### Scenario: PlainHttpSessionUntilCutover
+- **GIVEN** a token-protected server without TLS, reached by a browser at a LAN address over `http://` (an insecure context)
+- **WHEN** the browser signs in through the login form
+- **THEN** the response sets `pi-outpost-session` with `HttpOnly`, `SameSite=Strict`, `Path=/`, `Max-Age=1209600` and without `Secure`
+- **AND** a reload stays signed in, QR pairing over `http://` signs in a second browser, and sign-out signs the browser out
+- **AND** the server logged one "sessions travel unencrypted" warning and Settings shows "Not encrypted — set up HTTPS (docs)"
+- **AND** the same server with TLS sets `__Host-pi-outpost-session` with `Secure` and logs no such warning
+- **AND** a native deployment to a server without TLS signs in through the login form from a LAN origin, or rolls back
 
 #### Scenario: LoginWrongToken
 - **WHEN** a client posts a wrong token to `/api/login`

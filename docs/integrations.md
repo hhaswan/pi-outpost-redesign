@@ -100,6 +100,10 @@ Extensions using `ctx.ui.theme.fg()` (for example pi-blackhole's gauges) receive
 built-in dark theme rather than unstyled text, falling back to its generated system theme
 in standalone bundles where SDK theme files are unavailable. Both truecolor and indexed ANSI foregrounds
 are rendered; this does not enable switching the interactive terminal theme from the browser.
+Terminal OSC 8 hyperlinks in dialog titles and messages, toasts, badges and widgets become
+links that open in a new tab (`http`/`https` only; any other target stays plain text); a
+worded link in a dialog, such as an OAuth "Open authorization page", shows as a button. Other
+escape and control sequences are dropped, never shown.
 The bridge binds with `mode: "rpc"`,
 mirroring pi's own RPC-mode protocol — so `ctx.hasUI` is `true` and dialogs get real answers,
 while TUI-only features (`custom()`, custom footers/headers/editors, terminal input, themes)
