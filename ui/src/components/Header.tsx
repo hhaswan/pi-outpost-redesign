@@ -1,4 +1,4 @@
-import { TOUCH_DESCENDANTS } from "../touch";
+import { TOUCH_DESCENDANTS, TOUCH_TARGET } from "../touch";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { PiPackageInfo, Theme } from "@pi-outpost/shared";
 import type { AgentState } from "../useAgent";
@@ -302,6 +302,9 @@ function sessionTree(sessions: SessionSummary[]): SessionNode[] {
   return roots;
 }
 
+/** Parents whose child sessions the user expanded; collapsed by default, remembered while the tab lives. */
+export const expandedSessions = new Set<string>();
+
 function SessionBranch({
   node,
   sessionId,
@@ -327,45 +330,50 @@ function SessionBranch({
   onSearchSessions: (query: string) => void;
   query: string;
 }) {
-  const [expanded, setExpanded] = useState(true);
-
   const { session, children } = node;
+  // Search results hold only matches, so a search shows every matching child; the
+  // branch remounts per query (its key), so the remembered state returns afterwards.
+  const [expanded, setExpanded] = useState(() => searching || expandedSessions.has(session.path));
+  const count = `${children.length} sub-agent${children.length === 1 ? "" : "s"}`;
+
   return (
     <li>
-      <div className="flex items-start">
-        {children.length > 0 && (
-          <button
-            type="button"
-            aria-label={`Child sessions of ${sessionLabel(session)}`}
-            aria-expanded={expanded}
-            onClick={() => setExpanded((value) => !value)}
-            className="mt-2 rounded-full px-1.5 text-xs text-zinc-500"
-          >
-            {expanded ? "▾" : "▸"}
-          </button>
-        )}
-        <div className="min-w-0 flex-1">
-          <SessionRow
-            session={session}
-            isCurrent={session.id === sessionId}
-            renaming={renamingPath === session.path}
-            onSwitch={() => {
-              onSwitchSession(session.path);
-              close();
-            }}
-            onDelete={() => {
-              if (window.confirm("Delete this session?")) onDeleteSession(session.path);
-            }}
-            onStartRename={() => setRenamingPath(session.path)}
-            onRename={(name) => {
-              onRenameSession(session.path, name);
-              setRenamingPath(null);
-              if (searching) onSearchSessions(query.trim());
-            }}
-            onCancelRename={() => setRenamingPath(null)}
-          />
-        </div>
-      </div>
+      <SessionRow
+        session={session}
+        isCurrent={session.id === sessionId}
+        renaming={renamingPath === session.path}
+        onSwitch={() => {
+          onSwitchSession(session.path);
+          close();
+        }}
+        onDelete={() => {
+          if (window.confirm("Delete this session?")) onDeleteSession(session.path);
+        }}
+        onStartRename={() => setRenamingPath(session.path)}
+        onRename={(name) => {
+          onRenameSession(session.path, name);
+          setRenamingPath(null);
+          if (searching) onSearchSessions(query.trim());
+        }}
+        onCancelRename={() => setRenamingPath(null)}
+      />
+      {children.length > 0 && (
+        <button
+          type="button"
+          aria-label={`${count} of ${sessionLabel(session)}`}
+          aria-expanded={expanded}
+          onClick={() => {
+            if (!searching) {
+              if (expanded) expandedSessions.delete(session.path);
+              else expandedSessions.add(session.path);
+            }
+            setExpanded(!expanded);
+          }}
+          className={`ml-2 rounded-full px-2 py-0.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 ${TOUCH_TARGET}`}
+        >
+          <span aria-hidden="true">{expanded ? "▾" : "▸"}</span> {count}
+        </button>
+      )}
       {expanded && children.length > 0 && (
         <ul aria-label={`Children of ${sessionLabel(session)}`} className="ml-4 border-l border-zinc-200 pl-2 dark:border-zinc-700">
           {children.map((child) => (

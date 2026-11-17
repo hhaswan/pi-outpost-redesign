@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import type { SessionSummary } from "@pi-outpost/shared";
-import { Header } from "./Header";
+import { Header, expandedSessions } from "./Header";
 
 function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {
@@ -362,21 +362,56 @@ describe("Header", () => {
     const parent = session({ name: "Parent" });
     const child = session({ path: "/sessions/child.jsonl", id: "child", name: "Child", parentSession: parent.path });
     const grandchild = session({ path: "/sessions/grandchild.jsonl", id: "grandchild", name: "Grandchild", parentSession: child.path });
+    const toggleOf = (label: string, count = 1) =>
+      screen.getByRole("button", { name: `${count} sub-agent${count === 1 ? "" : "s"} of ${label}` });
+
+    beforeEach(() => expandedSessions.clear());
+
+    it("collapses every child group on open, the current session's included, and shows the child count", () => {
+      const kids = [1, 2, 3].map((n) => session({ path: `/sessions/k${n}.jsonl`, id: `k${n}`, name: `Kid ${n}`, parentSession: parent.path }));
+      setup({ sessions: [parent, ...kids], sessionId: parent.id });
+      openSessions();
+      const toggle = toggleOf("Parent", 3);
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(toggle).toHaveTextContent("▸ 3 sub-agents");
+      expect(screen.queryByRole("list", { name: "Children of Parent" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Kid 1")).not.toBeInTheDocument();
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(toggle).toHaveTextContent("▾ 3 sub-agents");
+      expect(within(screen.getByRole("list", { name: "Children of Parent" })).getAllByTestId("session-subagent-tag")).toHaveLength(3);
+    });
+
+    it("remembers expanded groups across menu openings", () => {
+      setup({ sessions: [parent, child] });
+      openSessions();
+      fireEvent.click(toggleOf("Parent"));
+      fireEvent.mouseDown(document.body);
+      openSessions();
+      expect(toggleOf("Parent")).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByText("Child")).toBeInTheDocument();
+      fireEvent.click(toggleOf("Parent"));
+      fireEvent.mouseDown(document.body);
+      openSessions();
+      expect(toggleOf("Parent")).toHaveAttribute("aria-expanded", "false");
+    });
 
     it("nests children across dates, toggles independently, and switches the exact child path", () => {
       const { onSwitchSession } = setup({ sessions: [grandchild, child, { ...parent, modified: "2020-01-01T00:00:00Z" }] });
       openSessions();
       const roots = screen.getByRole("list", { name: "Saved sessions" });
       expect(roots.children).toHaveLength(1);
+      const toggle = toggleOf("Parent");
+      fireEvent.click(toggle);
       expect(within(screen.getByRole("list", { name: "Children of Parent" })).getByText("Child")).toBeInTheDocument();
-      const toggle = screen.getByRole("button", { name: "Child sessions of Parent" });
+      expect(screen.queryByText("Grandchild")).not.toBeInTheDocument();
+      fireEvent.click(toggleOf("Child"));
+      expect(screen.getByText("Grandchild")).toBeInTheDocument();
       fireEvent.click(toggle);
       expect(toggle).toHaveAttribute("aria-expanded", "false");
       expect(screen.queryByText("Child")).not.toBeInTheDocument();
       expect(onSwitchSession).not.toHaveBeenCalled();
       fireEvent.click(toggle);
-      fireEvent.click(screen.getByRole("button", { name: "Child sessions of Child" }));
-      expect(screen.queryByText("Grandchild")).not.toBeInTheDocument();
       fireEvent.click(screen.getByText("Child"));
       expect(onSwitchSession).toHaveBeenCalledWith(child.path);
       expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
@@ -390,6 +425,7 @@ describe("Header", () => {
         session({ path: "/sessions/bare.jsonl", id: "01a1e666-aaaa", parentSession: parent.path, firstMessage: "" }),
       ] });
       openSessions();
+      fireEvent.click(toggleOf("Parent", 2));
       const children = within(screen.getByRole("list", { name: "Children of Parent" }));
       expect(children.getByText("general-purpose · Repo /root/pi-outpost-redesign. Fix the list")).toBeInTheDocument();
       expect(children.getByText("Sub-agent · 01a1e666")).toBeInTheDocument();
@@ -404,6 +440,7 @@ describe("Header", () => {
         session({ path: "/self", id: "self", name: "Self", parentSession: "/self" }),
       ] });
       openSessions();
+      fireEvent.click(toggleOf("Child"));
       for (const name of ["Parent", "Child", "Grandchild", "Orphan", "Self"]) expect(screen.getAllByText(name)).toHaveLength(1);
     });
 
@@ -417,22 +454,29 @@ describe("Header", () => {
       expect(screen.getByText("matched child text")).toBeInTheDocument();
       expect(screen.getByRole("list", { name: "Saved sessions" }).children).toHaveLength(1);
       fireEvent.change(searchBox(), { target: { value: "" } });
+      fireEvent.click(toggleOf("Parent"));
       expect(within(screen.getByRole("list", { name: "Children of Parent" })).getByText("Child")).toBeInTheDocument();
     });
 
-    it("expands matching descendants even when the unfiltered parent was collapsed", () => {
+    it("expands matching children during a search only, then returns to the remembered collapsed state", () => {
       const { rerenderWith } = setup({ sessions: [parent, child] });
       openSessions();
-      fireEvent.click(screen.getByRole("button", { name: "Child sessions of Parent" }));
+      expect(toggleOf("Parent")).toHaveAttribute("aria-expanded", "false");
       fireEvent.change(searchBox(), { target: { value: "match" } });
       rerenderWith({ sessionSearch: { status: "loaded", query: "match", requestId: "s2", results: [parent, child] } });
       expect(screen.getByText("Child")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Child sessions of Parent" })).toHaveAttribute("aria-expanded", "true");
+      expect(toggleOf("Parent")).toHaveAttribute("aria-expanded", "true");
+      fireEvent.change(searchBox(), { target: { value: "" } });
+      rerenderWith({ sessionSearch: null });
+      expect(toggleOf("Parent")).toHaveAttribute("aria-expanded", "false");
+      expect(screen.queryByText("Child")).not.toBeInTheDocument();
     });
 
     it("preserves rename, delete and current markers on nested rows when parents disappear", () => {
       const { onRenameSession, onDeleteSession, rerenderWith } = setup({ sessions: [parent, child, grandchild], sessionId: "grandchild" });
       openSessions();
+      fireEvent.click(toggleOf("Parent"));
+      fireEvent.click(toggleOf("Child"));
       const children = screen.getByRole("list", { name: "Children of Parent" });
       expect(within(children).getByText(/· current/)).toBeInTheDocument();
       fireEvent.click(within(children).getAllByRole("button", { name: "Rename session" })[0]);

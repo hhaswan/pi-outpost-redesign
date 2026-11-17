@@ -65,14 +65,21 @@ The session menu SHALL list bounded metadata from Pi CLI's per-cwd directory und
 
 ### Requirement: ParentChildSessionTree
 
-Session summaries SHALL expose the SDK's parent session path as optional `parentSession`, resolved to an absolute filesystem path. The saved-session menu SHALL nest sessions beneath their listed parents, not group them only by date. Each parent SHALL have a separate accessible expand/collapse control. Session selection, rename, delete, current markers, and search snippets SHALL retain their existing behavior.
+Session summaries SHALL expose the SDK's parent session path as optional `parentSession`, resolved to an absolute filesystem path. The saved-session menu SHALL nest sessions beneath their listed parents, not group them only by date. Each parent SHALL have a separate accessible expand/collapse control showing its child count. Child groups SHALL start collapsed, keep a user's expansion while the tab lives, and show every matching child during a search. Session selection, rename, delete, current markers, and search snippets SHALL retain their existing behavior.
 
 #### Scenario: NestedSessionSelection
 - **GIVEN** a parent, child, and grandchild with different modification dates
-- **WHEN** the user opens the session menu
+- **WHEN** the user opens the session menu and expands a parent
 - **THEN** descendants appear beneath their respective parents
 - **AND** collapsing a parent hides its descendants without selecting a session
 - **AND** selecting a child switches to that child's exact path and closes the menu
+
+#### Scenario: ChildGroupsStartCollapsed
+- **GIVEN** a parent, including the current session, with several child sessions
+- **WHEN** the session menu opens
+- **THEN** the parent's child group is collapsed and its toggle shows the child count
+- **AND** expanding the group is remembered for the next opening in the same tab
+- **AND** the toggle is at least 44 px on a coarse pointer or phone width
 
 #### Scenario: MissingOrCyclicParents
 - **GIVEN** missing parent paths, self references, or cyclic parent paths
