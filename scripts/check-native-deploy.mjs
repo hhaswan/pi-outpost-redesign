@@ -92,6 +92,9 @@ try {
   client = connect(`ws://127.0.0.1:${port}/ws`, { headers: { Authorization: "Bearer test" } }); await client.waitFor("hello");
   client.send({ type: "switch_session", path: manager.getSessionFile() });
   await client.waitFor((message) => message.type === "session_replaced" && message.sessionId === id);
+  // An idle side session (a second tab split onto its own conversation) must not block a deploy.
+  client.send({ type: "open_side_session", root });
+  await client.waitFor((message) => message.type === "workspace_switched" && message.workspace?.id?.includes("#side-"));
   client.close(); client = undefined;
   lockIngress(port);
   await assert.rejects(fetch(`http://127.0.0.1:${port}/health`));
@@ -112,6 +115,7 @@ try {
   assert.equal(proofRecord.status, "deployed");
   releases.push(proofRecord.release);
   assert.equal(proofRecord.restoredSessions, 1);
+  assert.equal(proofRecord.sideSessions?.length, 1, `the idle side session was recorded, not refused: ${JSON.stringify({side:proofRecord.sideSessions,checks:proofRecord.checks.length})}`);
   assert.ok(proofRecord.checks.some((check) => check.startsWith("live browser login form over plain http at a LAN origin (insecure context)")), "PlainHttpSessionUntilCutover: the deploy signed in through the form");
   const plainSessions = await fs.readFile(path.join(home, ".config/pi-outpost/sessions.json"), "utf8").then((text) => JSON.parse(text).sessions.length, () => 0);
   assert.equal(plainSessions, 0, "the login check signed out again");

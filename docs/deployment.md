@@ -313,8 +313,9 @@ native-service deployment probe, and focused update and shared-session tests. It
 
 Deployment then runs in `pi-outpost-custom-deploy.service`, outside the live
 service's process group. It waits up to 15 minutes for workspaces and known
-background agents to become idle. Active side sessions cause a refusal rather
-than being silently discarded. The worker temporarily rejects client connections
+background agents to become idle. Idle side sessions do not block a deploy: they live only
+in memory, so their conversations (already on disk) are listed in the result file and a tab that
+was on one returns to its project with a notice; reopen the conversation from Sessions. The worker temporarily rejects client connections
 to the application port, while its private loopback connection captures and
 restores saved sessions. Normal clients cannot submit during that interval.
 The temporary rules are removed on completion and by the updater's systemd

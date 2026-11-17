@@ -80,9 +80,11 @@ async function capture(){
  const main=await connection();
  try{
   if(!quiet(main.hello))return null;
-  const sessions=[];
+  const sessions=[],sides=[];
   for(const workspace of main.hello.workspaces??[]){
-   if(workspace.sideOf)throw Error('Side-session restoration needs a separate maintenance plan');
+   // Side sessions live only in memory (ids are renumbered on start). Their conversations are on disk:
+   // record them; a tab that was on one falls back to its project with a notice and can reopen it from Sessions.
+   if(workspace.sideOf){if(workspace.activity!=='stopped')sides.push({id:workspace.id,root:workspace.root,label:workspace.label??null});continue;}
    if(workspace.activity==='stopped')continue;
    const client=await connection(workspace.root);
    try{
@@ -94,6 +96,8 @@ async function capture(){
     else {record.emptyWorkspaces??={};record.emptyWorkspaces[workspace.root]={previousSessionId:client.hello.sessionId,reason:'No persisted history; workspace will receive a new empty session'};}
    }finally{client.close();}
   }
+  // Each capture replaces the last: only the final pre-restart view counts.
+  if(sides.length)record.sideSessions=sides;else delete record.sideSessions;
   return sessions;
  }finally{main.close();}
 }
