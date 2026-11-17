@@ -39,6 +39,7 @@ import path from 'node:path';
 import { chromium } from 'playwright';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { makeWorkspace, startServer } from '../server/test/harness.mjs';
+import { leaveStartScreen } from './leave-start-screen.mjs';
 
 const args = process.argv.slice(2);
 const reportOnly = args.includes('--report');
@@ -178,13 +179,30 @@ let failed = false;
 try {
   for (const viewport of VIEWPORTS) {
     const phone = viewport.width <= PHONE_MAX;
-    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, hasTouch: phone || !!viewport.touch, isMobile: false });
+    const context = await browser.newContext({ viewport, hasTouch: phone || !!viewport.touch, isMobile: false });
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
+    // A new tab opens on the start screen: inspect it at the width under test.
+    await page.goto(server.base);
+    await page.getByTestId('start-recent-row').filter({ hasText: SESSION_TITLE }).waitFor();
+    {
+      const found = await page.evaluate(inspect, { phone: phone || !!viewport.touch, minTarget: MIN_TARGET, surface: null });
+      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, `${viewport.width}-start-screen.png`) });
+      const buttons = await page.getByTestId('start-screen').locator('button').evaluateAll((list) => list.map((b) => {
+        const r = b.getBoundingClientRect();
+        return { name: b.textContent.trim().slice(0, 40), width: r.width, height: r.height };
+      }));
+      const broken = buttons.length < 3 ? [`only ${buttons.length} start screen buttons`] : [];
+      // Touch targets on the start screen are a hard requirement, not report-only.
+      if (phone || viewport.touch) for (const b of buttons) if (b.width < MIN_TARGET - 0.5 || b.height < MIN_TARGET - 0.5) broken.push(`start screen "${b.name}" ${Math.round(b.width)}x${Math.round(b.height)}`);
+      results.push({ width: viewport.width, surface: 'start screen', ...found, errors: [...errors], broken });
+      errors.length = 0;
+    }
     // Select the session where the sidebar control is known to exist, then load the
     // page fresh at the width under test: the tab restores its session on reload.
-    await page.goto(server.base);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await leaveStartScreen(page);
     await page.getByRole('button', { name: 'sessions', exact: true }).click();
     await page.getByText(SESSION_TITLE, { exact: true }).first().click();
     await page.getByText('Then check the output.').waitFor();

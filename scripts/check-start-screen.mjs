@@ -58,6 +58,13 @@ async function reloadWatched(p,forbid,expect){
 }
 try{
  server=await startServer(root,{sandbox:false,noExtensions:true,openProjects:[beta,gamma]},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{HOME:path.join(root,'home'),PI_OFFLINE:'1',ANTHROPIC_API_KEY:'fixture-no-model-calls',PI_OUTPOST_BRIDGE_DIR:stores.bridges,PI_OUTPOST_HANDOFF_DIR:stores.handoffs,PI_OUTPOST_RESERVATION_DIR:stores.reservations}});
+ // The default project's live conversation has a name and a Work Plan: the start screen must show neither.
+ {const pre=connect(server.wsUrl());await pre.waitFor('hello');const ls=()=>{pre.send({type:'list_sessions'});return pre.waitFor('sessions')};
+  const def=(await ls()).sessions.find(x=>x.name==='Default talk');// The plan exists before the switch, so the server loads it with the conversation.
+  await fs.writeFile(def.path+'.work-plan.json',JSON.stringify({version:1,id:'p',title:'P',updatedAt:new Date().toISOString(),tasks:[{id:'t',title:'T',status:'done'}]}));
+  pre.send({type:'switch_session',path:def.path});await pre.waitFor(m=>m.type==='session_replaced'&&m.sessionId===def.id&&!!m.workPlan);pre.close();
+  // Opening it may touch the file: keep it the oldest, as seeded.
+  const old=new Date(Date.now()-3600_000);await fs.utimes(def.path,old,old);}
  browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH});
  const desktop=await browser.newContext({viewport:{width:1280,height:800}});
  await desktop.addInitScript(watch);
@@ -69,6 +76,8 @@ try{
  assert.match(await tab1.getByTestId('start-recent-row').first().innerText(),/C talk 1/,'newest first');
  assert.equal(await row(tab1,'Default talk').count(),0,'the oldest falls outside five');
  assert.equal(await tab1.locator('footer').isHidden(),true,'no composer on the start screen');
+ assert.equal(await tab1.getByRole('button',{name:'Open Work Plan'}).count()+await tab1.getByRole('complementary',{name:'Work Plan'}).count(),0,'Work Plan of the unchosen conversation');
+ assert.ok(!(await tab1.locator('header').first().innerText()).includes('Default talk'),'header shows the unchosen conversation title');
  assert.deepEqual(await seen(tab1),[],'default conversation never shown');
  assert.equal(await selection(tab1),null,'nothing remembered yet');
  observer=connect(server.wsUrl());
@@ -127,6 +136,9 @@ try{
  const boxes=await p1.$$eval('[data-testid=start-recent-row],[data-testid=start-project-chip],[data-testid=start-open-project]',els=>els.map(e=>e.getBoundingClientRect().height));
  assert.ok(boxes.length>=8&&boxes.every(h=>h>=44),`touch targets ${boxes}`);
  assert.ok(await p1.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'no horizontal overflow');
+ // No conversation is chosen yet: the connected one's title and Plan badge must not show.
+ assert.equal(await p1.getByRole('navigation',{name:'Primary'}).getByText(/\d+\/\d+/).count(),0,'Plan badge of the unchosen conversation');
+ assert.ok(!(await p1.locator('header').first().innerText()).includes('Default talk'),'header shows the unchosen conversation title');
  await row(p1,'B talk 2').tap();
  await startGone(p1);await shows(p1,'B-TEXT-2');
  await reloadWatched(p1,['DEFAULT-PROJECT-TEXT'],'B-TEXT-2');

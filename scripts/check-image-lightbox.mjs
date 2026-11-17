@@ -25,6 +25,7 @@ import zlib from 'node:zlib';
 import { chromium } from 'playwright';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { makeWorkspace, startServer } from '../server/test/harness.mjs';
+import { leaveStartScreen } from './leave-start-screen.mjs';
 
 /** A valid RGB PNG of the given size, painted by `paint(x, y) -> [r, g, b]`. */
 function png(width, height, paint) {
@@ -155,6 +156,7 @@ try {
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(server.base);
+    await leaveStartScreen(page);
     await openSession(page, TITLE);
     await first(page).waitFor();
     assert.equal(await first(page).evaluate((el) => getComputedStyle(el).cursor), 'zoom-in');
@@ -284,6 +286,7 @@ try {
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(server.base);
+    await leaveStartScreen(page);
     await openSession(page, TITLE);
     await first(page).waitFor();
     await first(page).tap();

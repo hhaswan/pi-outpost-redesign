@@ -7,6 +7,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { makeWorkspace, startServer } from "../server/test/harness.mjs";
+import { leaveStartScreen } from "./leave-start-screen.mjs";
 
 const entry = path.resolve(process.argv[2] ?? "cli/dist/pi-outpost.mjs");
 const root = await makeWorkspace();
@@ -73,6 +74,7 @@ try {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.base);
+  await leaveStartScreen(page);
   await page.getByRole("button", { name: "sessions", exact: true }).click();
   await page.getByText("Custom build regression", { exact: true }).click();
   await page.getByText("Custom visible answer", { exact: true }).waitFor();

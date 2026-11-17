@@ -1292,9 +1292,10 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             terminalOpen={terminalOpen}
             onToggleTerminal={terminalEnabled ? () => setTerminalOpen((prev) => !prev) : undefined}
             compact={isNarrowViewport}
-            sessionName={state.sessionName}
+            // On the start screen no conversation is chosen yet: show none of the connected one.
+            sessionName={state.startScreen ? undefined : state.sessionName}
             {...(!embedded && !state.workspaceLocked ? { onOpenCliSessions: () => setCliSessionsOpen(true) } : {})}
-            workPlanChip={state.workPlan && !isNarrowViewport && !workPlanDisplayedOpen && (
+            workPlanChip={state.workPlan && !state.startScreen && !isNarrowViewport && !workPlanDisplayedOpen && (
               <WorkPlanPanel plan={state.workPlan} open={false} onToggle={toggleWorkPlan} onOpenWorkspace={() => {}} />
             )}
           />
@@ -1305,7 +1306,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
           <div className="relative z-0 flex min-h-0 flex-1 flex-col">
           {/* On a phone the plan is reached from the bottom navigation and opens in a
               sheet of its own (below). Closed, it is a chip in the header. */}
-          {state.workPlan && !isNarrowViewport && workPlanDisplayedOpen && (
+          {state.workPlan && !state.startScreen && !isNarrowViewport && workPlanDisplayedOpen && (
             <WorkPlanPanel
               plan={state.workPlan}
               open={workPlanDisplayedOpen}
@@ -1698,7 +1699,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             <PhoneNav
               active={phoneSurface}
               onSelect={showPhoneSurface}
-              plan={state.workPlan ? { done: state.workPlan.tasks.filter((task) => task.status === "done").length, total: state.workPlan.tasks.length } : null}
+              plan={state.workPlan && !state.startScreen ? { done: state.workPlan.tasks.filter((task) => task.status === "done").length, total: state.workPlan.tasks.length } : null}
               terminal={terminalEnabled}
             />
           )}
