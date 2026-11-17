@@ -125,7 +125,7 @@ async function verifyBrowser(){
  await page.addInitScript(([key,root])=>{sessionStorage.setItem(key,JSON.stringify({root}));},[`pi-outpost:workspace:v2:${origin}`,root]);
  await page.goto(origin);await page.getByRole('region',{name:'Activity',exact:true}).waitFor({timeout:90000});
  if(await page.getByTestId('start-screen').count())throw Error('A tab with a saved selection showed the start screen');
- {const more=page.getByRole('button',{name:'More controls',exact:true});if(await more.isVisible())await more.click();}/* phone: Terminal sessions is in the Controls sheet */await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();await page.getByRole('dialog',{name:'CLI sessions',exact:true}).waitFor();await page.getByRole('button',{name:'Close CLI sessions'}).click();
+ {const more=page.getByRole('button',{name:'More controls',exact:true});if(await more.isVisible())await more.click();}/* Terminal sessions is in the More menu: the phone's Controls sheet, a wide screen's popover */await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();await page.getByRole('dialog',{name:'CLI sessions',exact:true}).waitFor();await page.getByRole('button',{name:'Close CLI sessions'}).click();
  const model=page.getByRole('button',{name:'Model',exact:true});await model.click();
  await page.getByRole('combobox',{name:'Search models'}).fill('NO-SUCH-MODEL-DEPLOY');
  await page.getByText('No models found.',{exact:true}).waitFor();await page.keyboard.press('Escape');

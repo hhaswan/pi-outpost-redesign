@@ -10,6 +10,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { leaveStartScreen } from "./startScreen";
+import { openMore } from "./openMore";
 
 const NAME = "pi-fake-ext";
 const ROOT = process.env.PI_E2E_PACKAGES_ROOT!;
@@ -21,7 +22,7 @@ const projectPackages = async () => JSON.parse(await readFile(path.join(ROOT, ".
 async function openSettings(page: Page): Promise<Locator> {
   await page.goto(process.env.PI_E2E_PACKAGES_URL!);
   await leaveStartScreen(page);
-  await page.getByRole("button", { name: "Settings" }).click();
+  await (await openMore(page)).getByRole("button", { name: "Settings" }).click();
   const section = page.getByTestId("pi-packages");
   await expect(section).toBeVisible();
   return section;

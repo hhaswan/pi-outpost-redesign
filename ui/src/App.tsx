@@ -65,6 +65,7 @@ import { useAgent } from "./useAgent";
 import { useViewport } from "./useViewport";
 import { useKeyboardInset } from "./useKeyboardInset";
 import { Sheet } from "./components/Sheet";
+import { ConfirmDialog, confirmCopy, type ConversationConfirm } from "./components/ConfirmDialog";
 import { PhoneNav, type PhoneSurface } from "./components/PhoneNav";
 import { SessionList } from "./components/Header";
 
@@ -376,6 +377,43 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
   // Between phone and desktop the file sidebar overlays the chat as a drawer rather
   // than pushing a conversation that has no width to spare.
   const isTabletViewport = viewport.kind === "tablet";
+  // Leaving or rewriting the conversation on screen asks first (ConfirmDialog).
+  const [confirmAction, setConfirmAction] = useState<ConversationConfirm | null>(null);
+  // When the last conversation change was sent, until the conversation changes: a double
+  // click, or a press while the first is on its way, must not ask the server twice.
+  const changePending = useRef({ action: "", at: 0 });
+  useEffect(() => {
+    setConfirmAction(null);
+    changePending.current = { action: "", at: 0 };
+  }, [boundKey, state.sessionId]);
+  const runConfirmed = (action: ConversationConfirm) => {
+    setConfirmAction(null);
+    const now = Date.now();
+    const key = JSON.stringify(action);
+    // The same action only, and bounded: a refused change leaves the conversation as it
+    // was, and the control must still work; another action is never swallowed.
+    if (changePending.current.action === key && now - changePending.current.at < 3000) return;
+    changePending.current = { action: key, at: now };
+    if (action.kind === "new") newSession();
+    else if (action.kind === "switch") switchSession(action.path);
+    else if (action.kind === "fork") forkSession(action.entryId);
+    else if (action.kind === "navigate") navigateTree(action.entryId);
+    else if (action.kind === "edit") editPrompt(action.entryId, action.text, action.images);
+    else compact();
+  };
+  // Nothing on screen to lose: no question.
+  const requestChange = (action: ConversationConfirm) =>
+    state.startScreen || state.items.length === 0 ? runConfirmed(action) : setConfirmAction(action);
+  const requestNewChat = () => requestChange({ kind: "new" });
+  const requestSwitchSession = (path: string) => {
+    // Reopening the conversation already shown changes nothing worth asking about.
+    if (state.sessions?.find((s) => s.path === path)?.id === state.sessionId) switchSession(path);
+    else requestChange({ kind: "switch", path });
+  };
+  const boundActivity = state.workspaces.find((info) => workspaceKey(info) === boundKey)?.activity;
+  // What the server keeps running on a side split: a turn (and any question it waits on) or
+  // background work. A command's question outside a turn is abandoned, so it does not count.
+  const agentBusy = state.isStreaming || state.isCompacting || boundActivity === "working";
   // iOS keeps the layout viewport under its keyboard: lift the shell above it.
   const keyboardInset = useKeyboardInset(isNarrowViewport);
   const [narrowWorkPlanOpen, setNarrowWorkPlanOpen] = useState(false);
@@ -1168,8 +1206,9 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             />
           )}
           {/* The standalone app's reader runs the server; a widget's reader does not. */}
+          {/* One banner line at most: a newer release outranks the news of the last one. */}
           {!embedded && state.outpostUpdate && <UpdateNotice notice={state.outpostUpdate} />}
-          {!embedded && state.outpostChanges && <ChangesNotice changes={state.outpostChanges} />}
+          {!embedded && !state.outpostUpdate && state.outpostChanges && <ChangesNotice changes={state.outpostChanges} />}
           <Header
             workspace={state.workspace}
             workspaces={state.workspaces}
@@ -1263,16 +1302,16 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             onToggleTheme={toggleTheme}
             themePreference={themePreference}
             onSetTheme={setTheme}
-            onNewSession={newSession}
-            onSwitchSession={switchSession}
+            onNewSession={requestNewChat}
+            onSwitchSession={requestSwitchSession}
             onDeleteSession={deleteSession}
             onListSessions={listSessions}
             onRenameSession={renameSession}
             onSearchSessions={searchSessions}
             onClearSessionSearch={clearSessionSearch}
             onListTree={listTree}
-            onNavigateTree={navigateTree}
-            onForkSession={forkSession}
+            onNavigateTree={(entryId) => requestChange({ kind: "navigate", entryId })}
+            onForkSession={(entryId) => requestChange({ kind: "fork", entryId })}
             gitAvailable={state.gitAvailable}
             gitStatus={state.gitStatus}
             gitSelectedPath={treeSelection}
@@ -1454,7 +1493,11 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
                       // by the missing entry id: the refusal is a decision, not an accident
                       // of how the item was built.
                       canEdit={!item.readOnly && !state.isStreaming && state.connected}
-                      onEdit={editPrompt}
+                      onEdit={(entryId, text, images) => {
+                        requestChange({ kind: "edit", entryId, text, ...(images ? { images } : {}) });
+                        // The draft stays open until the conversation moves: Cancel keeps it.
+                        return false;
+                      }}
                     />,
                   );
                 }
@@ -1711,7 +1754,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
                 isCompacting={state.isCompacting}
                 onSetModel={setModel}
                 onSetThinking={setThinking}
-                onCompact={compact}
+                onCompact={() => requestChange({ kind: "compact" })}
               />
             </div>
           </footer>
@@ -1774,7 +1817,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             sessions={state.sessions}
             sessionSearch={state.sessionSearch}
             sessionId={state.sessionId}
-            onSwitchSession={switchSession}
+            onSwitchSession={requestSwitchSession}
             onDeleteSession={deleteSession}
             onRenameSession={renameSession}
             onSearchSessions={searchSessions}
@@ -1786,6 +1829,14 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
       )}
 
       <ExtensionNotifications notifications={state.notifications} onDismiss={dismissNotification} />
+      {confirmAction && (
+        <ConfirmDialog
+          {...confirmCopy(confirmAction, agentBusy)}
+          touch={isNarrowViewport || viewport.coarse}
+          onConfirm={() => runConfirmed(confirmAction)}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
       {agentsOpen && <AgentsPanel key={boundKey ?? "none"} state={state.subagentManagement} models={state.models} connected={state.connected} phone={isNarrowViewport} onRequest={manageSubagents} onClose={() => setAgentsOpen(false)} />}
       {cliSessionsOpen && <CliSessions state={state.cliBridge} connected={state.connected} onRequest={manageCliBridge} onClose={() => setCliSessionsOpen(false)} />}
       {state.mcpManagerOpen && <MCPManager key={state.workspace?.root ?? state.sessionId} onClose={() => setMcpManagerOpen(false)}

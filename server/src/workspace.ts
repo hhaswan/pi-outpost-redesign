@@ -281,6 +281,9 @@ export class Workspace {
    */
   replacingSession = false;
 
+  /** Between the runtime's `compaction_start` and `compaction_end`: a model call is running. */
+  compacting = false;
+
   /** The prompts waiting in the agent's queue, as the user typed them. */
   readonly queuedPrompts = new QueuedPrompts();
 

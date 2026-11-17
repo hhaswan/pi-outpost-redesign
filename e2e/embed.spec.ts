@@ -8,6 +8,7 @@
  * a design system does to anything it embeds.
  */
 import { expect, test, type Page } from "@playwright/test";
+import { openMore } from "./openMore";
 
 /** The host page with the backend it should talk to. */
 async function openHost(page: Page, options: { server?: string; theme?: string } = {}): Promise<void> {
@@ -951,7 +952,7 @@ test.describe("embed workspace controls", () => {
 
     // The compatibility the default promises: the sandbox is still editable, in
     // the one place it has always been.
-    await page.getByRole("button", { name: "Settings" }).click();
+    await (await openMore(page)).getByRole("button", { name: "Settings" }).click();
     await expect(page.getByRole("button", { name: "Browse for sandbox root" })).toBeVisible();
   });
 

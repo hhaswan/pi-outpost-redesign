@@ -12,9 +12,10 @@
  * Work Plan and the terminal, each from the bottom navigation. At wider widths they are
  * the Work Plan and the sessions dropdown; at 1280 it also asserts the desktop header
  * is still one row with its own controls and that there is no bottom navigation.
- * At every wide width Terminal sessions is in the header, the activity strip is one slim
- * line, and on screens up to 900px tall (1133x744 is an iPad in landscape, with touch)
- * the transcript keeps at least half the viewport height.
+ * At every wide width the header is one row at most 60px tall, Terminal sessions is in
+ * its More menu (whose every menu is opened in place and inspected), the activity strip
+ * is one slim line, and on screens up to 900px tall (1133x744 is an iPad in landscape,
+ * with touch) the transcript keeps at least half the viewport height.
  * On phone widths it also opens every menu in the overflow sheet (and the project
  * menu in the header), measures hit areas below 44x44 px, and flags hover-only
  * controls: a control that is transparent on a screen without hover (the phone
@@ -40,6 +41,7 @@ import { chromium } from 'playwright';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { makeWorkspace, startServer } from '../server/test/harness.mjs';
 import { leaveStartScreen } from './leave-start-screen.mjs';
+import { openMore } from './open-more.mjs';
 
 const args = process.argv.slice(2);
 const reportOnly = args.includes('--report');
@@ -343,33 +345,59 @@ try {
       continue;
     }
 
-    // Wide layouts: Terminal sessions sits in the header row, the activity strip is
-    // one slim line, and a short screen still gives the conversation most of its height.
+    // Wide layouts: the header is one row, Terminal sessions is in its More menu, the
+    // activity strip is one slim line, and a short screen still gives the conversation most of its height.
     {
-      const wide = await page.evaluate(() => ({
-        terminalInHeader: [...document.querySelectorAll('header button')].some((b) => b.textContent.trim() === 'Terminal sessions'),
-        strip: document.querySelector('section[aria-label="Activity"]')?.getBoundingClientRect().height ?? 0,
-        ratio: (document.querySelector('main')?.getBoundingClientRect().height ?? 0) / innerHeight,
-      }));
-      expect('wide shell', wide.terminalInHeader, 'Terminal sessions is not in the header row');
+      const wide = await page.evaluate(() => {
+        const header = document.querySelector('header');
+        const kids = [...(header?.querySelectorAll('button, [data-testid="pi-mark"], [data-testid="session-title"]') ?? [])].filter((b) => b.getBoundingClientRect().height > 0);
+        const tops = new Set(kids.map((b) => Math.round(b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)));
+        return {
+          height: header?.getBoundingClientRect().height ?? 0,
+          rows: tops.size,
+          // Accessible names, roughly: an icon marked aria-hidden is not part of them.
+          labels: kids.map((b) => b.getAttribute('aria-label') || [...b.childNodes].filter((n) => !(n.nodeType === 1 && n.getAttribute('aria-hidden') === 'true')).map((n) => n.textContent).join('').trim()),
+          strip: document.querySelector('section[aria-label="Activity"]')?.getBoundingClientRect().height ?? 0,
+          modelBar: document.querySelector('[data-testid="model-bar"]')?.getBoundingClientRect().height ?? 0,
+          title: (() => { const t = document.querySelector('[data-testid="session-title"]'); return t ? { text: t.textContent, title: t.title, cut: t.scrollWidth > t.clientWidth + 1 } : null; })(),
+          ratio: (document.querySelector('main')?.getBoundingClientRect().height ?? 0) / innerHeight,
+        };
+      });
+      expect('wide shell', wide.height <= 60 && wide.rows === 1, `header ${wide.height}px over ${wide.rows} rows, expected one row of at most 60px`);
+      for (const label of ['◨ files', 'sessions', '+ new', 'More controls']) {
+        expect('wide shell', wide.labels.includes(label), `header lost "${label}"`);
+      }
+      for (const label of ['tree', 'Agents', 'Terminal sessions', 'Settings']) {
+        expect('wide shell', !wide.labels.includes(label), `"${label}" is still in the header row, not in More`);
+      }
       expect('wide shell', wide.strip <= 30, `the activity strip takes ${wide.strip}px, expected one slim line`);
+      expect('wide shell', wide.title?.text === SESSION_TITLE && wide.title.title === SESSION_TITLE && !wide.title.cut, `session title ${JSON.stringify(wide.title)}, expected "${SESSION_TITLE}" in full`);
+      expect('wide shell', wide.modelBar > 0 && wide.modelBar <= 46, `the model bar takes ${wide.modelBar}px, expected one row`);
       if (viewport.height <= 900) expect('wide shell', wide.ratio >= 0.5, `the transcript takes ${(wide.ratio * 100).toFixed(1)}% of a ${viewport.width}x${viewport.height} screen, expected at least 50%`);
-      console.log(`INFO ${viewport.width}x${viewport.height} transcript ${(wide.ratio * 100).toFixed(1)}% of the viewport`);
+      console.log(`INFO ${viewport.width}x${viewport.height} transcript ${(wide.ratio * 100).toFixed(1)}% of the viewport, header ${wide.height}px, model bar ${wide.modelBar}px`);
+
+      // The More menu, and every menu it holds opened in place, then Settings.
+      const more = await openMore(page);
+      await page.waitForTimeout(200);
+      await check('more menu', '[data-testid="header-more"]');
+      expect('more menu', await more.getByRole('button', { name: 'Terminal sessions' }).isVisible(), 'More lost Terminal sessions');
+      const menuSelector = 'button[aria-haspopup]:not([aria-haspopup="dialog"]), button[aria-expanded]';
+      const menus = await more.locator(menuSelector).evaluateAll((list) => list.map((b) => b.getAttribute('aria-label') || b.getAttribute('title') || b.textContent.trim()));
+      expect('more menu', menus.length >= 3, `only ${menus.length} menus found in More: ${menus.join(', ')}`);
+      for (const [index, name] of menus.entries()) {
+        const trigger = more.locator(menuSelector).nth(index);
+        await trigger.click();
+        await page.waitForTimeout(200);
+        await check(`more menu: ${name.slice(0, 40)}`, '[data-testid="header-more"]');
+        if (await more.isVisible() && (await trigger.getAttribute('aria-expanded')) === 'true') await trigger.click();
+        expect(`more menu: ${name}`, await more.isVisible(), `opening and closing "${name}" closed More`);
+      }
+      await page.keyboard.press('Escape');
+      expect('more menu', !(await more.isVisible()), 'Escape did not close More');
     }
     if (viewport.width >= 1024) {
       expect('desktop shell', !(await nav.count()), 'bottom navigation shown on a desktop');
       expect('desktop shell', !(await page.getByTestId('compact-header').count()), 'compact header shown on a desktop');
-      const row = await page.evaluate(() => {
-        const header = document.querySelector('header');
-        const kids = [...(header?.querySelectorAll('button') ?? [])].filter((b) => b.getBoundingClientRect().height > 0);
-        const tops = new Set(kids.map((b) => Math.round(b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)));
-        return { height: header?.getBoundingClientRect().height ?? 0, rows: tops.size, labels: kids.map((b) => (b.textContent || '').trim()) };
-      });
-      expect('desktop shell', row.height < 60 && row.rows === 1, `desktop header ${row.height}px over ${row.rows} rows`);
-      for (const label of ['◨ files', 'sessions']) {
-        expect('desktop shell', row.labels.includes(label), `desktop header lost "${label}"`);
-      }
-      expect('desktop shell', await page.getByRole('button', { name: 'Terminal sessions' }).isVisible(), 'desktop lost Terminal sessions');
     }
 
     if (viewport.width < 1024) {

@@ -3,11 +3,12 @@
  * the changelog the server carries, so it needs no network.
  *
  * Collapsed to one line until asked: an update is good news, not a dialog to get past.
- * Dismissing it is remembered per version in this browser, like the update notice; the
- * server keeps offering it for as long as the updated version runs, so every browser
- * that has not seen it yet still does.
+ * Shown once per version in this browser: the first showing marks it seen, so the next
+ * load does not show it again (dismissing it hides it at once). The server keeps offering
+ * it for as long as the updated version runs, so every browser that has not seen it yet
+ * still does.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { OutpostChanges } from "@pi-outpost/shared";
@@ -30,7 +31,16 @@ function ExternalLink(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
 export function ChangesNotice({ changes }: { changes: OutpostChanges }) {
   const [dismissed, setDismissed] = useState(() => dismissedVersion());
   const [open, setOpen] = useState(false);
-  if (dismissed === changes.to) return null;
+  const seen = dismissed === changes.to;
+  useEffect(() => {
+    if (seen) return;
+    try {
+      window.localStorage.setItem(DISMISSED_KEY, changes.to);
+    } catch {
+      // Storage refused: the news comes back next time.
+    }
+  }, [seen, changes.to]);
+  if (seen) return null;
   const hasEntries = changes.entries.length > 0;
   return (
     <div
@@ -42,7 +52,7 @@ export function ChangesNotice({ changes }: { changes: OutpostChanges }) {
         {/* The one spot of colour: news to notice, not an alarm to act on — and not
             emerald, which this app keeps for "you are here" */}
         <span className="shrink-0 rounded-full bg-sky-100 px-1.5 font-medium leading-4 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200">New</span>
-        <span className="min-w-0 flex-1">
+        <span className="min-w-0 flex-1 truncate">
           pi-outpost was updated to {changes.to} (from {changes.from}).
         </span>
         {hasEntries ? (

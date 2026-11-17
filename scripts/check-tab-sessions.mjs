@@ -2,6 +2,7 @@
 /** Built app, real browser tabs: two tabs on one project hold different conversations.
  * A conversation change in one tab moves only that tab onto its own side session.
  * Offline fixture, no model calls; the bridge registry is a private temp dir. */
+import {confirmIfAsked} from './open-more.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -25,10 +26,12 @@ let server,browser,observer;const errors=[];
 const selection=p=>p.evaluate(()=>{const k=Object.keys(sessionStorage).find(k=>k.startsWith('pi-outpost:workspace:v2:'));return k?JSON.parse(sessionStorage.getItem(k)):null});
 const shows=async(p,text)=>{await p.getByText(text,{exact:true}).first().waitFor({timeout:15000});};
 const lacks=async(p,text)=>assert.equal(await p.getByText(text,{exact:true}).count(),0,`unexpected "${text}"`);
-const openSession=async(p,name)=>{await p.getByRole('button',{name:'sessions',exact:true}).click();await p.getByText(name,{exact:true}).first().click();};
+// Opening another conversation asks first when one is on screen: confirm it.
+const openSession=async(p,name)=>{await p.getByRole('button',{name:'sessions',exact:true}).click();await p.getByText(name,{exact:true}).first().click();await confirmIfAsked(p,'Open conversation','Open');};
 // A new tab opens on the start screen: join a conversation from its Recent list.
 const joinRecent=async(p,name)=>{await p.getByTestId('start-recent-row').filter({hasText:name}).click();await p.getByTestId('start-screen').waitFor({state:'detached'});};
-const newConversation=p=>p.getByRole('button',{name:'+ new',exact:true}).click();
+// "+ new" asks first when there is a conversation on screen: confirm it.
+const newConversation=async p=>{await p.getByRole('button',{name:'+ new',exact:true}).click({timeout:5000});await p.getByRole('alertdialog',{name:'New chat'}).getByRole('button',{name:'Start new chat'}).click({timeout:2000}).catch(()=>{});};
 try{
  server=await startServer(root,{sandbox:false,noExtensions:true},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{HOME:path.join(root,'home'),PI_OFFLINE:'1',ANTHROPIC_API_KEY:'fixture-no-model-calls',PI_OUTPOST_BRIDGE_DIR:stores.bridges}});
  observer=connect(server.wsUrl());await observer.waitFor('hello');observer.send({type:'open_project',root:other});await observer.waitFor(m=>m.type==='workspace_switched'&&m.workspace?.root===other);

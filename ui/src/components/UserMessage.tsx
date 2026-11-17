@@ -8,7 +8,8 @@ interface UserMessageProps {
   item: UserItem;
   /** Editing rewinds the session — refused mid-run, and needs a persisted entry id. */
   canEdit: boolean;
-  onEdit: (entryId: string, text: string, images?: WireImage[]) => void;
+  /** Returns false when the edit is not sent yet (awaiting a confirmation): the draft stays open. */
+  onEdit: (entryId: string, text: string, images?: WireImage[]) => void | boolean;
   /**
    * A prompt still waiting in the agent's queue, `item.entryId` being its queue id. Editing
    * replaces it in the queue instead of rewinding, and it can be removed.
@@ -69,8 +70,7 @@ export function UserMessage({ item, canEdit, onEdit, queued }: UserMessageProps)
       setDraft(null);
       return;
     }
-    onEdit(item.entryId, text, item.images);
-    setDraft(null);
+    if (onEdit(item.entryId, text, item.images) !== false) setDraft(null);
   }
 
   const actionClass =

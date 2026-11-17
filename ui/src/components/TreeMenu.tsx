@@ -172,12 +172,13 @@ function GraphRowView({
       </button>
       <button
         type="button"
+        disabled={isStreaming}
         onClick={() => {
           onFork(node.entryId);
           onClose();
         }}
-        title="fork a new session from this point"
-        className={ACTION_CLASS}
+        title={isStreaming ? "unavailable while the agent is running" : "fork a new session from this point"}
+        className={`${ACTION_CLASS} disabled:opacity-50`}
       >
         ⑂ fork
       </button>
@@ -228,7 +229,7 @@ export function TreeMenu({ tree, isStreaming, onListTree, onNavigate, onFork }: 
         title="conversation tree: go back to an earlier point or fork"
         className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
       >
-        tree
+        <span aria-hidden="true">⑂</span> tree
       </button>
       {open && (
         <div className={`absolute right-0 top-full z-20 mt-1 flex max-h-[70vh] w-[32rem] max-w-[90vw] flex-col rounded-lg border border-zinc-200 bg-white shadow-xl [--tree-off:#e4e4e7] dark:border-zinc-700 dark:bg-zinc-900 dark:[--tree-off:#3f3f46] ${TOUCH_DESCENDANTS}`}>
@@ -293,6 +294,7 @@ export function TreeMenu({ tree, isStreaming, onListTree, onNavigate, onFork }: 
                           </button>
                           <button
                             type="button"
+                            disabled={isStreaming}
                             onClick={() => {
                               onFork(node.entryId);
                               setOpen(false);

@@ -12,6 +12,7 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
 import type { AgentResourceInventory, AgentResourceRepository } from "@pi-outpost/shared";
 import { leaveStartScreen } from "./startScreen";
+import { openMore } from "./openMore";
 
 const EXTENSIONS_DIR = process.env.PI_E2E_EXTENSIONS_DIR!;
 
@@ -87,7 +88,7 @@ test("an extension directory added through the resource manager is loaded, then 
   await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
 
-  await page.getByRole("button", { name: settingsButton }).click();
+  await (await openMore(page)).getByRole("button", { name: settingsButton }).click();
   await page.getByRole("button", { name: "Manage agent resources" }).click();
   await expect(page.getByRole("dialog", { name: "Agent resources" })).toBeVisible();
 
@@ -122,7 +123,7 @@ test("an extension directory added through the resource manager is loaded, then 
   await page.keyboard.press("Escape");
 
   // And taking it back rebuilds a session without it.
-  await page.getByRole("button", { name: settingsButton }).click();
+  await (await openMore(page)).getByRole("button", { name: settingsButton }).click();
   await page.getByRole("button", { name: "Manage agent resources" }).click();
   await page.getByRole("button", { name: `Remove ${EXTENSIONS_DIR}` }).click();
   await expect(page.getByRole("button", { name: `Remove ${EXTENSIONS_DIR}` })).toHaveCount(0);
@@ -133,7 +134,7 @@ test("a deployment that locks extension paths offers no way to change them", asy
   await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
 
-  await page.getByRole("button", { name: settingsButton }).click();
+  await (await openMore(page)).getByRole("button", { name: settingsButton }).click();
   await expect(page.getByTestId("extensions-locked")).toBeVisible();
   await page.getByRole("button", { name: "Manage agent resources" }).click();
   await page.getByRole("button", { name: "Add local folder…" }).click();
@@ -206,7 +207,7 @@ test("repository states stay correlated through rapid actions and changing inven
   await page.goto(process.env.PI_E2E_SERVER_URL!);
   await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
-  await page.getByRole("button", { name: settingsButton }).click();
+  await (await openMore(page)).getByRole("button", { name: settingsButton }).click();
   await page.getByRole("button", { name: "Manage agent resources" }).click();
   const dialog = page.getByRole("dialog", { name: "Agent resources" });
   await expect(dialog).toBeVisible();
@@ -287,7 +288,7 @@ test("repository states stay correlated through rapid actions and changing inven
   await page.getByRole("button", { name: "Close agent resources" }).click();
   await page.getByTitle(/^Project:/).click();
   await page.getByRole("menuitem").filter({ hasText: process.env.PI_E2E_SECOND_PROJECT! }).click();
-  await page.getByRole("button", { name: settingsButton }).click();
+  await (await openMore(page)).getByRole("button", { name: settingsButton }).click();
   await page.getByRole("button", { name: "Manage agent resources" }).click();
   await expect(dialog.getByRole("button", { name: /Shared skills/ })).toBeVisible();
   await page.waitForTimeout(1_600);

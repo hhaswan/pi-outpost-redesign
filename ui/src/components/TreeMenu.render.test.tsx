@@ -131,14 +131,16 @@ describe("TreeMenu", () => {
       expect(screen.queryByText("Conversation tree")).not.toBeInTheDocument();
     });
 
-    it("refuses navigation while the agent is running, but still allows a fork", () => {
+    it("refuses navigation and a fork while the agent is running", () => {
       const { onFork } = setup({ isStreaming: true });
       openMenu();
       // While streaming the title stops describing the action and says why it is refused
-      expect(within(row("fix the parser")).getByTitle("unavailable while the agent is running")).toBeDisabled();
-      // Forking makes a new session, so a running agent is no reason to refuse it
-      fireEvent.click(within(row("fix the parser")).getByRole("button", { name: /fork/ }));
-      expect(onFork).toHaveBeenCalled();
+      expect(within(row("fix the parser")).getAllByTitle("unavailable while the agent is running")[0]).toBeDisabled();
+      // A fork replaces the running session in place: it would abort the turn (the server refuses it too)
+      const fork = within(row("fix the parser")).getByRole("button", { name: /fork/ });
+      expect(fork).toBeDisabled();
+      fireEvent.click(fork);
+      expect(onFork).not.toHaveBeenCalled();
     });
 
     it("labels an empty turn rather than rendering a blank row", () => {

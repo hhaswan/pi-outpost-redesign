@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { ModelBar } from "./ModelBar";
 import { THINKING_LEVELS } from "@pi-outpost/shared";
 import type { SessionUsage } from "../util/sessionUsage";
@@ -41,10 +41,11 @@ describe("ModelBar usage indicator", () => {
     expect(screen.queryByText(/tok/)).toBeNull();
   });
 
-  it("shows tokens and cost once a turn reports both", () => {
+  it("shows the cost alone once a turn reports one, the tokens in its title", () => {
     renderBar({ ...NOTHING, turns: 1, totalTokens: 12_400, cost: 0.42, input: 10_000, output: 2_400 });
-    expect(screen.getByText("12k tok")).toBeTruthy();
+    expect(screen.queryByText("12k tok")).toBeNull();
     expect(screen.getByText("$0.42")).toBeTruthy();
+    expect(screen.getByTitle(/1 turn/).getAttribute("title")).toContain("input 10,000");
   });
 
   it("shows tokens and no amount against a provider that prices nothing", () => {
@@ -74,7 +75,7 @@ describe("ModelBar usage indicator", () => {
 
   it("reflects a completed turn without a reload", () => {
     const { rerender } = renderBar({ ...NOTHING, turns: 1, totalTokens: 1_000, cost: 0.01 });
-    expect(screen.getByText("1k tok")).toBeTruthy();
+    expect(screen.getByText("$0.01")).toBeTruthy();
 
     rerender(
       <ModelBar
@@ -93,7 +94,6 @@ describe("ModelBar usage indicator", () => {
         onCompact={() => {}}
       />,
     );
-    expect(screen.getByText("3k tok")).toBeTruthy();
     expect(screen.getByText("$0.03")).toBeTruthy();
   });
 
@@ -130,7 +130,8 @@ describe("ModelBar controls", () => {
     return props;
   }
 
-  it("wraps narrow layouts without hiding security, context or usage controls", () => {
+  // openlore: scenario=TheModelBarIsOneRow spec=compact-header-controls
+  it("TheModelBarIsOneRow: one row without hiding security, context or usage controls", () => {
     const props = renderFull({
       model: `local/${"long-model-name-".repeat(12)}`,
       shellConfinement: { state: "checking", runner: "sandbox" },
@@ -139,16 +140,20 @@ describe("ModelBar controls", () => {
       sessionUsage: { ...NOTHING, turns: 1, totalTokens: 12_400, cost: 0.42 },
     });
     const model = screen.getByRole("button", { name: "Model" });
-    expect(model.parentElement?.parentElement).toHaveClass("min-w-0", "flex-wrap");
+    expect(model.parentElement?.parentElement).toHaveClass("min-w-0", "flex-nowrap");
+    expect(model.parentElement?.parentElement).not.toHaveClass("flex-wrap");
     expect(model.parentElement).toHaveClass("min-w-0", "w-full", "max-w-full", "sm:w-auto", "sm:max-w-64");
     expect(model).toHaveTextContent(props.model);
     const confinement = screen.getByTestId("shell-confinement");
     expect(confinement).toBeVisible();
     expect(confinement).toHaveAttribute("data-grants", "1");
-    expect(confinement.parentElement).toHaveClass("min-w-0", "max-w-full", "[&>span]:whitespace-normal", "[&>span]:rounded-full");
+    // A lock badge: its words for screen readers, its details in the tooltip.
+    expect(confinement.parentElement).toHaveClass("shrink-0", "[&>span]:rounded-full", "[&>span]:min-w-7");
+    expect(within(confinement).getByText(/shell checking confinement/)).toHaveClass("sr-only");
+    expect(confinement.getAttribute("title")).toContain("being checked");
     const context = screen.getByRole("button", { name: "23%" });
     const usage = screen.getByTitle(/1 turn.*click for the session analysis/);
-    expect(usage).toHaveTextContent("12k tok$0.42");
+    expect(usage).toHaveTextContent(/^\$0\.42$/);
     for (const control of [model, screen.getByTitle("thinking level"), context, usage]) {
       expect(control).toBeVisible();
       expect(control).toHaveClass("min-h-11", "rounded-full", "focus-visible:ring-2");

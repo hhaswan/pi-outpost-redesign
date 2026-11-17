@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { makeWorkspace, startServer } from "../server/test/harness.mjs";
 import { leaveStartScreen } from "./startScreen";
+import { openMore } from "./openMore";
 
 test("extension status ANSI styles survive folding, resizing and a fresh update after reload", async ({ page }, testInfo) => {
   const root = await makeWorkspace({
@@ -32,30 +33,29 @@ test("extension status ANSI styles survive folding, resizing and a fresh update 
       await expect(error).toHaveAttribute("style", /color:/);
       expect(await warning.evaluate((el) => getComputedStyle(el).color)).not.toBe(await error.evaluate((el) => getComputedStyle(el).color));
     };
+    // The statuses are listed in the header's More menu, in full, at every width.
+    await openMore(page);
     await expect(ready).toBeVisible();
     await expect(ready).toHaveCSS("color", "rgb(22, 163, 74)");
     await expect(ready).toHaveCSS("font-weight", "600");
     await expect(page.getByTitle("Ready plain")).toBeVisible();
     await assertThemedGauges();
-    await page.screenshot({ path: testInfo.outputPath("status-header.png") });
+    await page.screenshot({ path: testInfo.outputPath("status-more.png") });
     await page.setViewportSize({ width: 420, height: 800 });
-    const folded = page.getByRole("button", { name: /2 status/ });
-    await expect(folded).toBeVisible();
-    await folded.click();
+    await openMore(page);
+    await expect(page.getByRole("list", { name: "Extension statuses" })).toBeVisible();
     await assertThemedGauges();
     await page.screenshot({ path: testInfo.outputPath("status-overflow.png") });
     await expect(ready).toHaveCSS("color", "rgb(22, 163, 74)");
     await page.keyboard.press("Escape");
     await expect(page.getByRole("list", { name: "Extension statuses" })).toHaveCount(0);
-    await folded.click();
     await page.setViewportSize({ width: 1600, height: 900 });
-    await expect(folded).toHaveCount(0);
-    await expect(ready).toHaveCSS("color", "rgb(22, 163, 74)");
     await page.reload();
     await expect(composer).toBeEnabled();
     await composer.fill("/status-colours");
     await composer.press("Escape");
     await composer.press("Enter");
+    await openMore(page);
     await expect(ready).toHaveCSS("color", "rgb(22, 163, 74)");
     await assertThemedGauges();
     expect(await page.locator("header").textContent()).not.toContain("\u001b");

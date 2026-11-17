@@ -37,6 +37,7 @@ npm run check:custom-build
 "$node" scripts/check-refresh-restore.mjs
 "$node" scripts/check-start-screen.mjs
 "$node" scripts/check-session-tree.mjs
+"$node" scripts/check-new-chat-confirm.mjs
 "$node" scripts/check-shared-session.mjs
 "$node" scripts/check-https-login.mjs
 "$node" scripts/check-extension-hyperlinks.mjs

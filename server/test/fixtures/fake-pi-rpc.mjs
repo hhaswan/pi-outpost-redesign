@@ -156,7 +156,8 @@ function handle(command) {
     const value = "cancelled" in command ? "cancelled" : "confirmed" in command ? String(command.confirmed) : String(command.value);
     emit({ type: "extension_error", extensionPath: "dialog", error: `answered:${command.id}:${value}` });
     if (pendingDialogCommand) {
-      emit({ id: pendingDialogCommand.id, type: "response", command: pendingDialogCommand.type, success: true });
+      const data = config.commands_?.[pendingDialogCommand.type]?.data;
+      emit({ id: pendingDialogCommand.id, type: "response", command: pendingDialogCommand.type, success: true, ...(data === undefined ? {} : { data }) });
       pendingDialogCommand = undefined;
     }
     return;
@@ -218,7 +219,8 @@ function finishSuccessfulCommand(command, type, script, responseId) {
   }
   if (type === "set_thinking_level") state.thinkingLevel = command.level;
   if (type === "set_session_name") state.sessionName = command.name;
-  if (type === "prompt" || type === "steer") state.isStreaming = true;
+  // A prompt an extension command handled runs no turn.
+  if ((type === "prompt" || type === "steer") && script?.data?.disposition !== "handled") state.isStreaming = true;
   applyReplacement(script?.replacement);
 
   const data = script && "data" in script ? script.data : DATA[type]?.();

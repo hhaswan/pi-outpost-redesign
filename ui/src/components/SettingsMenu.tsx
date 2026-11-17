@@ -54,6 +54,8 @@ function credentialSourceLabel(source: string | undefined, label: string | undef
 type PickerField = "root" | "writableRoot";
 
 interface SettingsMenuProps {
+  /** Shows the word beside the gear, as a tile of the header's More menu does. */
+  labelled?: boolean;
   /** The Security section, drawn first when the app is signed in to a token-protected server. */
   security?: ReactNode;
   credentials?: CredentialStatus | null;
@@ -153,6 +155,7 @@ interface SettingsMenuProps {
 }
 
 export function SettingsMenu({
+  labelled = false,
   security,
   credentials, login, onStartLogin, onAnswerLogin, onCancelLogin, onDismissLogin, onLogoutProvider,
   gitHostCredential, onSetGitHostCredential, onRemoveGitHostCredential,
@@ -343,7 +346,7 @@ export function SettingsMenu({
         aria-expanded={open}
         className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
       >
-        ⚙
+        <span aria-hidden="true">⚙</span>{labelled && " Settings"}
       </button>
       {open && (
         <div className={`absolute right-0 top-full z-20 mt-1 flex max-h-[80vh] w-[380px] max-w-[calc(100vw-1rem)] flex-col rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 ${TOUCH_DESCENDANTS}`}>

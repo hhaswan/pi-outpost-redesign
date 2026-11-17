@@ -3,6 +3,7 @@ import { mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promi
 import path from "node:path";
 import { makeWorkspace, startServer } from "../server/test/harness.mjs";
 import { leaveStartScreen } from "./startScreen";
+import { openMore } from "./openMore";
 
 // openlore: scenario=PreservesTheChosenExtensionAlias spec=extension-path-aliases
 // openlore: scenario=RemovesTheAliasWithoutRemovingItsTarget spec=extension-path-aliases
@@ -23,7 +24,7 @@ test("the resource manager preserves an extension alias, removes it, and rejects
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   const manager = async () => {
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await (await openMore(page)).getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "Manage agent resources", exact: true }).click();
   };
   const chooseAlias = async () => {

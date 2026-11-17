@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { leaveStartScreen } from "./startScreen";
+import { openMore } from "./openMore";
 
 // openlore: scenario=NewSandboxGovernsTheReplacementSession spec=persistent-runtime-settings
 // openlore: scenario=ReadConfiguredResourceOutsideRoot spec=file
@@ -16,7 +17,7 @@ test("Settings keeps the agent's sandbox and external resource access in sync", 
 
   const root = process.env.PI_E2E_SETTINGS_SANDBOX_ROOT!;
   const moved = path.join(root, "moved");
-  await page.getByRole("button", { name: "Settings" }).click();
+  await (await openMore(page)).getByRole("button", { name: "Settings" }).click();
   await page.getByRole("button", { name: "Browse for sandbox root" }).click();
   await page.getByTestId("picker-path").fill(moved);
   await page.getByTestId("server-path-picker").getByRole("button", { name: "Go", exact: true }).click();
@@ -44,7 +45,7 @@ test("Settings keeps the agent's sandbox and external resource access in sync", 
   // rather than under, the sandbox root. Drive the real resource manager and
   // verify the next agent turn reads the skill body with the real `read` tool.
   const skillDir = process.env.PI_E2E_SETTINGS_SANDBOX_SKILL_DIR!;
-  await page.getByRole("button", { name: "Settings" }).click();
+  await (await openMore(page)).getByRole("button", { name: "Settings" }).click();
   await page.getByRole("button", { name: "Manage agent resources" }).click();
   await page.getByRole("button", { name: "Add local folder…" }).click();
   await page.getByRole("button", { name: "Skill folder" }).click();

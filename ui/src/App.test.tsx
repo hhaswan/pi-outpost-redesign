@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ChatItem, TurnUsage } from "@pi-outpost/shared";
 import App from "./App";
+import { openMore } from "./components/headerTesting";
+import { COMPACT_TEXT, EDIT_TEXT, FORK_TEXT, NAVIGATE_TEXT, SWITCH_BUSY_TEXT, SWITCH_TEXT } from "./components/ConfirmDialog";
 import { UploadError } from "./uploads";
 import { typeInEditor } from "./components/codeEditorTesting";
 
@@ -220,7 +222,7 @@ describe("Workspace Outcome", () => {
     const api = agentApi(agentState({ workPlan, outcome }));
     mockUseAgent.mockReturnValue(api);
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Outcome" }));
+    fireEvent.click(within(openMore()).getByRole("button", { name: "Outcome" }));
     expect(screen.getByRole("complementary", { name: "Workspace Outcome" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Review task/ }));
     expect(screen.queryByRole("complementary", { name: "Workspace Outcome" })).toBeNull();
@@ -231,7 +233,7 @@ describe("Workspace Outcome", () => {
     const api = agentApi(agentState({ workPlan, outcome }));
     mockUseAgent.mockReturnValue(api);
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Outcome" }));
+    fireEvent.click(within(openMore()).getByRole("button", { name: "Outcome" }));
     fireEvent.click(screen.getByRole("button", { name: /src\/app.ts/ }));
     expect(api.readFile).toHaveBeenCalledWith("src/app.ts");
   });
@@ -348,8 +350,10 @@ describe("Phone shell", () => {
     expect(screen.queryByTestId("compact-header")).toBeNull();
     expect(screen.getByRole("button", { name: "◨ files" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "sessions" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Terminal sessions" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /terminal$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More controls" })).toBeInTheDocument();
+    const more = openMore();
+    expect(within(more).getByRole("button", { name: "Terminal sessions" })).toBeInTheDocument();
+    expect(within(more).getByRole("button", { name: /terminal$/ })).toBeInTheDocument();
   });
 
   it("renders a one-row header with the session title and the secondary controls in the overflow sheet", () => {
@@ -543,6 +547,238 @@ describe("Phone shell", () => {
 // ---------------------------------------------------------------------------
 // TokenGate path — authRequired: true
 // ---------------------------------------------------------------------------
+// openlore: spec=independent-tab-conversations
+describe("NewChatAsksFirst", () => {
+  const project = { root: "/srv/alpha", id: "/srv/alpha", name: "alpha", activity: "idle" as const };
+  const conversation = [{ kind: "user", text: "keep me" }] as ChatItem[];
+  const plusNew = () => screen.getByRole("button", { name: "+ new" });
+  const confirm = () => screen.queryByRole("alertdialog", { name: "New chat" });
+  function stubWidth(width: number) {
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      matches: (query === "(max-width: 767px)" && width <= 767) || (query === "(max-width: 1023px)" && width <= 1023),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+    })));
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("asks before leaving a conversation, and Cancel, Escape or the backdrop change nothing", () => {
+    stubWidth(1280);
+    const api = agentApi(agentState({ workspace: project, workspaces: [project], items: conversation }));
+    mockUseAgent.mockReturnValue(api);
+    render(<App />);
+    fireEvent.click(plusNew());
+    expect(confirm()).toHaveTextContent("Start a new chat? The current conversation stays in Sessions.");
+    expect(within(confirm()!).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    fireEvent.click(within(confirm()!).getByRole("button", { name: "Cancel" }));
+    expect(confirm()).toBeNull();
+    fireEvent.click(plusNew());
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(confirm()).toBeNull();
+    fireEvent.click(plusNew());
+    // The second click of a double click lands on the backdrop: the question stays.
+    fireEvent.click(screen.getByTestId("confirm-dialog"));
+    expect(confirm()).not.toBeNull();
+    // A moment later the backdrop cancels.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.advanceTimersByTime(600);
+    fireEvent.click(screen.getByTestId("confirm-dialog"));
+    vi.useRealTimers();
+    expect(confirm()).toBeNull();
+    expect(api.newSession).not.toHaveBeenCalled();
+    expect(screen.getByText("keep me")).toBeInTheDocument();
+  });
+
+  it("starts one new chat on confirm, however fast the presses", () => {
+    stubWidth(1280);
+    const api = agentApi(agentState({ workspace: project, workspaces: [project], items: conversation }));
+    mockUseAgent.mockReturnValue(api);
+    render(<App />);
+    fireEvent.click(plusNew());
+    const start = within(confirm()!).getByRole("button", { name: "Start new chat" });
+    fireEvent.click(start);
+    fireEvent.click(start);
+    expect(confirm()).toBeNull();
+    fireEvent.click(plusNew());
+    fireEvent.click(within(confirm()!).getByRole("button", { name: "Start new chat" }));
+    expect(api.newSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips the question when the conversation is empty", () => {
+    stubWidth(1280);
+    const api = agentApi(agentState({ workspace: project, workspaces: [project] }));
+    mockUseAgent.mockReturnValue(api);
+    render(<App />);
+    fireEvent.click(plusNew());
+    fireEvent.click(plusNew());
+    expect(confirm()).toBeNull();
+    expect(api.newSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the agent keeps working when it is busy, on the phone sheet too", () => {
+    stubWidth(390);
+    const working = { ...project, activity: "working" as const };
+    const api = agentApi(agentState({ workspace: working, workspaces: [working], items: conversation, isStreaming: true }));
+    mockUseAgent.mockReturnValue(api);
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "More controls" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Controls" })).getByRole("button", { name: "+ new" }));
+    expect(screen.queryByRole("dialog", { name: "Controls" })).toBeNull();
+    expect(confirm()).toHaveTextContent("The agent is still working. It keeps running in its own session; this tab starts a new chat.");
+    fireEvent.click(within(confirm()!).getByRole("button", { name: "Start new chat" }));
+    expect(api.newSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the question when the tab moves to another conversation before answering", () => {
+    stubWidth(1280);
+    const api = agentApi(agentState({ workspace: project, workspaces: [project], items: conversation }));
+    mockUseAgent.mockReturnValue(api);
+    const view = render(<App />);
+    fireEvent.click(plusNew());
+    expect(confirm()).not.toBeNull();
+    const beta = { root: "/srv/beta", id: "/srv/beta", name: "beta", activity: "idle" as const };
+    mockUseAgent.mockReturnValue(agentApi(agentState({ workspace: beta, workspaces: [project, beta], items: conversation, sessionId: "sess_2" })));
+    view.rerender(<App />);
+    expect(confirm()).toBeNull();
+    expect(api.newSession).not.toHaveBeenCalled();
+  });
+});
+
+// openlore: spec=independent-tab-conversations
+describe("ConversationChangesAskFirst", () => {
+  const project = { root: "/srv/alpha", id: "/srv/alpha", name: "alpha", activity: "idle" as const };
+  const conversation = [
+    { kind: "user", text: "first ask", entryId: "e1" },
+    { kind: "assistant", blocks: [{ type: "text", text: "first answer" }] },
+  ] as ChatItem[];
+  const sessions = [
+    { path: "/s/current.jsonl", id: "sess_1", firstMessage: "first ask", modified: "2026-08-01T10:00:00.000Z", messageCount: 2 },
+    { path: "/s/other.jsonl", id: "sess_9", name: "Other talk", firstMessage: "other", modified: "2026-08-01T09:00:00.000Z", messageCount: 4 },
+  ];
+  const dialog = (name: string) => screen.queryByRole("alertdialog", { name });
+  function stubWidth(width: number) {
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      matches: (query === "(max-width: 767px)" && width <= 767) || (query === "(max-width: 1023px)" && width <= 1023),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+    })));
+  }
+  afterEach(() => vi.unstubAllGlobals());
+  const mountWith = (overrides: Record<string, unknown> = {}) => {
+    const api = agentApi(agentState({ workspace: project, workspaces: [project], items: conversation, sessions, tree: [{ entryId: "e1", text: "first ask", onPath: true, children: [] }], ...overrides }));
+    mockUseAgent.mockReturnValue(api);
+    render(<App />);
+    return api;
+  };
+
+  // openlore: scenario=SwitchingConversationAsksFirst spec=independent-tab-conversations
+  it("SwitchingConversationAsksFirst: asks before opening another conversation, says the agent keeps working, and opens it once", () => {
+    stubWidth(1280);
+    const api = mountWith();
+    fireEvent.click(screen.getByRole("button", { name: "sessions" }));
+    fireEvent.click(screen.getByText("Other talk"));
+    expect(dialog("Open conversation")).toHaveTextContent(SWITCH_TEXT);
+    expect(dialog("Open conversation")).not.toHaveTextContent(SWITCH_BUSY_TEXT);
+    fireEvent.click(within(dialog("Open conversation")!).getByRole("button", { name: "Cancel" }));
+    expect(api.switchSession).not.toHaveBeenCalled();
+    // The conversation already shown is reopened without a question.
+    fireEvent.click(screen.getByRole("button", { name: "sessions" }));
+    fireEvent.click(screen.getByText("first ask", { selector: "span" }));
+    expect(dialog("Open conversation")).toBeNull();
+    expect(api.switchSession).toHaveBeenCalledWith("/s/current.jsonl");
+  });
+
+  it("SwitchingConversationAsksFirst: busy line, double-clicked confirm opens once, from the phone sheet too", () => {
+    stubWidth(390);
+    const working = { ...project, activity: "working" as const };
+    const api = mountWith({ workspace: working, workspaces: [working], isStreaming: true });
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Primary" })).getByRole("button", { name: /Sessions/ }));
+    fireEvent.click(within(screen.getByTestId("phone-sessions-sheet")).getByText("Other talk"));
+    expect(dialog("Open conversation")).toHaveTextContent(`${SWITCH_TEXT} ${SWITCH_BUSY_TEXT}`);
+    const open = within(dialog("Open conversation")!).getByRole("button", { name: "Open" });
+    expect(open.className).toContain("min-h-11");
+    fireEvent.click(open);
+    fireEvent.click(open);
+    expect(api.switchSession).toHaveBeenCalledTimes(1);
+    expect(api.switchSession).toHaveBeenCalledWith("/s/other.jsonl");
+  });
+
+  // openlore: scenario=ForkAndTreeNavigationAskFirst spec=independent-tab-conversations
+  it("ForkAndTreeNavigationAskFirst: fork and go back each ask, Escape and the backdrop cancel", () => {
+    stubWidth(1280);
+    const api = mountWith();
+    fireEvent.click(within(openMore()).getByRole("button", { name: "tree" }));
+    fireEvent.click(screen.getByRole("button", { name: /fork/ }));
+    expect(screen.queryByRole("dialog", { name: "Controls" })).toBeNull();
+    expect(dialog("Fork conversation")).toHaveTextContent(FORK_TEXT);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(dialog("Fork conversation")).toBeNull();
+    expect(api.forkSession).not.toHaveBeenCalled();
+    fireEvent.click(within(openMore()).getByRole("button", { name: "tree" }));
+    fireEvent.click(screen.getByRole("button", { name: /fork/ }));
+    fireEvent.click(within(dialog("Fork conversation")!).getByRole("button", { name: "Fork" }));
+    expect(api.forkSession).toHaveBeenCalledExactlyOnceWith("e1");
+
+    fireEvent.click(within(openMore()).getByRole("button", { name: "tree" }));
+    fireEvent.click(screen.getByText("first ask", { selector: "button span" }));
+    expect(dialog("Go back")).toHaveTextContent(NAVIGATE_TEXT);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.advanceTimersByTime(600);
+    fireEvent.click(screen.getByTestId("confirm-dialog"));
+    vi.useRealTimers();
+    expect(dialog("Go back")).toBeNull();
+    expect(api.navigateTree).not.toHaveBeenCalled();
+  });
+
+  // openlore: scenario=EditingAPromptAsksFirst spec=independent-tab-conversations
+  it("EditingAPromptAsksFirst: Cancel keeps the draft open; Resend sends once", () => {
+    stubWidth(1280);
+    const api = mountWith();
+    fireEvent.click(screen.getByRole("button", { name: "Edit this prompt" }));
+    const draft = screen.getByRole("textbox", { name: "Edit prompt" });
+    fireEvent.change(draft, { target: { value: "first ask, better" } });
+    fireEvent.click(screen.getByRole("button", { name: "send" }));
+    expect(dialog("Resend prompt")).toHaveTextContent(EDIT_TEXT);
+    fireEvent.click(within(dialog("Resend prompt")!).getByRole("button", { name: "Cancel" }));
+    expect(api.editPrompt).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Edit prompt" })).toHaveValue("first ask, better");
+    fireEvent.click(screen.getByRole("button", { name: "send" }));
+    fireEvent.click(within(dialog("Resend prompt")!).getByRole("button", { name: "Resend" }));
+    expect(api.editPrompt).toHaveBeenCalledExactlyOnceWith("e1", "first ask, better", undefined);
+    // Another action right after is not taken for a double click of the first.
+    fireEvent.click(within(openMore()).getByRole("button", { name: "tree" }));
+    fireEvent.click(screen.getByRole("button", { name: /fork/ }));
+    fireEvent.click(within(dialog("Fork conversation")!).getByRole("button", { name: "Fork" }));
+    expect(api.forkSession).toHaveBeenCalledExactlyOnceWith("e1");
+  });
+
+  it("offers no edit while the agent works", () => {
+    stubWidth(1280);
+    mountWith({ isStreaming: true });
+    expect(screen.queryByRole("button", { name: "Edit this prompt" })).toBeNull();
+  });
+
+  // openlore: scenario=CompactingAsksFirst spec=independent-tab-conversations
+  it("CompactingAsksFirst: the context control asks before compacting", () => {
+    stubWidth(1280);
+    const api = mountWith({ contextUsage: { tokens: 45_000, contextWindow: 200_000, percent: 22.5 } });
+    fireEvent.click(screen.getByTitle(/click to compact/));
+    expect(dialog("Compact conversation")).toHaveTextContent(COMPACT_TEXT);
+    fireEvent.click(within(dialog("Compact conversation")!).getByRole("button", { name: "Cancel" }));
+    expect(api.compact).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTitle(/click to compact/));
+    fireEvent.click(within(dialog("Compact conversation")!).getByRole("button", { name: "Compact" }));
+    expect(api.compact).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("App — authRequired", () => {
   beforeEach(() => {
     mockUseAgent.mockReturnValue(agentApi(agentState({ connected: false, authRequired: true, sessionId: "" })));
@@ -804,9 +1040,9 @@ describe("App — session analysis", () => {
     expect(screen.queryByText("second thought")).not.toBeInTheDocument();
   });
 
-  it("reports the same token total in the bar and in the panel", () => {
+  it("reports the session's cost in the bar, its token total behind the click", () => {
     renderApp();
-    expect(screen.getByTitle(/2 turns ·/).textContent).toContain("2k tok");
+    expect(screen.getByTitle(/2 turns ·/).textContent).toBe("$0.03");
 
     openAnalysis();
     const heading = screen.getByText("tokens", { selector: "h3" });
@@ -888,7 +1124,7 @@ describe("App — panes and handovers", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /[◨◧]\s*files/ }));
 
-    const chip = () => screen.getByRole("button", { name: /⎇/ });
+    const chip = () => within(openMore()).getByRole("button", { name: /⎇/ });
     expect(chip()).toHaveTextContent("—");
 
     fireEvent.click(screen.getByRole("button", { name: /^[▸▾]\s*projB\s*\d*$/ }));
@@ -977,7 +1213,7 @@ describe("App — conversation filters", () => {
   // The menu stays open across a selection — both kinds can be set in one visit —
   // so opening it again would close it.
   const openFilters = () => {
-    if (!screen.queryByRole("menu")) fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
+    if (!screen.queryByRole("menu")) fireEvent.click(within(openMore()).getByRole("button", { name: /^Filter/ }));
   };
   const toggleFilter = (name: RegExp) => {
     openFilters();
@@ -1538,7 +1774,7 @@ describe("App — model bar and tree", () => {
 
   it("asks for the tree when the menu opens, and navigates from it", () => {
     const api = mount({ tree: [{ entryId: "e1", text: "first turn", onPath: true, children: [] }] });
-    fireEvent.click(screen.getByRole("button", { name: "tree" }));
+    fireEvent.click(within(openMore()).getByRole("button", { name: "tree" }));
     expect(api.listTree).toHaveBeenCalled();
 
     fireEvent.click(screen.getByText("first turn"));
@@ -1547,7 +1783,7 @@ describe("App — model bar and tree", () => {
 
   it("forks a session from the tree", () => {
     const api = mount({ tree: [{ entryId: "e1", text: "first turn", onPath: true, children: [] }] });
-    fireEvent.click(screen.getByRole("button", { name: "tree" }));
+    fireEvent.click(within(openMore()).getByRole("button", { name: "tree" }));
     fireEvent.click(screen.getByRole("button", { name: /fork/ }));
     expect(api.forkSession).toHaveBeenCalledWith("e1");
   });
@@ -1763,7 +1999,7 @@ describe("an embed under the default policy", () => {
     expect(screen.queryByTitle(/^Project:/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Sandbox root/ })).not.toBeInTheDocument();
     // Settings stays reachable in every mode — that is where the root lives here.
-    expect(screen.getByRole("button", { name: "Settings" })).toBeInTheDocument();
+    expect(within(openMore()).getByRole("button", { name: "Settings" })).toBeInTheDocument();
   });
 
   it("leaves the standalone app's project selector alone", () => {
@@ -1832,7 +2068,7 @@ describe("one listing, one picker", () => {
 
     // Settings owns the same server-browse listing; opening its picker has to
     // take the project one down rather than stack a second over the same walk.
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(within(openMore()).getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "Browse for sandbox root" }));
 
     expect(screen.getAllByTestId("server-path-picker")).toHaveLength(1);
@@ -1857,7 +2093,7 @@ describe("one listing, one picker", () => {
     fireEvent.click(screen.getByRole("button", { name: /Sandbox root/ }));
     expect(screen.getByTestId("server-path-picker")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(within(openMore()).getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "Browse for sandbox root" }));
 
     // One picker, and it is a usable one: the control that yields must not
@@ -2456,7 +2692,7 @@ describe("Terminal integration in App", () => {
 
     render(<App />);
 
-    const terminalButton = screen.getByRole("button", { name: />_ terminal/i });
+    const terminalButton = within(openMore()).getByRole("button", { name: />_ terminal/i });
     expect(terminalButton).toBeInTheDocument();
 
     // Open terminal
@@ -2485,7 +2721,7 @@ describe("Terminal integration in App", () => {
 
     render(<App token="test-token" />);
 
-    const terminalButton = screen.getByRole("button", { name: />_ terminal/i });
+    const terminalButton = within(openMore()).getByRole("button", { name: />_ terminal/i });
     fireEvent.click(terminalButton);
 
     const syncButton = screen.getByTitle(/as the workspace project/i);
@@ -2517,7 +2753,7 @@ describe("Terminal integration in App", () => {
 
     render(<App token="test-token" />);
 
-    const terminalButton = screen.getByRole("button", { name: />_ terminal/i });
+    const terminalButton = within(openMore()).getByRole("button", { name: />_ terminal/i });
     fireEvent.click(terminalButton);
 
     const syncButton = screen.getByTitle(/as the workspace project/i);
@@ -2601,7 +2837,7 @@ describe("where a side session is offered", () => {
     // AWidgetBoundToOneProjectOffersNoSideSession
     embedded();
     expect(screen.queryByRole("button", { name: /New side session/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(within(openMore()).getByRole("button", { name: "Settings" }));
     expect(screen.queryByRole("button", { name: /New side session/ })).not.toBeInTheDocument();
   });
 });
@@ -2637,14 +2873,24 @@ describe("the pi-outpost update notice", () => {
     expect(screen.queryByTestId("update-notice")).not.toBeInTheDocument();
   });
 
-  it("says what the update changed in the standalone app, beside the notice of the next one", () => {
+  // openlore: scenario=OneBannerLineAtMost spec=compact-header-controls
+  it("OneBannerLineAtMost: a newer release outranks the news of the last one; the news shows once", () => {
     window.localStorage.clear();
     const alpha = workspace("/srv/alpha");
-    const api = agentApi(agentState({ workspace: alpha, workspaces: [alpha], outpostUpdate, outpostChanges }));
-    mockUseAgent.mockImplementation(() => api);
-    render(<App />);
-    expect(screen.getByTestId("changes-notice")).toHaveTextContent("updated to 0.26.0 (from 0.25.0)");
+    const both = agentApi(agentState({ workspace: alpha, workspaces: [alpha], outpostUpdate, outpostChanges }));
+    mockUseAgent.mockImplementation(() => both);
+    const first = render(<App />);
     expect(screen.getByTestId("update-notice")).toBeInTheDocument();
+    expect(screen.queryByTestId("changes-notice")).toBeNull();
+    first.unmount();
+    const news = agentApi(agentState({ workspace: alpha, workspaces: [alpha], outpostChanges }));
+    mockUseAgent.mockImplementation(() => news);
+    const second = render(<App />);
+    expect(screen.getByTestId("changes-notice")).toHaveTextContent("updated to 0.26.0 (from 0.25.0)");
+    second.unmount();
+    // Shown once in this browser: the next load says nothing.
+    render(<App />);
+    expect(screen.queryByTestId("changes-notice")).toBeNull();
   });
 
   // openlore: scenario=AWidgetShowsNoUpdateNews spec=update-changelog

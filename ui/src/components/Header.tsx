@@ -1,5 +1,5 @@
 import { TOUCH_DESCENDANTS, TOUCH_TARGET } from "../touch";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Children, useEffect, useRef, useState, type ReactNode } from "react";
 import type { PiPackageInfo, Theme } from "@pi-outpost/shared";
 import type { AgentState } from "../useAgent";
 import { MIN_SESSION_QUERY_LENGTH, type AgentResourceInventory, type GitUnavailable, type SessionSummary, type TreeNode, type WorkspaceInfo } from "@pi-outpost/shared";
@@ -619,121 +619,6 @@ function ConversationFilterMenu({
   );
 }
 
-/**
- * The extensions' statuses: in the bar while they fit, behind one button when they do not.
- *
- * They are the one part of the bar nobody chose — any extension may set any number, of
- * any length — so they are what crowded it until the other controls wrapped. They stay
- * inline while none of them is cut and the bar does not overflow; otherwise they fold into
- * "N statuses", which lists them in full. Measured on the bar itself rather than the
- * window, since an embedded widget is narrower than the page it sits in. They unfold when
- * the bar has grown well past the width they folded at, so a bar on the edge does not
- * flicker between the two.
- */
-function ExtensionStatuses({ statuses, bar }: { statuses: Record<string, string>; bar: HTMLElement | null }) {
-  // Keep terminal styling for display; titles and emptiness checks use plain text.
-  const entries = Object.entries(statuses)
-    .filter(([, text]) => stripAnsi(text).trim() !== "");
-  const signature = entries.map(([key, text]) => `${key}\u0000${text}`).join("\u0001");
-  const [folded, setFolded] = useState(false);
-  const foldedAt = useRef<number | null>(null);
-  const inline = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const menu = useClickOutside(() => setOpen(false));
-
-  // Other statuses may fit where these did not: try them inline again.
-  useLayoutEffect(() => {
-    foldedAt.current = null;
-    setFolded(false);
-    setOpen(false);
-  }, [signature]);
-
-  useLayoutEffect(() => {
-    const header = bar;
-    if (header === null) return;
-    const measure = () => {
-      if (foldedAt.current !== null) {
-        if (header.clientWidth > foldedAt.current + 64) {
-          foldedAt.current = null;
-          setFolded(false);
-          // A list left open must not come back by itself at the next fold.
-          setOpen(false);
-        }
-        return;
-      }
-      const cut = Array.from(inline.current?.querySelectorAll<HTMLElement>("[data-status-text]") ?? []).some((text) => text.scrollWidth > text.clientWidth + 1);
-      // A narrow toolbar can wrap instead of overflowing. Fold statuses in that
-      // case too, keeping the same compact affordance while controls stay reachable.
-      const first = header.firstElementChild?.getBoundingClientRect();
-      const wrapped = first && first.height > 0 && Array.from(header.children).some((child) => child.getBoundingClientRect().top >= first.bottom);
-      if (cut || wrapped || header.scrollWidth > header.clientWidth + 1) {
-        foldedAt.current = header.clientWidth;
-        setFolded(true);
-      }
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(header);
-    return () => observer.disconnect();
-  }, [bar, folded, signature]);
-
-  if (entries.length === 0) return null;
-  if (!folded) {
-    return (
-      // They never shrink: a status cut short is what folds them, so each keeps its width.
-      <div ref={inline} className="flex shrink-0 items-center gap-1.5">
-        {entries.map(([key, text]) => (
-          <span
-            key={key}
-            title={stripAnsi(text)}
-            className={`${HEADER_CONTROL} max-w-[16rem] border-zinc-200 text-zinc-500 dark:border-zinc-800 dark:text-zinc-400`}
-          >
-            <span data-status-text className="truncate">
-              <AnsiText text={text} />
-            </span>
-          </span>
-        ))}
-      </div>
-    );
-  }
-  const label = `${entries.length} ${entries.length === 1 ? "status" : "statuses"}`;
-  return (
-    <div
-      ref={menu}
-      className="relative shrink-0"
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && open) {
-          event.stopPropagation();
-          setOpen(false);
-        }
-      }}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        title={entries.map(([, text]) => stripAnsi(text)).join("\n")}
-        className={`${HEADER_CONTROL} border-zinc-200 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
-      >
-        {label} ▾
-      </button>
-      {open && (
-        <ul
-          aria-label="Extension statuses"
-          className="absolute left-0 top-full z-20 mt-1 w-max max-w-[24rem] rounded-2xl border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-        >
-          {entries.map(([key, text]) => (
-            <li key={key} className="break-words px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-300">
-              <AnsiText text={text} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 function ThemeToggle({ theme, preference = theme, onToggle, onSetTheme }: { theme: "light" | "dark"; preference?: Theme; onToggle: () => void; onSetTheme?: (theme: Theme) => void }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -763,7 +648,7 @@ function ThemeToggle({ theme, preference = theme, onToggle, onSetTheme }: { them
       aria-expanded={open}
       className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
     >
-      {preference === "system" ? "◐" : theme === "dark" ? "☾" : "☀"}
+      <span aria-hidden="true">{preference === "system" ? "◐" : theme === "dark" ? "☾" : "☀"}</span> Theme
     </button>
     {open && <div role="menu" aria-label="Theme" className={`absolute right-0 top-full z-40 mt-2 min-w-32 rounded-2xl border border-zinc-300 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 ${TOUCH_DESCENDANTS}`}>
       {(["light", "dark", "system"] as const).map(value => <button key={value} role="menuitemradio" aria-checked={preference === value} type="button" className="block w-full rounded-full px-3 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 focus:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800 hover:opacity-80 transition-opacity" onClick={() => {
@@ -776,11 +661,197 @@ function ThemeToggle({ theme, preference = theme, onToggle, onSetTheme }: { them
   );
 }
 
+
+/** The extensions' statuses with text, keeping their terminal styling. */
+function statusEntries(statuses: Record<string, string>): [string, string][] {
+  return Object.entries(statuses).filter(([, text]) => stripAnsi(text).trim() !== "");
+}
+
+/**
+ * The extensions' statuses, listed in full in the More menu. Any extension may set any
+ * number, of any length: in the bar they crowded the controls until they wrapped.
+ */
+function ExtensionStatuses({ statuses }: { statuses: Record<string, string> }) {
+  const entries = statusEntries(statuses);
+  if (entries.length === 0) return null;
+  return (
+    <ul aria-label="Extension statuses" className="flex flex-col gap-1">
+      {entries.map(([key, text]) => (
+        <li
+          key={key}
+          title={stripAnsi(text)}
+          className="break-words rounded-2xl border border-zinc-200 px-3 py-1.5 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-300"
+        >
+          <span data-status-text>
+            <AnsiText text={text} />
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * The π mark in place of the branded title, which stays its accessible name and tooltip.
+ * It turns gently while the agent works (not under reduced motion) and grows on hover.
+ */
+function PiMark({ title, working }: { title?: string; working: boolean }) {
+  const name = title ?? "π";
+  return (
+    <span
+      role="img"
+      aria-label={name}
+      title={name}
+      data-testid="pi-mark"
+      data-working={working || undefined}
+      className={`inline-flex h-7 w-7 shrink-0 select-none items-center justify-center rounded-full text-lg font-semibold leading-none transition-transform duration-200 hover:scale-110 motion-reduce:transition-none motion-reduce:hover:scale-100 ${
+        working ? "animate-pulse motion-reduce:animate-none" : ""
+      }`}
+      style={{ color: "var(--accent, inherit)" }}
+    >
+      <span aria-hidden="true">π</span>
+    </span>
+  );
+}
+
+/**
+ * A group of the More menu: a heading over equal tiles. A tile whose own menu is open
+ * takes the whole row, so the menu opens in place under it at full width.
+ */
+const TILES = [
+  "grid grid-cols-3 gap-2 [&>*]:min-w-0 [&>*:has([aria-expanded=true])]:col-span-full",
+  "[&>button]:h-auto [&>button]:min-h-11 [&>button]:w-full [&>button]:whitespace-normal [&>button]:rounded-2xl [&>button]:px-2 [&>button]:text-center",
+  "[&>div>button:first-child]:h-auto [&>div>button:first-child]:min-h-11 [&>div>button:first-child]:w-full [&>div>button:first-child]:max-w-full [&>div>button:first-child]:whitespace-normal [&>div>button:first-child]:rounded-2xl [&>div>button:first-child]:px-2",
+].join(" ");
+
+function MoreGroup({ title, children }: { title: string; children: ReactNode }) {
+  if (Children.toArray(children).length === 0) return null;
+  return (
+    <section aria-label={title}>
+      <h3 className="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">{title}</h3>
+      <div className={TILES}>{children}</div>
+    </section>
+  );
+}
+
+/**
+ * The More menu's dropdowns open in place, under their tile, instead of floating: an
+ * absolute panel inside a menu that scrolls would be clipped by it. These target each
+ * dropdown's own panel (`absolute top-full`, or `absolute right-0` for the filter list).
+ */
+const INLINE_DROPDOWNS = [
+  "[&_.absolute.top-full]:static [&_.absolute.top-full]:mt-2 [&_.absolute.top-full]:w-full [&_.absolute.top-full]:max-w-full [&_.absolute.top-full]:max-h-none [&_.absolute.top-full]:shadow-none",
+  "[&_.absolute.right-0]:static [&_.absolute.right-0]:mt-2 [&_.absolute.right-0]:w-full [&_.absolute.right-0]:max-w-full [&_.absolute.right-0]:max-h-none [&_.absolute.right-0]:shadow-none",
+].join(" ");
+
+interface Parts {
+  outcomeButton: (onClick: () => void) => ReactNode;
+  gitMenu: ReactNode;
+  exportButton: ReactNode;
+  themeToggle: ReactNode;
+  newSessionButton: (onClick: () => void) => ReactNode;
+  treeMenu: (onNavigate: (entryId: string) => void, onFork: (entryId: string) => void) => ReactNode;
+  settingsMenu: ReactNode;
+  filterMenu: ReactNode;
+  terminalToggle: (onClick: () => void) => ReactNode;
+}
+
+/**
+ * Everything the header does not keep in its row, grouped. The popover on a wide screen
+ * and the phone's Controls sheet show this one list. Controls that open something over
+ * the conversation close the menu first, so what they open is not hidden behind it.
+ */
+function MoreControls({ parts, props, close, phone }: { parts: Parts; props: HeaderProps; close: () => void; phone: boolean }) {
+  const closing = <T extends unknown[]>(run: (...args: T) => void) => (...args: T) => {
+    close();
+    run(...args);
+  };
+  const tool = "border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500";
+  return (
+    <div className={`flex flex-col gap-4 p-3 ${INLINE_DROPDOWNS} ${TOUCH_DESCENDANTS}`}>
+      <MoreGroup title="Conversation">
+        {phone && parts.newSessionButton(closing(props.onNewSession))}
+        {parts.treeMenu(closing(props.onNavigateTree), closing(props.onForkSession))}
+        {parts.outcomeButton(closing(props.onToggleOutcome))}
+        {parts.exportButton}
+      </MoreGroup>
+      <MoreGroup title="Tools">
+        {props.onOpenAgents && (
+          <button type="button" onClick={closing(props.onOpenAgents)} aria-haspopup="dialog" className={`${HEADER_CONTROL} ${tool}`}>
+            <span aria-hidden="true">✦</span> Agents
+          </button>
+        )}
+        {props.onOpenCliSessions && (
+          <button type="button" onClick={closing(props.onOpenCliSessions)} className={`${HEADER_CONTROL} ${tool}`}>
+            <span aria-hidden="true">⇄</span> Terminal sessions
+          </button>
+        )}
+        {/* The phone reaches the terminal from its bottom navigation. */}
+        {!phone && props.onToggleTerminal && parts.terminalToggle(closing(props.onToggleTerminal))}
+        {parts.gitMenu}
+      </MoreGroup>
+      <MoreGroup title="View">
+        {parts.filterMenu}
+        {parts.themeToggle}
+      </MoreGroup>
+      {statusEntries(props.statuses).length > 0 && (
+        <section aria-label="Status">
+          <h3 className="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Status</h3>
+          <ExtensionStatuses statuses={props.statuses} />
+        </section>
+      )}
+      <MoreGroup title="Settings">{parts.settingsMenu}</MoreGroup>
+    </div>
+  );
+}
+
+/** The wide header's `⋯`: the More menu as a popover under it, kept inside the viewport. */
+function MoreMenu({ parts, props }: { parts: Parts; props: HeaderProps }) {
+  const [open, setOpen] = useState(false);
+  const ref = useClickOutside(() => setOpen(false));
+  return (
+    <div
+      ref={ref}
+      className="relative shrink-0"
+      onKeyDown={(event) => {
+        // Inner menus stop their own Escape: this one closes what is left.
+        if (event.key === "Escape" && open) {
+          event.stopPropagation();
+          setOpen(false);
+        }
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-label="More controls"
+        title="More controls"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={`${HEADER_CONTROL} w-7 [@media(pointer:coarse)]:w-11 px-0 text-base ${
+          open
+            ? "border-zinc-400 bg-zinc-100 text-zinc-800 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            : "border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:bg-zinc-50 hover:text-zinc-800 dark:border-zinc-800 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
+        }`}
+      >
+        <span aria-hidden="true">⋯</span>
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Controls"
+          data-testid="header-more"
+          className="absolute right-0 top-full z-40 mt-2 max-h-[calc(100dvh-5rem)] w-[24rem] max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          <MoreControls parts={parts} props={props} close={() => setOpen(false)} phone={false} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Header(props: HeaderProps) {
   const { isStreaming, connected } = props;
-  // State rather than a ref: the statuses measure the bar from their own layout effect,
-  // which runs before a parent's ref is attached — a ref would still be empty then.
-  const [bar, setBar] = useState<HTMLElement | null>(null);
 
   const workspaceAffordance = (
     <>
@@ -809,6 +880,8 @@ export function Header(props: HeaderProps) {
       )}
     </>
   );
+  const quiet = "border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200";
+  const pressed = "border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200";
   const outcomeButton = (onClick: () => void) => (
     <button
       type="button"
@@ -817,13 +890,13 @@ export function Header(props: HeaderProps) {
       title="Review structured workspace Outcome"
       className={`${HEADER_CONTROL} ${
         props.outcomeOpen
-          ? "border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
+          ? pressed
           : props.workspace?.activity === "ready-for-review"
             ? "border-amber-400 text-amber-700 dark:text-amber-300"
             : "border-zinc-300 text-zinc-500 hover:border-zinc-400 dark:border-zinc-800 dark:text-zinc-400"
       }`}
     >
-      Outcome{props.workspace?.activity === "ready-for-review" ? " •" : ""}
+      <span aria-hidden="true">◎</span> Outcome{props.workspace?.activity === "ready-for-review" ? " •" : ""}
     </button>
   );
   const gitMenu = props.gitAvailable ? (
@@ -844,7 +917,7 @@ export function Header(props: HeaderProps) {
       aria-busy={Boolean(props.exportProgress)}
       title="Save the whole conversation as one HTML file"
       aria-label="Export the conversation as HTML"
-      className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 disabled:cursor-progress disabled:opacity-60 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
+      className={`${HEADER_CONTROL} ${quiet} disabled:cursor-progress disabled:opacity-60`}
     >
       {props.exportProgress ?? "↓ html"}
     </button>
@@ -855,7 +928,7 @@ export function Header(props: HeaderProps) {
       type="button"
       onClick={onClick}
       title="new session"
-      className={`${HEADER_CONTROL} border-emerald-300 text-emerald-700 hover:border-emerald-500 hover:text-emerald-600 dark:border-emerald-900 dark:text-emerald-400 dark:hover:border-emerald-600 dark:hover:text-emerald-300`}
+      className={`${HEADER_CONTROL} border-emerald-300 text-emerald-700 hover:border-emerald-500 hover:bg-emerald-50 hover:text-emerald-600 dark:border-emerald-900 dark:text-emerald-400 dark:hover:border-emerald-600 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300`}
     >
       + new
     </button>
@@ -869,8 +942,20 @@ export function Header(props: HeaderProps) {
       onFork={onFork}
     />
   );
+  const terminalToggle = (onClick: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      title={props.terminalOpen ? "Close Terminal (Ctrl+`)" : "Open Terminal (Ctrl+`)"}
+      aria-pressed={props.terminalOpen}
+      className={`${HEADER_CONTROL} ${props.terminalOpen ? pressed : quiet}`}
+    >
+      &gt;_ terminal
+    </button>
+  );
   const settingsMenu = (
     <SettingsMenu
+      labelled
       security={props.security}
       credentials={props.credentials}
       login={props.login}
@@ -924,70 +1009,42 @@ export function Header(props: HeaderProps) {
     />
   );
   const filterMenu = <ConversationFilterMenu filters={props.filters} onFilterChange={props.onFilterChange} />;
+  const parts: Parts = { outcomeButton, gitMenu, exportButton, themeToggle, newSessionButton, treeMenu, settingsMenu, filterMenu, terminalToggle };
 
-  if (props.compact) return <CompactHeader {...props} parts={{ workspaceAffordance, outcomeButton, gitMenu, exportButton, themeToggle, newSessionButton, treeMenu, settingsMenu, filterMenu }} />;
+  if (props.compact) return <CompactHeader {...props} workspaceAffordance={workspaceAffordance} parts={parts} />;
 
+  const sessionTitle = props.sessionName?.trim() || "New session";
   return (
-    // `relative z-30`: the dropdowns below (sessions, tree, git) are absolutely
-    // positioned and spill over the content area. Without a stacking context of its
-    // own, the header competes there on DOM order alone — and the open FileViewer,
-    // declared after it, wins. The menus would open *behind* the file preview.
-    <header ref={setBar} className="relative z-30 flex min-w-0 flex-wrap items-center gap-1.5 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800 md:[@media(max-height:900px)]:py-1">
+    // `relative z-30`: the dropdowns below (sessions, More) are absolutely positioned and
+    // spill over the content area. Without a stacking context of its own, the header
+    // competes there on DOM order alone — and the open FileViewer, declared after it,
+    // wins. The menus would open *behind* the file preview.
+    // One row at every wide width: project, π, the session's title and files on the left;
+    // new, sessions, the plan and More on the right. Everything else is in More.
+    <header className="relative z-30 flex min-w-0 flex-nowrap items-center gap-1.5 border-b border-zinc-200 px-3 py-1 [@media(pointer:coarse)]:py-0.5 dark:border-zinc-800">
       {/* The workspace affordance comes first: it scopes everything else in this
           bar. Which one appears is the deployment's choice; the project selector
           still renders nothing while a single project is open or on a pinned
           server, and `none` is an embed that offers neither. */}
-      {workspaceAffordance}
+      <div className="flex min-w-0 max-w-[40%] shrink items-center">{workspaceAffordance}</div>
+      <PiMark title={props.title} working={isStreaming || props.workspace?.activity === "working"} />
+      {/* In full while there is room: only a row that truly lacks it cuts the title. */}
+      <span title={sessionTitle} data-testid="session-title" className="min-w-0 shrink truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
+        {sessionTitle}
+      </span>
       {/* File/repo controls live on the left, the side their panel opens on */}
       <button
         type="button"
         onClick={props.onToggleSidebar}
         title={props.sidebarOpen ? "Hide files (panel opens on the left)" : "Show files"}
         aria-pressed={props.sidebarOpen}
-        className={`${HEADER_CONTROL} ${
-          props.sidebarOpen
-            ? "border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
-            : "border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-        }`}
+        className={`${HEADER_CONTROL} ${props.sidebarOpen ? pressed : quiet}`}
       >
         {props.sidebarOpen ? "◧" : "◨"} files
       </button>
-      {outcomeButton(props.onToggleOutcome)}
-      {gitMenu}
 
-      {/* The title gives way first: it names the deployment, which the reader knows,
-          while the project and the branch beside it say where the agent works. */}
-      <span
-        title={props.title ?? undefined}
-        className="hidden min-w-[2.25rem] shrink-[4] truncate whitespace-nowrap text-lg font-semibold leading-tight tracking-tight sm:block"
-        style={{ color: "var(--accent, inherit)" }}
-      >
-        {props.title ?? "π"}
-      </span>
-
-      <ExtensionStatuses statuses={props.statuses} bar={bar} />
-
-      <div className="ml-auto flex w-full max-w-full shrink-0 flex-wrap items-center gap-1 sm:w-auto sm:gap-1.5">
-        {filterMenu}
-        {exportButton}
-        {props.onToggleTerminal && (
-          <button
-            type="button"
-            onClick={props.onToggleTerminal}
-            title={props.terminalOpen ? "Close Terminal (Ctrl+`)" : "Open Terminal (Ctrl+`)"}
-            aria-pressed={props.terminalOpen}
-            className={`${HEADER_CONTROL} ${
-              props.terminalOpen
-                ? "border-zinc-400 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
-                : "border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-            }`}
-          >
-            &gt;_ terminal
-          </button>
-        )}
-        {themeToggle}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {newSessionButton(props.onNewSession)}
-        {treeMenu(props.onNavigateTree, props.onForkSession)}
         <SessionMenu
           sessions={props.sessions}
           sessionSearch={props.sessionSearch}
@@ -999,29 +1056,10 @@ export function Header(props: HeaderProps) {
           onSearchSessions={props.onSearchSessions}
           onClearSessionSearch={props.onClearSessionSearch}
         />
-        {props.onOpenAgents && (
-          <button
-            type="button"
-            onClick={props.onOpenAgents}
-            aria-haspopup="dialog"
-            className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
-          >
-            Agents
-          </button>
-        )}
-        {props.onOpenCliSessions && (
-          <button
-            type="button"
-            onClick={props.onOpenCliSessions}
-            className={`${HEADER_CONTROL} border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200`}
-          >
-            Terminal sessions
-          </button>
-        )}
         {props.workPlanChip}
-        {settingsMenu}
+        <MoreMenu parts={parts} props={props} />
         <span
-          className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-500" : "bg-red-500"}`}
+          className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-emerald-500" : "bg-red-500"}`}
           title={connected ? "connected" : "disconnected"}
         />
       </div>
@@ -1030,47 +1068,17 @@ export function Header(props: HeaderProps) {
 }
 
 /**
- * In the compact sheet the header's dropdowns open in place, under their button,
- * instead of floating: an absolute panel anchored to a button in a phone-wide sheet
- * would hang off its edge, and the sheet clips it. These target each dropdown's own
- * panel (`absolute top-full`, or `absolute right-0` for the filter list).
+ * The phone's header: one 44 px row (project, session title, `⋯`). The More menu sits in
+ * a bottom sheet; files, sessions, the plan and the terminal are in the bottom navigation.
  */
-const INLINE_DROPDOWNS = [
-  "[&>*]:max-w-full",
-  "[&_.absolute.top-full]:static [&_.absolute.top-full]:mt-2 [&_.absolute.top-full]:w-[calc(100vw-1.5rem)] [&_.absolute.top-full]:max-w-full [&_.absolute.top-full]:max-h-none [&_.absolute.top-full]:shadow-none",
-  "[&_.absolute.right-0]:static [&_.absolute.right-0]:mt-2 [&_.absolute.right-0]:w-[calc(100vw-1.5rem)] [&_.absolute.right-0]:max-w-full [&_.absolute.right-0]:max-h-none [&_.absolute.right-0]:shadow-none",
-].join(" ");
-
-interface CompactParts {
-  workspaceAffordance: ReactNode;
-  outcomeButton: (onClick: () => void) => ReactNode;
-  gitMenu: ReactNode;
-  exportButton: ReactNode;
-  themeToggle: ReactNode;
-  newSessionButton: (onClick: () => void) => ReactNode;
-  treeMenu: (onNavigate: (entryId: string) => void, onFork: (entryId: string) => void) => ReactNode;
-  settingsMenu: ReactNode;
-  filterMenu: ReactNode;
-}
-
-/**
- * The phone's header: one 44 px row. The same controls the wide bar shows sit in
- * the `⋯` sheet; those that open something over the conversation close the sheet
- * first, so what they open is not hidden behind it.
- */
-function CompactHeader({ parts, ...props }: HeaderProps & { parts: CompactParts }) {
+function CompactHeader({ parts, workspaceAffordance, ...props }: HeaderProps & { parts: Parts; workspaceAffordance: ReactNode }) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const closing = <T extends unknown[]>(run: (...args: T) => void) => (...args: T) => {
-    setMoreOpen(false);
-    run(...args);
-  };
-  const hasStatuses = Object.values(props.statuses).some((text) => stripAnsi(text).trim() !== "");
   return (
     <header
       data-testid="compact-header"
       className="relative z-30 box-content flex h-11 min-w-0 shrink-0 items-center gap-1 border-b border-zinc-200 px-2 pt-[env(safe-area-inset-top)] dark:border-zinc-800"
     >
-      <div className="flex min-w-0 max-w-[45%] shrink-0 items-center">{parts.workspaceAffordance}</div>
+      <div className="flex min-w-0 max-w-[45%] shrink-0 items-center">{workspaceAffordance}</div>
       <span
         title={props.sessionName ?? undefined}
         className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-zinc-800 dark:text-zinc-100"
@@ -1093,40 +1101,7 @@ function CompactHeader({ parts, ...props }: HeaderProps & { parts: CompactParts 
       </button>
       {moreOpen && (
         <Sheet variant="bottom" title="Controls" onClose={() => setMoreOpen(false)} testId="compact-header-more">
-          <div className={`flex flex-wrap items-start gap-2 p-3 [&>button]:min-w-11 [&>button]:justify-center [&>div>button]:min-w-11 [&>div>button]:justify-center ${INLINE_DROPDOWNS} ${TOUCH_DESCENDANTS}`}>
-            {hasStatuses && (
-              <div className="max-w-full overflow-x-auto">
-                <ExtensionStatuses statuses={props.statuses} bar={null} />
-              </div>
-            )}
-            {parts.gitMenu}
-            {parts.filterMenu}
-            {parts.exportButton}
-            {parts.themeToggle}
-            {parts.outcomeButton(closing(props.onToggleOutcome))}
-            {parts.treeMenu(closing(props.onNavigateTree), closing(props.onForkSession))}
-            {parts.newSessionButton(closing(props.onNewSession))}
-            {props.onOpenAgents && (
-              <button
-                type="button"
-                onClick={closing(props.onOpenAgents)}
-                aria-haspopup="dialog"
-                className={`${HEADER_CONTROL} border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500`}
-              >
-                Agents
-              </button>
-            )}
-            {props.onOpenCliSessions && (
-              <button
-                type="button"
-                onClick={closing(props.onOpenCliSessions)}
-                className={`${HEADER_CONTROL} border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500`}
-              >
-                Terminal sessions
-              </button>
-            )}
-            {parts.settingsMenu}
-          </div>
+          <MoreControls parts={parts} props={props} close={() => setMoreOpen(false)} phone />
         </Sheet>
       )}
     </header>

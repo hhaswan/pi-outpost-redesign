@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { leaveStartScreen } from "./startScreen";
+import { openMore } from "./openMore";
 
 async function prompt(page: import("@playwright/test").Page, text: string) {
   const composer = page.getByRole("textbox", { name: /message pi/i });
@@ -58,8 +59,10 @@ test("agent-owned Work Plan survives reload, switches with sessions, and isolate
   await expect(page.getByRole("heading", { name: "Release plan" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Work Plan" }).getByLabel("Done")).toBeVisible();
 
-  await page.getByRole("button", { name: "tree" }).click();
+  await (await openMore(page)).getByRole("button", { name: "tree" }).click();
   await page.getByRole("button", { name: /fork/i }).last().click();
+  // A fork leaves the conversation on screen: it asks first.
+  await page.getByRole("alertdialog", { name: "Fork conversation" }).getByRole("button", { name: "Fork" }).click();
   await expect(page.getByRole("heading", { name: "Release plan" })).toBeVisible();
 
   await prompt(page, "Reopen the task only in this fork");

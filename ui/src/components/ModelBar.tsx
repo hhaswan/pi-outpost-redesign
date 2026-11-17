@@ -72,17 +72,17 @@ function UsageIndicator({
     ...(usage.unpriced > 0 && priced > 0 ? [`${usage.unpriced} unpriced`] : []),
   ].join(" · ");
 
-  const figures = (
-    <>
+  // One figure in the bar: the cost once a turn carried one, else the tokens. The rest is
+  // in the tooltip and behind the click.
+  const figures =
+    priced > 0 ? (
+      <span>
+        {formatCost(usage.cost)}
+        {usage.unpriced > 0 && "*"}
+      </span>
+    ) : (
       <span>{formatTokens(usage.totalTokens)} tok</span>
-      {priced > 0 && (
-        <span className="text-zinc-400 dark:text-zinc-500">
-          {formatCost(usage.cost)}
-          {usage.unpriced > 0 && "*"}
-        </span>
-      )}
-    </>
-  );
+    );
   const base = "flex min-h-11 min-w-0 max-w-full flex-wrap items-center max-md:shrink-0 max-md:flex-nowrap max-md:whitespace-nowrap gap-1.5 rounded-full border px-2 py-1 font-mono text-xs text-zinc-500 dark:text-zinc-400 hover:opacity-80 transition-opacity sm:min-h-0 [@media(pointer:coarse)]:sm:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900";
 
   if (!onToggleAnalysis) {
@@ -249,7 +249,7 @@ export function ModelBar(props: ModelBarProps) {
   return (
     // On a phone the bar is one row: the model chip takes the room left and truncates,
     // and the other controls shrink to their glyphs (their words stay for screen readers).
-    <div data-testid="model-bar" className="mt-2 flex min-w-0 flex-wrap items-center gap-2 md:[@media(max-height:900px)]:mt-1 max-md:mt-1.5 max-md:flex-nowrap max-md:gap-1.5">
+    <div data-testid="model-bar" className="mt-1.5 flex min-w-0 flex-nowrap items-center gap-1.5 md:[@media(max-height:900px)]:mt-1">
       <ModelPicker model={model} models={models} disabled={isStreaming} onSetModel={props.onSetModel} />
 
       {modelSupportsReasoning && (
@@ -262,8 +262,9 @@ export function ModelBar(props: ModelBarProps) {
       )}
 
       {props.shellConfinement && (
-        <span className="ml-auto min-w-0 max-w-full [&>span]:whitespace-normal [&>span]:rounded-full max-md:shrink-0 max-md:[&>span]:inline-flex max-md:[&>span]:h-11 max-md:[&>span]:min-w-11 max-md:[&>span]:items-center max-md:[&>span]:justify-center">
-          <ConfinementLock verdict={props.shellConfinement} surface="shell" grants={props.shellGrants} textClassName="max-md:sr-only" />
+        // The lock alone: its words are for screen readers, the details in its tooltip.
+        <span className="ml-auto shrink-0 [&>span]:inline-flex [&>span]:h-7 [&>span]:min-w-7 [&>span]:items-center [&>span]:justify-center [&>span]:rounded-full max-md:[&>span]:h-11 max-md:[&>span]:min-w-11 [@media(pointer:coarse)]:[&>span]:h-11 [@media(pointer:coarse)]:[&>span]:min-w-11">
+          <ConfinementLock verdict={props.shellConfinement} surface="shell" grants={props.shellGrants} textClassName="sr-only" />
         </span>
       )}
 

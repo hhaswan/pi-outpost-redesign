@@ -1,8 +1,9 @@
-/** Real browser over plain HTTP: Work Plan never covers Terminal sessions; code copy works without navigator.clipboard.
+/** Real browser over plain HTTP: Work Plan never covers the More menu that holds Terminal sessions; code copy works without navigator.clipboard.
  * On a phone both live elsewhere (bottom navigation, header overflow sheet): nothing floats over the conversation there. */
 import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';
 import {chromium} from 'playwright';import {SessionManager} from '@earendil-works/pi-coding-agent';
 import {makeWorkspace,startServer} from '../server/test/harness.mjs';
+import {openMore} from './open-more.mjs';
 import os from 'node:os';
 // A LAN address makes the page an insecure context, like plain-HTTP production.
 const lan=Object.values(os.networkInterfaces()).flat().find(a=>a.family==='IPv4'&&!a.internal)?.address;
@@ -50,14 +51,19 @@ try{for(const width of [1280,390]){
   assert.deepEqual(errors,[]);console.log(`PASS width ${width}: nothing floats on the phone, Plan in the nav opens a sheet, copy works on insecure HTTP`);await ctx.close();continue;
  }
  await page.getByRole('button',{name:'sessions',exact:true}).click();/* the menu's row, not the start screen's behind it */await page.getByRole('list',{name:'Saved sessions'}).getByText('Copy fixture',{exact:true}).first().click();
- const term=page.getByRole('button',{name:'Terminal sessions'});await term.waitFor();
+ // Terminal sessions is in the More menu at every width: neither the drawer nor the Plan chip may cover what opens it.
+ const more=page.getByRole('button',{name:'More controls',exact:true});await more.waitFor();
  const apart=(a,c)=>a.x>=c.x+c.width||c.x>=a.x+a.width||a.y>=c.y+c.height||c.y>=a.y+a.height;
+ const onTop=async(locator,label)=>{const box=await locator.boundingBox();const hit=await page.evaluate(([x,y])=>document.elementFromPoint(x,y)?.closest('button')?.textContent??null,[box.x+box.width/2,box.y+box.height/2]);assert.equal(hit,await locator.textContent(),`${label} not on top`)};
  const drawer=page.getByRole('complementary',{name:'Work Plan'});
- if(width>=768){await drawer.waitFor();assert.ok(apart(await drawer.boundingBox(),await term.boundingBox()),'open drawer covers Terminal sessions');await page.getByRole('button',{name:'Close Work Plan'}).click();}
+ if(width>=768){await drawer.waitFor();assert.ok(apart(await drawer.boundingBox(),await more.boundingBox()),'open drawer covers More');
+  const term=(await openMore(page)).getByRole('button',{name:'Terminal sessions'});await onTop(term,'Terminal sessions over the open drawer');
+  await page.keyboard.press('Escape');await page.getByRole('dialog',{name:'Controls'}).waitFor({state:'detached'});
+  await page.getByRole('button',{name:'Close Work Plan'}).click();}
  else if(await drawer.isVisible()) await page.getByRole('button',{name:'Close Work Plan'}).click();
  const plan=page.getByRole('button',{name:'Open Work Plan'});await plan.waitFor();
- assert.ok(apart(await plan.boundingBox(),await term.boundingBox()),'Plan chip overlaps Terminal sessions');
- assert.equal(await page.evaluate(()=>document.elementFromPoint(...(()=>{const r=[...document.querySelectorAll('button')].find(b=>b.textContent==='Terminal sessions').getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})())?.textContent),'Terminal sessions','Terminal sessions not on top');
+ assert.ok(apart(await plan.boundingBox(),await more.boundingBox()),'Plan chip overlaps More');
+ await onTop(more,'More');
  await page.evaluate(()=>{window.__copied=null;document.addEventListener('copy',e=>{window.__copied=document.getSelection()?.toString()??null})});
  const copy=page.getByRole('button',{name:'Copy code'});await copy.click();await copy.click({force:true}).catch(()=>{});
  await page.getByRole('button',{name:'Copied'}).first().waitFor();
@@ -65,7 +71,7 @@ try{for(const width of [1280,390]){
  for(let i=0;i<7;i++){await page.getByRole('button',{name:/Open Work Plan|Close Work Plan/}).first().click();}
  await page.getByRole('button',{name:'Close Work Plan'}).click().catch(()=>{});
  const chip=page.getByRole('button',{name:'Open Work Plan'});await chip.waitFor();
- assert.ok(apart(await chip.boundingBox(),await term.boundingBox()),'overlap after rapid toggles');
+ assert.ok(apart(await chip.boundingBox(),await more.boundingBox()),'overlap after rapid toggles');
  await page.getByRole('button',{name:/Copy code|Copied|Copy failed/}).first().dblclick();await page.waitForTimeout(1700);
  assert.equal(await page.getByRole('button',{name:'Copy code'}).count(),1,'copy button returns to idle after double click');
  assert.deepEqual(errors,[]);console.log(`PASS width ${width}: no overlap, copy works on insecure HTTP`);await ctx.close();

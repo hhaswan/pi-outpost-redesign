@@ -8,6 +8,7 @@
  * the panel is open (conflict, file keeps the external change), and touch sizes/overflow.
  * The written file is then loaded by the installed pi-subagents' own loader when present.
  * Offline fixture, no model calls. */
+import {openMore} from './open-more.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -56,7 +57,7 @@ try{
   await page.goto(server.base);await leaveStartScreen(page);
   if(phone){await page.getByRole('button',{name:'More controls'}).click();await page.getByTestId('compact-header-more').getByRole('button',{name:'Agents',exact:true}).click();}
   else{
-   const opener=page.getByRole('banner').getByRole('button',{name:'Agents',exact:true});
+   const opener=(await openMore(page)).getByRole('button',{name:'Agents',exact:true});
    if(coarse){const b=await opener.boundingBox();assert.ok(b.height>=43.5&&b.width>=43.5,`${width}: Agents button ${b.width}x${b.height}`);}
    await opener.click();
   }

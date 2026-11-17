@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { leaveStartScreen } from "./startScreen";
+import { openMore } from "./openMore";
 
 test("onboarding account sign-in works without crypto.randomUUID on an HTTP LAN origin", async ({ page }) => {
   await page.addInitScript(() => {
@@ -56,7 +57,7 @@ test("Accounts runs a provider sign-in in the browser, rejects a wrong code, the
   await page.goto(process.env.PI_E2E_ACCOUNTS_URL!);
   await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
-  await page.getByRole("button", { name: "Settings" }).click();
+  await (await openMore(page)).getByRole("button", { name: "Settings" }).click();
   await page.getByText(/^Accounts/).click();
   const account = page.getByTestId("account-account-test");
   await account.locator("summary").click();
@@ -83,7 +84,7 @@ test("Accounts can cancel an in-progress sign-in and the row stays signed out", 
   await page.goto(process.env.PI_E2E_ACCOUNTS_URL!);
   await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
-  await page.getByRole("button", { name: "Settings" }).click();
+  await (await openMore(page)).getByRole("button", { name: "Settings" }).click();
   await page.getByText(/^Accounts/).click();
   const account = page.getByTestId("account-account-test");
   await account.locator("summary").click();
@@ -98,7 +99,7 @@ test("double-clicking a sign-in action closes only its provider without leaving 
   await page.goto(process.env.PI_E2E_ACCOUNTS_URL!);
   await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
-  await page.getByRole("button", { name: "Settings" }).click();
+  await (await openMore(page)).getByRole("button", { name: "Settings" }).click();
   await page.getByText(/^Accounts/).click();
   const account = page.getByTestId("account-account-test");
   await account.locator("summary").click();

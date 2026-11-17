@@ -17,6 +17,7 @@
  *
  * Usage: node scripts/check-image-lightbox.mjs
  */
+import { confirmIfAsked } from './open-more.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -131,6 +132,7 @@ async function openSession(page, title) {
     const sheet = page.getByTestId('phone-sessions-sheet');
     await sheet.getByText(title, { exact: true }).first().click({ timeout: 8000 });
     await sheet.waitFor({ state: 'detached' });
+    await confirmIfAsked(page, 'Open conversation', 'Open');
     return;
   }
   const entry = page.getByText(title, { exact: true });
@@ -141,6 +143,8 @@ async function openSession(page, title) {
     console.log((await page.evaluate(() => document.body.innerText)).slice(0, 1500));
     throw error;
   });
+  // Leaving a conversation on screen asks first.
+  await confirmIfAsked(page, 'Open conversation', 'Open');
 }
 
 async function touch(page, cdp, type, points) {
@@ -247,6 +251,9 @@ try {
       const el = [...document.querySelectorAll('*')].find((n) => n.children.length === 0 && n.textContent === title);
       el?.click();
     }, OTHER);
+    // The question that follows, answered past the modal too.
+    await page.waitForFunction(() => document.querySelector('[role="alertdialog"]'));
+    await page.evaluate(() => [...document.querySelectorAll('[role="alertdialog"] button')].find((b) => b.textContent?.trim() === 'Open')?.click());
     await page.getByText('Plain reply.').waitFor();
     await lightbox(page).waitFor({ state: 'detached' });
     assert.equal(await page.locator('img[src^="data:image/png"]').count(), 0, 'no stale image after the switch');

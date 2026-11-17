@@ -3628,10 +3628,12 @@ function onRuntimeEvent(workspace: Workspace, event: RuntimeEvent): void {
       broadcast(workspace, { type: "thinking_changed", level: event.level });
       break;
     case "compaction_start":
+      workspace.compacting = true;
       broadcast(workspace, { type: "compaction_start" });
       noteCompaction("start");
       break;
     case "compaction_end": {
+      workspace.compacting = false;
       broadcast(workspace, { type: "compaction_end", ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}) });
       // Compaction summarizes the branch with a model call of its own, so it
       // fails the same ways a turn does — and reaches the same red list.
@@ -4493,10 +4495,22 @@ function sharedWithOthers(workspace: Workspace, socket: WebSocket): boolean {
 }
 
 /**
- * A conversation change asked by one tab on a workspace other tabs are watching
- * applies to that tab only: it moves onto its own side session, and the others keep
- * their conversation. `prepare` runs on the new, still unbound, side and says whether
- * the change took; when it did not, the side is closed and the tab stays where it was.
+ * Whether replacing this workspace's session in place would cut running work short: a
+ * turn (with any question it is waiting on), a background sub-agent, or a compaction.
+ * The runtime aborts all of those when it tears the session down. A question an
+ * extension command asks outside a turn is not counted: replacing the session is a
+ * deliberate way to abandon it (DeliberateSessionReplacementCanAbandonAQuestion).
+ */
+function conversationBusy(workspace: Workspace): boolean {
+  return workspace.isBusy() || workspace.compacting;
+}
+
+/**
+ * A conversation change asked by one tab on a workspace other tabs are watching, or
+ * one that is working, applies to that tab only: it moves onto its own side session,
+ * and the others — and the running turn — keep their conversation. `prepare` runs on
+ * the new, still unbound, side and says whether the change took; when it did not, the
+ * side is closed and the tab stays where it was.
  * Returns false when the change should be made in place instead.
  */
 async function changeConversationApart(
@@ -4504,14 +4518,17 @@ async function changeConversationApart(
   socket: WebSocket,
   prepare: (side: Workspace) => Promise<boolean>,
 ): Promise<boolean> {
-  if (!sharedWithOthers(workspace, socket)) return false;
+  const shared = sharedWithOthers(workspace, socket);
+  if (!shared && !conversationBusy(workspace)) return false;
   if (config.workspaceLock) {
     // Side sessions are refused under the lock (open_side_session too): change in place, but say so.
     send(socket, {
       type: "extension_ui_request",
       id: `shared-conversation-${++sharedConversationNotices}`,
       method: "notify",
-      message: "This server is pinned to one project, so the conversation changes in every tab showing it.",
+      message: shared
+        ? "This server is pinned to one project, so the conversation changes in every tab showing it."
+        : "This server is pinned to one project, so changing the conversation stops the agent's running work.",
       notifyType: "warning",
     });
     return false;
@@ -4555,6 +4572,11 @@ async function handleNewSession(workspace: Workspace, socket: WebSocket): Promis
 async function handleSwitchSession(workspace: Workspace, socket: WebSocket, wanted: string): Promise<void> {
   const current = workspace.agent.snapshot().sessionFile;
   const sameFile = current !== undefined && path.resolve(current) === path.resolve(wanted);
+  if (sameFile && conversationBusy(workspace)) {
+    // Reopening it in place would abort the running work, and a side cannot hold the same file.
+    send(socket, { type: "error", message: "This conversation is already open here, and the agent is working in it" });
+    return;
+  }
   // A file another session holds is refused by switchSession — not worth building a side for.
   const inPlace = sameFile || liveElsewhere(workspace, wanted) !== undefined;
   if (!inPlace) {
@@ -4984,6 +5006,10 @@ function promptOnce(workspace: Workspace, source: QueuedPromptSource & { publish
     workspace.queuedPrompts.settle(expectation, false);
     answered();
   });
+  // `agent_end` is emitted while the runtime still reads as streaming, so its announcement
+  // says "working". Only the run settling makes it idle — and a project nobody watches,
+  // like one a tab just left mid-turn, has no other event to correct its entry.
+  done.then(announceWorkspaceActivity, announceWorkspaceActivity);
   return { accepted, done };
 }
 
@@ -6055,6 +6081,11 @@ async function navigateTree(workspace: Workspace, socket: WebSocket, entryId: st
 
 /** Fork a new session file starting just before the given user message. */
 async function forkSession(workspace: Workspace, socket: WebSocket, entryId: string): Promise<void> {
+  if (conversationBusy(workspace)) {
+    // A fork replaces this session in place: it would abort the running work.
+    send(socket, { type: "error", message: "Cannot fork while the agent is working" });
+    return;
+  }
   if (!isUserMessageEntry(workspace, entryId)) {
     // Also protects replaceSession's recovery path: workspace.agent.fork throws on
     // non-user entries BEFORE teardown, and recovery would needlessly swap

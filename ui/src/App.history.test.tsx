@@ -7,9 +7,10 @@
  * looking at the same message. The transport is covered by the server suites.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ChatItem } from "@pi-outpost/shared";
 import App from "./App";
+import { openMore } from "./components/headerTesting";
 
 const mockUseAgent = vi.fn();
 vi.mock("./useAgent", () => ({
@@ -311,7 +312,7 @@ describe("recovered messages are read-only", () => {
     expect(screen.getByText(/read/)).toBeInTheDocument();
 
     // Hiding tools must hide a recovered card exactly as it hides a live one.
-    fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
+    fireEvent.click(within(openMore()).getByRole("button", { name: /^Filter/ }));
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /Tool calls/ }));
     expect(screen.queryByText(/recovered tool output/)).toBeNull();
   });
@@ -364,12 +365,12 @@ describe("taking the conversation away", () => {
   it("offers the export only once there is a conversation", () => {
     mockUseAgent.mockReturnValue(agentApi(agentState({ items: [] })));
     const empty = render(<App />);
-    expect(screen.queryByRole("button", { name: "Export the conversation as HTML" })).toBeNull();
+    expect(within(openMore()).queryByRole("button", { name: "Export the conversation as HTML" })).toBeNull();
     empty.unmount();
 
     mockUseAgent.mockReturnValue(agentApi(agentState({ items: compacted })));
     render(<App />);
-    expect(screen.getByRole("button", { name: "Export the conversation as HTML" })).toBeInTheDocument();
+    expect(within(openMore()).getByRole("button", { name: "Export the conversation as HTML" })).toBeInTheDocument();
   });
 
   it("reports a refused export and leaves the conversation alone", async () => {
@@ -388,8 +389,9 @@ describe("taking the conversation away", () => {
       ),
     );
     render(<App />);
+    const exportButton = within(openMore()).getByRole("button", { name: "Export the conversation as HTML" });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Export the conversation as HTML" }));
+      fireEvent.click(exportButton);
     });
     await screen.findByText(/could not be read back/);
     expect(screen.getByText("kept prompt")).toBeInTheDocument();

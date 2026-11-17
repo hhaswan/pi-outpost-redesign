@@ -92,7 +92,7 @@ export function ModelPicker({ model, models, disabled, onSetModel }: ModelPicker
             show();
           }
         }}
-        className="min-h-11 w-full min-w-0 max-w-full truncate rounded-full border border-zinc-300 bg-white px-3 py-1 font-mono text-xs text-zinc-700 transition-opacity hover:border-zinc-400 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-600 dark:focus-visible:ring-offset-zinc-900"
+        className="min-h-11 w-full min-w-0 max-w-full truncate rounded-full border border-zinc-300 bg-white px-3 py-1 sm:min-h-7 [@media(pointer:coarse)]:sm:min-h-11 font-mono text-xs text-zinc-700 transition-opacity hover:border-zinc-400 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-600 dark:focus-visible:ring-offset-zinc-900"
       >
         {/* On a phone the provider is noise in a narrow chip: show the model id. */}
         {model.includes("/") ? <><span className="max-sm:hidden">{model.slice(0, model.indexOf("/") + 1)}</span>{model.slice(model.indexOf("/") + 1)}</> : model}

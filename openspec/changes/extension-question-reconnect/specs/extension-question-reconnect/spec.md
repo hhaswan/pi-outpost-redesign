@@ -23,9 +23,11 @@ extension command waits without the model streaming and no client watches the se
 ### Requirement: DeliberateReplacementCanEndWaiting
 Explicit session replacement SHALL release blocked questions before asking the runtime to replace
 the session. Keeping a question through a transport interruption SHALL NOT deadlock a later new session.
+This applies to a question an extension command asks outside a turn. A question a running turn
+waits on keeps running with the turn (side-sessions, ConversationChangesDoNotStopRunningWork).
 
 #### Scenario: DeliberateSessionReplacementCanAbandonAQuestion
-- **GIVEN** a pending question in an embedded or RPC runtime
+- **GIVEN** a pending question an extension command asks outside a turn, in an embedded or RPC runtime
 - **WHEN** the user deliberately starts a new session
 - **THEN** the old question is cancelled and the replacement completes
 - **AND** the replacement runtime accepts subsequent commands

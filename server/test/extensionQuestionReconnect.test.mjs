@@ -37,7 +37,8 @@ export default pi => pi.registerCommand("ask", {handler: async (_args, ctx) => {
       commandLog: answers,
       dialogBlocksCommand: "prompt",
       commands_: {
-        prompt: { before: [{ type: "extension_ui_request", id: "waiting-question", method: "select", title: "Awaiting your decision", options: ["Keep", "Change"] }] },
+        // `/ask` is an extension command: Pi answers it as handled, and no turn runs.
+        prompt: { before: [{ type: "extension_ui_request", id: "waiting-question", method: "select", title: "Awaiting your decision", options: ["Keep", "Change"] }], data: { disposition: "handled" } },
         new_session: { replacement: { state: { sessionId: "new-session", isStreaming: false } } },
       },
     }));

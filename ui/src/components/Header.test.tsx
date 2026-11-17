@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import type { SessionSummary } from "@pi-outpost/shared";
 import { Header, expandedSessions } from "./Header";
+import { openMore } from "./headerTesting";
 
 function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {
@@ -108,30 +109,64 @@ describe("Header", () => {
   });
 
   describe("chrome", () => {
-    it("shows the title when one is branded", () => {
+    it("names the π mark after the branded title, which no longer takes the row", () => {
       setup({ title: "π dev" });
-      expect(screen.getByText("π dev")).toBeInTheDocument();
+      const mark = screen.getByRole("img", { name: "π dev" });
+      expect(mark).toHaveAttribute("title", "π dev");
+      expect(screen.queryByText("π dev")).toBeNull();
     });
 
-    it("renders extension statuses verbatim", () => {
+    // openlore: scenario=ThePiMarkShowsTheAgentWorking spec=compact-header-controls
+    it("ThePiMarkShowsTheAgentWorking: the mark moves while the agent works, unless motion is reduced", () => {
+      const { rerenderWith } = setup({ isStreaming: false });
+      const mark = () => screen.getByTestId("pi-mark");
+      expect(mark()).not.toHaveAttribute("data-working");
+      expect(mark().className).not.toContain("animate-pulse");
+      rerenderWith({ isStreaming: true });
+      expect(mark()).toHaveAttribute("data-working", "true");
+      expect(mark().className).toContain("animate-pulse");
+      expect(mark().className).toContain("motion-reduce:animate-none");
+      rerenderWith({ isStreaming: false, workspace: { root: "/w", name: "w", activity: "working", needsAttention: false } });
+      expect(mark()).toHaveAttribute("data-working", "true");
+    });
+
+    // openlore: scenario=TheSessionTitleIsShownInFull spec=compact-header-controls
+    it("TheSessionTitleIsShownInFull: the title is whole, small, cut only by a row without room", () => {
+      const name = "Refactor the parser and keep every scenario of the session-search spec covered";
+      setup({ sessionName: name });
+      const title = screen.getByTestId("session-title");
+      expect(title).toHaveTextContent(name);
+      expect(title).toHaveAttribute("title", name);
+      expect(title.className).toContain("text-sm");
+      expect(title.className).toContain("truncate");
+      expect(title.className).not.toMatch(/max-w-/);
+    });
+
+    it("lists extension statuses verbatim in the More menu", () => {
       setup({ statuses: { omni: "OmniRoute ✓", other: "2 jobs" } });
-      expect(screen.getByText("OmniRoute ✓")).toBeInTheDocument();
-      expect(screen.getByText("2 jobs")).toBeInTheDocument();
+      expect(within(screen.getByRole("banner")).queryByText("2 jobs")).toBeNull();
+      const status = within(openMore()).getByRole("region", { name: "Status" });
+      const list = within(status).getByRole("list", { name: "Extension statuses" });
+      expect(within(list).getByText("OmniRoute ✓")).toBeInTheDocument();
+      expect(within(list).getByText("2 jobs")).toBeInTheDocument();
     });
 
     it("renders ANSI status colours and resets while keeping the tooltip plain", () => {
-      const { container } = setup({ statuses: { lint: "\u001b[32;1mReady\u001b[0m plain", empty: "\u001b[31m\u001b[0m" } });
-      expect(screen.getByText("Ready")).toHaveStyle({ color: "#16a34a", fontWeight: 600 });
-      expect(screen.getByText("plain").style.color).toBe("");
-      expect(screen.getByTitle("Ready plain")).toBeInTheDocument();
-      expect(container.querySelectorAll("[data-status-text]")).toHaveLength(1);
-      expect(container.textContent).not.toContain("\u001b");
+      setup({ statuses: { lint: "\u001b[32;1mReady\u001b[0m plain", empty: "\u001b[31m\u001b[0m" } });
+      const more = openMore();
+      expect(within(more).getByText("Ready")).toHaveStyle({ color: "#16a34a", fontWeight: 600 });
+      expect(within(more).getByText("plain").style.color).toBe("");
+      expect(within(more).getByTitle("Ready plain")).toBeInTheDocument();
+      expect(more.querySelectorAll("[data-status-text]")).toHaveLength(1);
+      expect(more.textContent).not.toContain("\u001b");
     });
 
     // openlore: scenario=EveryControlIsOneHeight spec=components
-    it("EveryControlIsOneHeight: every control in the bar is one height and never wraps", () => {
+    // openlore: scenario=TheHeaderIsOneRow spec=compact-header-controls
+    it("EveryControlIsOneHeight / TheHeaderIsOneRow: the row holds project, π, title, files, + new, sessions and More, one height, never wrapping", () => {
       const { container } = setup({
         title: "π dev",
+        sessionName: "A session",
         statuses: { omni: "OmniRoute ✓", other: "2 jobs" },
         gitAvailable: true,
         gitStatus: { repos: [{ repo: "", branch: "feat/a-long-branch", ahead: 0, behind: 0 }], files: {} },
@@ -140,22 +175,73 @@ describe("Header", () => {
         workspaces: [{ root: "/srv/alpha", name: "a-project-with-a-long-name", activity: "idle", needsAttention: false }],
         onExportConversation: vi.fn(),
         onToggleTerminal: vi.fn(),
+        onOpenAgents: vi.fn(),
+        onOpenCliSessions: vi.fn(),
       } as Partial<Props>);
       const header = container.querySelector("header")!;
-      // Everything the bar itself shows: its buttons, and the statuses' boxes — not the
-      // items of a menu, which open below it.
-      const controls = [...header.querySelectorAll<HTMLElement>("button, [data-status-text]")]
-        .map((element) => (element.matches("[data-status-text]") ? element.parentElement! : element))
-        .filter((element) => element.closest('[role="menu"], ul, [role="dialog"]') === null);
-      expect(controls.length).toBeGreaterThanOrEqual(12);
-      // Named by their labels, so a failure says which control broke the row.
-      const offRow = controls.filter((control) => !control.className.includes("h-7") || !control.className.includes("whitespace-nowrap")).map((control) => control.textContent);
+      expect(header.className).toContain("flex-nowrap");
+      expect(header.className).not.toContain("flex-wrap ");
+      const row = [...header.querySelectorAll<HTMLElement>("button")];
+      expect(row.map((button) => button.getAttribute("aria-label") ?? button.textContent?.trim())).toEqual([
+        expect.stringContaining("a-project-with-a-long-name"),
+        "◨ files",
+        "+ new",
+        "sessions",
+        "More controls",
+      ]);
+      const order = [...header.querySelectorAll<HTMLElement>("[data-testid=pi-mark], [data-testid=session-title], button")].map((el) => el.dataset.testid ?? el.textContent?.trim());
+      expect(order.slice(1, 4)).toEqual(["pi-mark", "session-title", "◨ files"]);
+      const offRow = row.slice(1).filter((control) => !control.className.includes("h-7") || !control.className.includes("whitespace-nowrap")).map((control) => control.textContent);
       expect(offRow).toEqual([]);
+      for (const moved of ["tree", "Outcome", "Agents", "Terminal sessions", "Settings", "Export the conversation as HTML", /^Filter/, /^Theme:/, /feat\/a-long-branch/, /terminal$/]) {
+        expect(within(header).queryByRole("button", { name: moved })).toBeNull();
+      }
+    });
+
+    // openlore: scenario=EverythingElseIsInTheMoreMenu spec=compact-header-controls
+    it("EverythingElseIsInTheMoreMenu: grouped Conversation, Tools, View, Status and Settings", () => {
+      setup({
+        statuses: { omni: "OmniRoute ✓" },
+        gitAvailable: true,
+        gitStatus: { repos: [{ repo: "", branch: "main", ahead: 0, behind: 0 }], files: {} },
+        onExportConversation: vi.fn(),
+        onToggleTerminal: vi.fn(),
+        onOpenAgents: vi.fn(),
+        onOpenCliSessions: vi.fn(),
+      } as Partial<Props>);
+      const more = openMore();
+      expect(screen.getByRole("button", { name: "More controls" })).toHaveAttribute("aria-expanded", "true");
+      const group = (name: string) => within(more).getByRole("region", { name });
+      expect([...more.querySelectorAll("section")].map((section) => section.getAttribute("aria-label"))).toEqual(["Conversation", "Tools", "View", "Status", "Settings"]);
+      for (const name of ["tree", "Outcome", "Export the conversation as HTML"]) expect(within(group("Conversation")).getByRole("button", { name })).toBeInTheDocument();
+      for (const name of ["Agents", "Terminal sessions", /terminal$/, /main/]) expect(within(group("Tools")).getByRole("button", { name })).toBeInTheDocument();
+      for (const name of [/^Filter/, /^Theme:/]) expect(within(group("View")).getByRole("button", { name })).toBeInTheDocument();
+      expect(within(group("Status")).getByText("OmniRoute ✓")).toBeInTheDocument();
+      expect(within(group("Settings")).getByRole("button", { name: "Settings" })).toHaveTextContent("Settings");
+    });
+
+    // openlore: scenario=TheMoreMenuClosesLikeAMenu spec=compact-header-controls
+    it("TheMoreMenuClosesLikeAMenu: Escape, an outside click, or a control that opens something over the chat", () => {
+      const onOpenAgents = vi.fn();
+      setup({ onOpenAgents } as Partial<Props>);
+      fireEvent.keyDown(openMore(), { key: "Escape" });
+      expect(screen.queryByRole("dialog", { name: "Controls" })).toBeNull();
+      openMore();
+      fireEvent.mouseDown(document.body);
+      expect(screen.queryByRole("dialog", { name: "Controls" })).toBeNull();
+      // A menu inside it keeps its own Escape: the More menu stays open.
+      fireEvent.click(within(openMore()).getByRole("button", { name: /^Filter/ }));
+      fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(screen.getByRole("dialog", { name: "Controls" })).toBeInTheDocument();
+      fireEvent.click(within(openMore()).getByRole("button", { name: "Agents" }));
+      expect(onOpenAgents).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("dialog", { name: "Controls" })).toBeNull();
     });
 
     // openlore: scenario=ALongLabelIsCutNotWrapped spec=components
     it("ALongLabelIsCutNotWrapped: a project or branch too long is cut, with its full name on hover", () => {
-      const { container } = setup({
+      setup({
         gitAvailable: true,
         gitStatus: { repos: [{ repo: "", branch: "feat/a-long-branch", ahead: 0, behind: 0 }], files: {} },
         workspaceControl: "projects",
@@ -165,73 +251,14 @@ describe("Header", () => {
       const project = screen.getByRole("button", { name: /a-project-with-a-long-name/ });
       expect(project.title).toContain("a-project-with-a-long-name");
       expect(within(project).getByText("a-project-with-a-long-name").className).toContain("truncate");
-      const branch = [...container.querySelectorAll("header button")].find((button) => button.textContent?.includes("feat/a-long-branch"))!;
+      const branch = within(openMore()).getByRole("button", { name: /feat\/a-long-branch/ });
       expect(branch.querySelector(".truncate")?.textContent).toContain("feat/a-long-branch");
-    });
-
-    describe("statuses that do not fit", () => {
-      // jsdom lays nothing out: the bar's widths are given, and the observer that
-      // watches it is driven by hand.
-      let barWidth = 800;
-      let contentWidth = 1200;
-      let resized: (() => void) | undefined;
-      beforeEach(() => {
-        barWidth = 800;
-        contentWidth = 1200;
-        vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
-          return this.tagName === "HEADER" ? barWidth : 0;
-        });
-        vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) {
-          return this.tagName === "HEADER" ? contentWidth : 0;
-        });
-        vi.stubGlobal(
-          "ResizeObserver",
-          class {
-            constructor(callback: () => void) {
-              resized = callback;
-            }
-            observe() {}
-            disconnect() {}
-          },
-        );
-      });
-      afterEach(() => {
-        vi.restoreAllMocks();
-        vi.unstubAllGlobals();
-      });
-
-      // openlore: scenario=StatusesFoldWhenTheyDoNotFit spec=components
-      it("StatusesFoldWhenTheyDoNotFit: fold into one control that lists them in full, closed by Escape", () => {
-        setup({ statuses: { omni: "OmniRoute: falling back to the secondary provider", other: "2 jobs" } });
-        expect(screen.queryByText("2 jobs")).toBeNull();
-        fireEvent.click(screen.getByRole("button", { name: /2 statuses/ }));
-        const list = screen.getByRole("list", { name: "Extension statuses" });
-        expect(within(list).getByText("OmniRoute: falling back to the secondary provider")).toBeInTheDocument();
-        expect(within(list).getByText("2 jobs")).toBeInTheDocument();
-        fireEvent.keyDown(list, { key: "Escape" });
-        expect(screen.queryByRole("list", { name: "Extension statuses" })).toBeNull();
-      });
-
-      // openlore: scenario=StatusesUnfoldWhenRoomReturns spec=components
-      it("StatusesUnfoldWhenRoomReturns: come back inline once the bar has grown well past where they folded, with the list closed", () => {
-        setup({ statuses: { omni: "OmniRoute ✓", other: "2 jobs" } });
-        fireEvent.click(screen.getByRole("button", { name: /2 statuses/ }));
-        // A few pixels more is not enough: a bar on the edge must not flicker.
-        barWidth = 820;
-        act(() => resized?.());
-        expect(screen.getByRole("button", { name: /2 statuses/ })).toBeInTheDocument();
-        barWidth = 1400;
-        contentWidth = 1400;
-        act(() => resized?.());
-        expect(screen.getByText("OmniRoute ✓")).toBeInTheDocument();
-        expect(screen.queryByRole("list", { name: "Extension statuses" })).toBeNull();
-      });
     });
 
     it("ChooseSystemTheme: offers Light, Dark and System with the current preference marked", () => {
       const onSetTheme = vi.fn();
       const { rerenderWith } = setup({ theme: "dark", themePreference: "dark", onSetTheme });
-      fireEvent.click(screen.getByRole("button", { name: "Theme: Dark" }));
+      fireEvent.click(within(openMore()).getByRole("button", { name: "Theme: Dark" }));
       expect(screen.getByRole("menuitemradio", { name: "Light" })).toHaveAttribute("aria-checked", "false");
       expect(screen.getByRole("menuitemradio", { name: "Dark" })).toHaveAttribute("aria-checked", "true");
       expect(screen.getByRole("menuitemradio", { name: "System" })).toHaveAttribute("aria-checked", "false");
@@ -239,7 +266,7 @@ describe("Header", () => {
       expect(onSetTheme).toHaveBeenCalledExactlyOnceWith("system");
       expect(screen.queryByRole("menu", { name: "Theme" })).not.toBeInTheDocument();
       rerenderWith({ themePreference: "system" });
-      fireEvent.click(screen.getByRole("button", { name: "Theme: System" }));
+      fireEvent.click(within(openMore()).getByRole("button", { name: "Theme: System" }));
       expect(screen.getByRole("menuitemradio", { name: "System" })).toHaveAttribute("aria-checked", "true");
       expect(screen.getByRole("menuitemradio", { name: "Dark" })).toHaveAttribute("aria-checked", "false");
     });
@@ -247,19 +274,19 @@ describe("Header", () => {
     it.each(["Escape", "outside click"] as const)("ThemeMenuDismissal: %s closes the theme menu without changing the preference", (dismissal) => {
       const onSetTheme = vi.fn();
       const { onToggleTheme } = setup({ theme: "dark", themePreference: "system", onSetTheme });
-      const trigger = screen.getByRole("button", { name: "Theme: System" });
-      fireEvent.click(trigger);
+      const trigger = () => within(openMore()).getByRole("button", { name: "Theme: System" });
+      fireEvent.click(trigger());
       const selected = screen.getByRole("menuitemradio", { name: "System" });
       expect(selected).toHaveAttribute("aria-checked", "true");
       expect(selected).toHaveFocus();
       if (dismissal === "Escape") fireEvent.keyDown(selected, { key: "Escape" });
       else fireEvent.mouseDown(document.body);
       expect(screen.queryByRole("menu", { name: "Theme" })).not.toBeInTheDocument();
-      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      expect(trigger()).toHaveAttribute("aria-expanded", "false");
       expect(onSetTheme).not.toHaveBeenCalled();
       expect(onToggleTheme).not.toHaveBeenCalled();
-      if (dismissal === "Escape") expect(trigger).toHaveFocus();
-      fireEvent.click(trigger);
+      if (dismissal === "Escape") expect(trigger()).toHaveFocus();
+      fireEvent.click(trigger());
       expect(screen.getByRole("menuitemradio", { name: "System" })).toHaveAttribute("aria-checked", "true");
       expect(onSetTheme).not.toHaveBeenCalled();
       expect(onToggleTheme).not.toHaveBeenCalled();
@@ -267,23 +294,23 @@ describe("Header", () => {
 
     it("offers the theme toggle only when branding allows it", () => {
       const { rerenderWith, onToggleTheme } = setup({ theme: "light" });
-      fireEvent.click(screen.getByRole("button", { name: "Theme: Light" }));
+      fireEvent.click(within(openMore()).getByRole("button", { name: "Theme: Light" }));
       fireEvent.click(screen.getByRole("menuitemradio", { name: "Dark" }));
       expect(onToggleTheme).toHaveBeenCalled();
       rerenderWith({ showThemeToggle: false });
-      expect(screen.queryByRole("button", { name: /Theme:/ })).not.toBeInTheDocument();
+      expect(within(openMore()).queryByRole("button", { name: /Theme:/ })).not.toBeInTheDocument();
     });
 
     it("names the theme control after the current preference", () => {
       setup({ theme: "dark" });
-      expect(screen.getByRole("button", { name: "Theme: Dark" })).toBeInTheDocument();
+      expect(within(openMore()).getByRole("button", { name: "Theme: Dark" })).toBeInTheDocument();
     });
 
     it("shows the branch chip only when git is available", () => {
       const { rerenderWith } = setup({ gitAvailable: false });
-      expect(screen.queryByRole("button", { name: /⎇/ })).not.toBeInTheDocument();
+      expect(within(openMore()).queryByRole("button", { name: /⎇/ })).not.toBeInTheDocument();
       rerenderWith({ gitAvailable: true, gitStatus: { repos: [{ repo: "", branch: "main", ahead: 0, behind: 0 }], files: {} } });
-      expect(screen.getByRole("button", { name: /main/ })).toBeInTheDocument();
+      expect(within(openMore()).getByRole("button", { name: /main/ })).toBeInTheDocument();
     });
 
     it("starts a new session", () => {
@@ -642,7 +669,7 @@ describe("Header", () => {
   });
 
   describe("conversation filters", () => {
-    const trigger = () => screen.getByRole("button", { name: /^Filter/ });
+    const trigger = () => within(openMore()).getByRole("button", { name: /^Filter/ });
     const openMenu = () => fireEvent.click(trigger());
 
     it("reports the kind that was toggled rather than holding the state", () => {
@@ -682,6 +709,7 @@ describe("Header", () => {
       fireEvent.mouseDown(document.body);
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
       expect(onFilterChange).not.toHaveBeenCalled();
+      expect(trigger()).toHaveAttribute("aria-expanded", "false");
     });
 
     it("closes on Escape without changing anything", () => {
@@ -701,10 +729,10 @@ describe("Header", () => {
 
   it("keeps Outcome available and emphasizes review readiness", () => {
     const { onToggleOutcome, rerenderWith } = setup();
-    fireEvent.click(screen.getByRole("button", { name: "Outcome" }));
+    fireEvent.click(within(openMore()).getByRole("button", { name: "Outcome" }));
     expect(onToggleOutcome).toHaveBeenCalled();
     rerenderWith({ workspace: { root: "/work", name: "work", activity: "ready-for-review", needsAttention: true } });
-    expect(screen.getByRole("button", { name: /Outcome/ })).toHaveTextContent("•");
+    expect(within(openMore()).getByRole("button", { name: /Outcome/ })).toHaveTextContent("•");
   });
 
   it("reports the connection state", () => {
@@ -716,15 +744,15 @@ describe("Header", () => {
 
   it("keeps the tree menu out of the way until asked", () => {
     const { onListTree } = setup();
-    expect(within(screen.getByRole("banner")).getByRole("button", { name: "tree" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "tree" }));
+    expect(within(screen.getByRole("banner")).queryByRole("button", { name: "tree" })).toBeNull();
+    fireEvent.click(within(openMore()).getByRole("button", { name: "tree" }));
     expect(onListTree).toHaveBeenCalled();
   });
 
   describe("the sandbox in Settings", () => {
     const sandbox = { root: "/projects/alpha", allowWrite: false, allowBash: false, projectRoot: "/projects/alpha", rootEditable: true };
     const project = (root: string) => ({ root, name: root.split("/").pop()!, activity: "idle" as const });
-    const openSettings = () => fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const openSettings = () => fireEvent.click(within(openMore()).getByRole("button", { name: "Settings" }));
 
     it("with several projects open in the standalone app, shows the agent's permissions and no root", () => {
       // SeveralProjectsShowPermissionsOnly
