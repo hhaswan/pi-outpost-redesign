@@ -79,21 +79,26 @@ async function restore(sessions,timeout=180000){
   if(client.hello.sessionId!==session.sessionId){await client.request({type:'switch_session',path:session.path},m=>m.type==='session_replaced'&&m.sessionId===session.sessionId&&m.workspace?.root===session.root,timeout);}
  }finally{client.close();}}
 }
-async function verifyBrowser(restored){
+async function verifyBrowser(){
  const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
- try{const page=await browser.newPage({viewport:{width:390,height:900}});let errors=0;page.on('pageerror',()=>errors++);
- await page.addInitScript(token=>localStorage.setItem('pi-outpost:token',token),config.server.token);
+ try{let errors=0;
+ /* A fresh tab opens on the start screen: check it renders, and leave it untouched (no click, nothing created or sent). */
+ {const fresh=await browser.newPage({viewport:{width:390,height:900}});fresh.on('pageerror',()=>errors++);
+ await fresh.addInitScript(token=>localStorage.setItem('pi-outpost:token',token),config.server.token);
+ await fresh.goto(`http://127.0.0.1:${port}`);await fresh.getByTestId('start-screen').waitFor({timeout:90000});
+ await fresh.getByTestId('start-recent-row').first().or(fresh.getByText('No saved conversations yet.',{exact:true})).waitFor({timeout:30000});await fresh.close();}
+ /* A refreshed tab restores its own project directly: the path users take after a deploy. */
+ const main=await connection();const root=main.hello.workspace?.root;main.close();if(!root)throw Error('Live server reported no workspace');
+ const page=await browser.newPage({viewport:{width:390,height:900}});page.on('pageerror',()=>errors++);
+ await page.addInitScript(([token,key,root])=>{localStorage.setItem('pi-outpost:token',token);sessionStorage.setItem(key,JSON.stringify({root}));},[config.server.token,`pi-outpost:workspace:v2:http://127.0.0.1:${port}`,root]);
  await page.goto(`http://127.0.0.1:${port}`);await page.getByRole('region',{name:'Activity',exact:true}).waitFor({timeout:90000});
- /* A new tab opens on the start screen. Leave it without sending anything: join a conversation already live (a row with status). A project chip starts a new session and a saved row replaces the project's live one, so a chip is used only when no persisted conversation was restored. */
- {const start=page.getByTestId('start-screen');await start.waitFor({timeout:30000});const rows=page.getByTestId('start-recent-row');await rows.first().or(page.getByText('No saved conversations yet.',{exact:true})).waitFor({timeout:30000});
- const live=rows.filter({has:page.getByTestId('start-recent-status')});if(await live.count())await live.first().click();else if(!restored)await page.getByTestId('start-project-chip').first().click();else throw Error('Start screen lists no live conversation; refusing to replace a restored session');
- await start.waitFor({state:'detached',timeout:30000});await page.getByRole('region',{name:'Activity',exact:true}).waitFor();}
+ if(await page.getByTestId('start-screen').count())throw Error('A tab with a saved selection showed the start screen');
  {const more=page.getByRole('button',{name:'More controls',exact:true});if(await more.isVisible())await more.click();}/* phone: Terminal sessions is in the Controls sheet */await page.getByRole('button',{name:'Terminal sessions',exact:true}).click();await page.getByRole('dialog',{name:'CLI sessions',exact:true}).waitFor();await page.getByRole('button',{name:'Close CLI sessions'}).click();
  const model=page.getByRole('button',{name:'Model',exact:true});await model.click();
  await page.getByRole('combobox',{name:'Search models'}).fill('NO-SUCH-MODEL-DEPLOY');
  await page.getByText('No models found.',{exact:true}).waitFor();await page.keyboard.press('Escape');
  if(await page.evaluate(()=>document.body.scrollWidth>innerWidth))throw Error('Live mobile overflow');
- if(errors)throw Error('Live browser page errors');record.checks.push('live authenticated Playwright: start screen left without sending, activity, CLI panel, mobile bounds, zero page errors');
+ if(errors)throw Error('Live browser page errors');record.checks.push('live authenticated Playwright: fresh tab start screen, refreshed tab restored directly, activity, CLI panel, mobile bounds, zero page errors');
  }finally{await browser.close();}
 }
 await fs.mkdir(path.join(root,'.local'),{recursive:true,mode:0o700});
@@ -141,7 +146,7 @@ try{
  for(const session of sessions){const verified=await connection(session.root);try{if(verified.hello.sessionId!==session.sessionId||verified.hello.workspace?.root!==session.root)throw Error('Restored session did not persist on a fresh connection');}finally{verified.close();}}
  record.checks.push('previous active session identities restored and verified on fresh connections');await save();
  unlockIngress(port);ingressLocked=false;clientAccessResumed=true;
- await verifyBrowser(sessions.length);await save();
+ await verifyBrowser();await save();
  if(await hash(path.join(target,'pi-outpost.mjs'))!==await hash(path.join(source,'pi-outpost.mjs')))throw Error('Installed bundle hash mismatch');
  record.bundleSha256=await hash(path.join(target,'pi-outpost.mjs'));
  record.status='deployed';record.restoredSessions=sessions.length;record.pid=systemctl('show',service,'-p','MainPID','--value').trim();record.checks.push('bundle hash matches staged build','service health successful','previous active session identities restored','CLI bridge installed without reloading running CLIs');
