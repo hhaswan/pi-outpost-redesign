@@ -7,6 +7,46 @@ version you had and the one you run now, without going online.
 Releases before 0.41.0 are described on
 [GitHub Releases](https://github.com/laurentftech/pi-outpost/releases).
 
+## [Unreleased] - custom build (hhaswan/pi-outpost-redesign)
+
+Changes in this fork on top of upstream 0.62.0. Not published to npm: deploy with
+`scripts/update-custom-native.sh` (see `docs/deployment.md`).
+
+### Added
+
+- **HTTPS with a local CA.** `pi-outpost tls init|renew` creates a CA and a server certificate
+  with `openssl`, kept outside the repository in `~/.config/pi-outpost/tls` (keys `0600`; the
+  CA key is never read by the server). Public `/ca`, `/ca.crt` and `/ca.mobileconfig` pages
+  help devices trust it. Plain HTTP on the TLS port gets one fixed `301` to `https://`.
+- **Session sign-in.** The access token signs a browser in once; the browser then holds an
+  `HttpOnly`, `SameSite=Strict` session cookie for 14 days, renewed while used. **Sign out**,
+  **Sign out all devices**, **Rotate token** (Settings and CLI), and **pairing by QR code** or a
+  one-time typed code. `?token=` in URLs is refused.
+- **Web and CLI share one session file.** No handoff: both re-read the file before a prompt;
+  the web follows CLI writes live. A web prompt on a session open in a bridged CLI runs in that
+  CLI, streaming to the web, with Stop.
+- **Agent & skill manager** for the installed `@tintinweb/pi-subagents`: agents as cards,
+  skills attached by checklist, tools, model, prompt, global or per-project scope, Run.
+- **Phone and tablet layout.** One-row header, grouped More menu, bottom navigation on phones,
+  full-screen sheets, 44 px touch targets, image lightbox with pinch, wheel and swipe zoom.
+- **New-tab start screen** with the five most recent sessions and a new chat per project.
+- **Confirmations** before + new, switching, fork, going back in the tree, editing a prompt
+  and compacting.
+
+### Changed
+
+- A tab that starts or opens another conversation while other tabs share its project, or
+  while the agent works, moves onto its own side session; nothing running is aborted.
+- Sub-agent sessions start collapsed in Sessions and carry readable titles.
+- The custom build refuses `pi-outpost update` to a stock npm release.
+
+### Fixed
+
+- Images from tools render as thumbnails instead of `[image]`; a truncated Photon WebAssembly
+  file no longer silently drops every image (build and deploy now verify it).
+- Copy buttons work over plain HTTP; extension dialogs render terminal (OSC 8) links.
+- A refreshed tab restores its own project and session without flashing another.
+
 ## [0.62.0] - 2026-11-08
 
 ### Added
