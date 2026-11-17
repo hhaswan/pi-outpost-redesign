@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SessionInfo } from "../authToken";
 import { QrCode } from "./QrCode";
+import { CopyButton } from "./CopyButton";
 
 interface SecuritySettingsProps {
   session: SessionInfo;
@@ -118,7 +119,7 @@ export function SecuritySettings({ session, onSignOut, onRotateToken, onCreatePa
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400">The new token, shown once. Store it before closing Settings.</p>
               <div className="mt-1 flex items-center gap-1">
                 <code className="min-w-0 flex-1 break-all rounded-lg bg-zinc-100 px-2 py-1 text-[11px] dark:bg-zinc-800">{rotated}</code>
-                <button type="button" className={smallButton} onClick={() => void navigator.clipboard?.writeText(rotated)}>Copy</button>
+                <CopyButton text={rotated} className={smallButton} label="Copy" />
               </div>
             </div>
           )}

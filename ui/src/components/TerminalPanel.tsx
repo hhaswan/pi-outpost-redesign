@@ -1,4 +1,5 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { copyText } from "../presentations/copyText";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -210,7 +211,8 @@ function SingleTerminalView({
 
     term.attachCustomKeyEventHandler(terminalKeyboardHandler(
       term,
-      text => navigator.clipboard.writeText(text),
+      // Plain HTTP has no navigator.clipboard: copyText falls back to execCommand.
+      async text => { if (!(await copyText(text))) throw new Error("copy refused"); },
       () => term.writeln("\r\n[Clipboard copy was refused by the browser.]"),
     ));
 

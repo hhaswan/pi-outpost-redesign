@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { LoginEvent, LoginPrompt } from "@pi-outpost/shared";
 import type { LoginFlowState } from "../useAgent";
+import { CopyButton } from "./CopyButton";
 
 /**
  * A provider sign-in as the server runs it: what the flow shows (a link to open, a device code to
@@ -22,9 +23,7 @@ function Step({ event }: { event: LoginEvent }) {
             <a href={event.url} target="_blank" rel="noopener noreferrer" className="truncate text-sm text-sky-700 underline dark:text-sky-400">
               {event.url}
             </a>
-            <button type="button" className={button} onClick={() => void navigator.clipboard?.writeText(event.url)}>
-              Copy
-            </button>
+            <CopyButton text={event.url} className={button} label="Copy" />
           </div>
         </div>
       );

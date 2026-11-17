@@ -25,7 +25,7 @@ import { freePort, makeWorkspace, startServer } from '../server/test/harness.mjs
 import { leaveStartScreen } from './leave-start-screen.mjs';
 
 const entry = path.resolve('cli/dist/pi-outpost.mjs');
-const token = 'https-login-probe-token-0123456789abcdef';
+let token = 'https-login-probe-token-0123456789abcdef';
 const root = await makeWorkspace({ 'README.md': '# probe\n' });
 const xdg = path.join(root, '.config');
 const port = await freePort();
@@ -251,6 +251,22 @@ async function plainHttpPass() {
     }
     await signInWithToken(a);
     assert.equal(plainStored().length, 2, `sessions after the burst: ${plainStored().length}`);
+    // Copy works without navigator.clipboard (plain HTTP): the rotated token reaches the clipboard path.
+    if (width === 1280) {
+      if (await a.getByTestId('start-screen').count()) await leaveStartScreen(a);
+      await openSettings(a);
+      await a.evaluate(() => { window.__copied = null; document.addEventListener('copy', () => { window.__copied = document.getSelection()?.toString() ?? null; }); });
+      a.once('dialog', (dialog) => dialog.accept());
+      await a.getByRole('button', { name: 'Rotate token', exact: true }).click();
+      const rotated = (await a.getByTestId('rotated-token').locator('code').textContent()).trim();
+      await a.getByTestId('rotated-token').getByRole('button', { name: /Copy/ }).click();
+      await a.getByTestId('rotated-token').getByText('✓ copied').waitFor({ timeout: 5000 });
+      assert.equal(await a.evaluate(() => window.__copied), rotated, 'Copy put the rotated token on the clipboard');
+      console.log('PASS rotated token Copy over plain HTTP');
+      // Later sign-ins use the new token; this browser's own session survives rotation.
+      token = rotated;
+      await a.keyboard.press('Escape');
+    }
     await contextA.close();
     await contextB.close();
     console.log(`PASS plain-http sign-in at ${width}px`);
