@@ -2,6 +2,7 @@ import path from "node:path";
 import { readFile, readdir, rm, stat } from "node:fs/promises";
 import { expect, test as base, type Page, type Locator } from "@playwright/test";
 import { makeWorkspace, startServer } from "../server/test/harness.mjs";
+import { leaveStartScreen } from "./startScreen";
 
 type Workspace = { root: string; other: string; url: string };
 const test = base.extend<{ workspace: Workspace; writable: string | null }>({
@@ -24,6 +25,7 @@ const test = base.extend<{ workspace: Workspace; writable: string | null }>({
 
 async function openTree(page: Page, workspace: Workspace) {
   await page.goto(workspace.url);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await expect(page.locator('[data-drop-directory="writable"]')).toBeVisible();

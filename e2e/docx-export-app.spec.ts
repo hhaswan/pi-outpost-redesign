@@ -10,10 +10,12 @@
  */
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 /** Open the workspace file that every one of these tests works from. */
 async function openReadme(page: Page) {
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByText("readme.md").click();
@@ -142,6 +144,7 @@ test("carries the figures the document references, wherever they sit on disk", a
    */
   const errors = watchConsole(page);
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByText("docs", { exact: true }).click();
@@ -170,6 +173,7 @@ test("falls back to the words when a referenced figure has gone from disk", asyn
   // exist for: the document is worth more than the picture.
   const errors = watchConsole(page);
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByText("docs", { exact: true }).click();
@@ -236,6 +240,7 @@ test("a structured-exchange file exports what it draws: a figure as SVG, a table
   await writeFile(path.join(directory, "figure.json"), await sample("graph-minimal.json"));
   await writeFile(path.join(directory, "table.json"), await sample("table-minimal.json"));
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByText("exports", { exact: true }).click();

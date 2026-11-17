@@ -138,6 +138,8 @@ function agentApi(state: ReturnType<typeof agentState>) {
     browseServerDirectory: vi.fn(),
     switchWorkspace: vi.fn(),
     openProject: vi.fn(),
+    openRecent: vi.fn(),
+    startChat: vi.fn(),
     closeProject: vi.fn(),
     openSideSession: vi.fn(),
     setOutcomeActive: vi.fn(),
@@ -154,6 +156,30 @@ function agentApi(state: ReturnType<typeof agentState>) {
 
 beforeEach(() => {
   mockUseAgent.mockReset();
+});
+
+// openlore: spec=multi-project-workspaces
+describe("new tab start screen", () => {
+  const project = { root: "/srv/alpha", id: "/srv/alpha", name: "alpha", activity: "idle" as const };
+  it("hides the connected project's conversation and the composer until a choice is made", () => {
+    const api = agentApi(agentState({ startScreen: true, recentSessions: [], workspace: project, workspaces: [project], items: [{ kind: "user", text: "Old default conversation" }] as ChatItem[] }));
+    mockUseAgent.mockReturnValue(api);
+    render(<App />);
+    expect(screen.getByTestId("start-screen")).toBeTruthy();
+    expect(screen.queryByText("Old default conversation")).toBeNull();
+    expect(document.querySelector("footer")?.hidden).toBe(true);
+    fireEvent.click(screen.getByTestId("start-project-chip"));
+    expect(api.startChat).toHaveBeenCalledWith("/srv/alpha");
+    fireEvent.click(screen.getByTestId("start-open-project"));
+    expect(screen.getByText("Choose a project directory")).toBeTruthy();
+  });
+
+  it("renders nothing to choose before the server has said hello", () => {
+    mockUseAgent.mockReturnValue(agentApi(agentState({ startScreen: true, recentSessions: null })));
+    render(<App />);
+    expect(screen.queryByTestId("start-screen")).toBeNull();
+    expect(document.querySelector("footer")?.hidden).toBe(true);
+  });
 });
 
 describe("Workspace Outcome", () => {

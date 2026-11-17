@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { makeWorkspace, startServer } from "../server/test/harness.mjs";
+import { leaveStartScreen } from "./startScreen";
 
 // openlore: scenario=PreservesTheChosenExtensionAlias spec=extension-path-aliases
 // openlore: scenario=RemovesTheAliasWithoutRemovingItsTarget spec=extension-path-aliases
@@ -38,6 +39,7 @@ test("the resource manager preserves an extension alias, removes it, and rejects
   };
   try {
     await page.goto(server.base);
+    await leaveStartScreen(page);
     await expect(page.getByTitle("connected")).toBeVisible();
     await manager();
     await chooseAlias();

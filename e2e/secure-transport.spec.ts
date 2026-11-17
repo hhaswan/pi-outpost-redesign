@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { makeWorkspace, startServer, type HarnessServer } from "../server/test/harness.mjs";
+import { leaveStartScreen } from "./startScreen";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const certFile = path.join(repo, "server", "test", "fixtures", "tls", "test-cert.pem");
@@ -48,6 +49,7 @@ test("HttpsBrowserAndReconnect", async ({ browser }) => {
   page.on("pageerror", (error) => errors.push(error.message));
   try {
     await page.goto(`${base}/?token=${token}`);
+    await leaveStartScreen(page);
     await expect(page.getByTitle("connected", { exact: true })).toBeVisible();
     const composer = page.locator("textarea");
     await expect(composer).toBeVisible();

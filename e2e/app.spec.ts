@@ -11,9 +11,11 @@
  * turn to have. What is under test is the wiring, which is what breaks silently.
  */
 import { expect, test } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 test.beforeEach(async ({ page }) => {
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
 });
 
 test("loads and connects to the server that served it", async ({ page }) => {
@@ -79,6 +81,7 @@ test.describe("the return-to-latest control", () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto(process.env.PI_E2E_DIAGRAMS_URL!);
+    await leaveStartScreen(page);
     await expect(page.getByTitle("connected")).toBeVisible();
     // The seeded transcript arrives over the socket; wait for it before scrolling.
     await expect(page.locator("[data-item-index]").first()).toBeVisible();

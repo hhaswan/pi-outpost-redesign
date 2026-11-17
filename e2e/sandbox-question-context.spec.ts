@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { access, mkdir, readFile, realpath, rm } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { connect, makeWorkspace, startServer } from "../server/test/harness.mjs";
+import { leaveStartScreen } from "./startScreen";
 
 const provider = fileURLToPath(new URL("../server/test/fixtures/bash-call-provider.mjs", import.meta.url));
 const doctor = fileURLToPath(new URL("../server/test/fixtures/fake-runner-doctor.cjs", import.meta.url));
@@ -43,6 +44,7 @@ for (const decision of ["Refuse", "Allow once"] as const) {
       await client.waitFor("hello", 30_000);
       await page.setViewportSize(decision === "Refuse" ? { width: 390, height: 740 } : { width: 1440, height: 900 });
       await page.goto(server.base);
+      await leaveStartScreen(page);
       await expect(page.getByRole("textbox", { name: /message pi/i })).toBeEnabled();
       client.send({ type: "prompt", text: "/grant-context" });
       await expect(page.getByText("Evidence 1: review these figures before granting access.", { exact: true })).toBeAttached();

@@ -944,8 +944,12 @@ is lost. Deleting is refused while a bridged CLI has the file open. See
 Each standalone browser tab remembers its last acknowledged workspace for each
 server. After reconnecting or refreshing that tab, it selects the same still-open
 workspace, including a side session, without sending a prompt or opening another
-agent. New tabs start at the server's default workspace; they do not inherit
-another tab's last selected project. Tabs on the same project show the same
+agent. A new tab opens on a start screen instead of any conversation: **Recent**
+lists the five most recently modified conversations across open projects (with
+their live status), and **Start a new chat in** offers each open project and
+**Open a project…**. Nothing is remembered until you pick, so a new tab never
+inherits another tab's project. Embedded widgets and `workspaceLock` servers skip
+the start screen. Tabs on the same project show the same
 conversation until one of them starts a new one (**+ new**) or opens another saved
 session: that tab then moves onto its own side session, and the other tabs keep
 theirs. **New side session** does the same explicitly. A server with

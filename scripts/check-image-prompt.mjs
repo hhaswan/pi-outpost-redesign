@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, expect } from 'playwright/test';
 import { makeWorkspace, startServer } from '../server/test/harness.mjs';
+import { leaveStartScreen } from './leave-start-screen.mjs';
 
 const entry = fileURLToPath(new URL('../cli/dist/pi-outpost.mjs', import.meta.url));
 const root = await makeWorkspace();
@@ -77,6 +78,7 @@ try {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto(server.base);
+  await leaveStartScreen(page);
   const composer = page.getByPlaceholder(/^message pi/);
   await expect(composer).toBeEnabled();
 

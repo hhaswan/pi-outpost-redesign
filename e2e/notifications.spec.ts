@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 /**
  * An extension toast is an overlay: it sits at the top right, over the Work Plan
@@ -15,6 +16,7 @@ import { expect, test } from "@playwright/test";
  */
 test("an extension toast leaves the Work Plan alone again", async ({ page }) => {
   await page.goto(process.env.PI_E2E_NOTIFY_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
 
   const composer = page.getByRole("textbox", { name: /message pi/i });

@@ -12,6 +12,7 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {chromium,expect} from 'playwright/test';
 import {makeWorkspace,startServer} from '../server/test/harness.mjs';
+import {leaveStartScreen} from './leave-start-screen.mjs';
 
 assert.equal(process.platform,'linux','This PTY probe requires Linux and python3');
 const entry=fileURLToPath(new URL('../cli/dist/pi-outpost.mjs',import.meta.url));
@@ -72,7 +73,7 @@ try{
     allowedModels:[{provider:'anthropic',id:'shared-probe'}]},{entry,env:{...env,PROBE_SIDE:'web',ANTHROPIC_API_KEY:undefined}});
   browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
   const page=await browser.newPage({viewport:{width:1280,height:900}});const pageErrors=[];page.on('pageerror',e=>pageErrors.push(e.message));
-  await page.goto(server.base);
+  await page.goto(server.base);await leaveStartScreen(page);
   const composer=page.getByPlaceholder(/^message pi/);await expect(composer).toBeEnabled();
   const sendFromWeb=async prompt=>{await composer.fill(prompt);await page.getByRole('button',{name:'Send message',exact:true}).click();
     await expect(page.getByText(`reply to ${prompt}`,{exact:true})).toBeVisible({timeout:30000});

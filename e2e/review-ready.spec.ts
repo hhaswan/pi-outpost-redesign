@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 test("review-ready workspaces remain visible and content-isolated across real switches", async ({ page }) => {
   await page.goto(process.env.PI_E2E_REVIEW_READY_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
 
   const selector = page.getByTitle(/^Project:/);

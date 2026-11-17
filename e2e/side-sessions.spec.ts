@@ -3,10 +3,12 @@
  * answered on its own, named in the tab, and closed back to the project.
  */
 import { expect, test } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 // openlore: scenario=TheProjectRowStartsASideSession spec=side-sessions
 test("a side session starts from the project's row, runs apart, and closes back to the project", async ({ page }) => {
   await page.goto(process.env.PI_E2E_SIDE_SESSIONS_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   const project = page.getByTitle(/^Project:/);
   const projectName = ((await project.getAttribute("title")) ?? "").replace(/^Project: (.*) \(.*\)$/, "$1");

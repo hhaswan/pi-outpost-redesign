@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 async function prompt(page: import("@playwright/test").Page, text: string) {
   const composer = page.getByRole("textbox", { name: /message pi/i });
@@ -10,6 +11,7 @@ async function prompt(page: import("@playwright/test").Page, text: string) {
 
 test("agent-owned Work Plan survives reload, switches with sessions, and isolates a fork", async ({ page }) => {
   await page.goto(process.env.PI_E2E_PLANS_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Work Plan" })).toHaveCount(0);
 
@@ -72,6 +74,7 @@ test("agent-owned Work Plan survives reload, switches with sessions, and isolate
 test("narrow viewport automatically compacts the Work Plan and keeps the conversation visible", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 640, height: 800 });
   await page.goto(process.env.PI_E2E_PLANS_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await prompt(page, "Create a plan for this release");
 

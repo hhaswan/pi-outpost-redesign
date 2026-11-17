@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { readFile, rm } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { connect, makeWorkspace, startServer } from "../server/test/harness.mjs";
+import { leaveStartScreen } from "./startScreen";
 
 const provider = fileURLToPath(new URL("../server/test/fixtures/scripted-tools-provider.mjs", import.meta.url));
 
@@ -19,6 +20,7 @@ test("Word document search loads the extractor in the running app", async ({ pag
     client.send({ type: "set_model", provider: "scripted-tools-test", id: "scripted-tools-test" });
     await client.waitFor((message: { type: string }) => message.type === "model_changed");
     await page.goto(server.base);
+    await leaveStartScreen(page);
     const composer = page.getByRole("textbox", { name: /message pi/i });
     await composer.fill('STEPS:[{"tool":"tool_search","args":{"query":"Word document"}}]');
     await composer.press("Enter");

@@ -11,6 +11,7 @@
  * sources block, followed by the constructs a reply must never be able to use.
  */
 import { expect, test, type Page } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 /** The host page, pointed at the backend whose session already holds that message. */
 async function openHost(page: Page): Promise<void> {
@@ -18,6 +19,7 @@ async function openHost(page: Page): Promise<void> {
   url.searchParams.set("server", process.env.PI_E2E_DIAGRAMS_URL!);
   url.searchParams.set("theme", "light");
   await page.goto(url.toString());
+  await leaveStartScreen(page);
 }
 
 /** Inside the widget's shadow tree, which is where the transcript lives. */

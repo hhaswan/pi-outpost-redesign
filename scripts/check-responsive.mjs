@@ -186,7 +186,7 @@ try {
     // page fresh at the width under test: the tab restores its session on reload.
     await page.goto(server.base);
     await page.getByRole('button', { name: 'sessions', exact: true }).click();
-    await page.getByText(SESSION_TITLE, { exact: true }).click();
+    await page.getByText(SESSION_TITLE, { exact: true }).first().click();
     await page.getByText('Then check the output.').waitFor();
     await page.setViewportSize(viewport);
     await page.reload();

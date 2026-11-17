@@ -1,6 +1,6 @@
 /** Built app: the server's update notice stays one compact line at every width, details expand inline, the model chip shows the model id, and an iPad-landscape screen keeps half its height for the transcript. */
 import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import {chromium} from 'playwright';
-import {makeWorkspace,startServer} from '../server/test/harness.mjs';
+import {makeWorkspace,startServer} from '../server/test/harness.mjs';import {leaveStartScreen} from './leave-start-screen.mjs';
 const root=await makeWorkspace({'README.md':'# x'});const fake=path.join(root,'npm.mjs');
 await fs.writeFile(fake,"console.log('99.0.0');");
 const dirs={};for(const k of ['BRIDGE']){dirs[`PI_OUTPOST_${k}_DIR`]=path.join(root,k.toLowerCase());await fs.mkdir(dirs[`PI_OUTPOST_${k}_DIR`],{mode:0o700});}
@@ -9,7 +9,7 @@ const b=await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_EX
 try{for(const [w,h] of [[320,620],[390,844],[1133,744]]){const wide=w>=768;const p=await b.newPage({viewport:{width:w,height:h},hasTouch:wide});
  // Inject the live server's update notice into the real WebSocket stream.
  await p.routeWebSocket(/\/ws/,ws=>{const server=ws.connectToServer();server.onMessage(m=>ws.send(m));ws.onMessage(m=>server.send(m));setTimeout(()=>ws.send(JSON.stringify({type:'outpost_update',notice:{running:'0.62.0',latest:'0.62.3',instruction:'Custom build: merge the upstream release into the custom repository, rebuild, verify, then deploy. Do not install the stock npm package.',copy:'pi-outpost update --check',releaseNotes:'https://example.invalid'}})),1500);});
- await p.goto(s.base);
+ await p.goto(s.base);await leaveStartScreen(p);
  await p.getByTestId('update-notice').waitFor({timeout:30000});
  const r=await p.evaluate(()=>{const n=document.querySelector('[data-testid=update-notice]').getBoundingClientRect();const nav=document.querySelector('nav[aria-label]')?.getBoundingClientRect();const m=document.querySelector('[aria-label=Model]');return {main:Math.round(document.querySelector('main').getBoundingClientRect().height),notice:Math.round(n.height),navBottom:nav&&Math.round(nav.bottom),inner:innerHeight,docH:document.documentElement.scrollHeight,model:m?.innerText,modelW:Math.round(m?.getBoundingClientRect().width)}});
  console.log(w,JSON.stringify(r));

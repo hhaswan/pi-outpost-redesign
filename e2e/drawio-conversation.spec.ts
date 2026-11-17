@@ -10,6 +10,7 @@ import { expect, test, type Frame, type Locator, type Page } from "@playwright/t
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SERVICES_DIAGRAM, SERVICES_DIAGRAM_PATH, SERVICES_SECOND_PAGE } from "./fixtures/drawio-conversation";
+import { leaveStartScreen } from "./startScreen";
 
 const FILE = () => path.join(process.env.PI_E2E_DRAWIO_CHAT_ROOT!, SERVICES_DIAGRAM_PATH);
 
@@ -21,6 +22,7 @@ test.beforeEach(async () => {
 
 async function openReply(page: Page): Promise<Locator> {
   await page.goto(process.env.PI_E2E_DRAWIO_CHAT_URL!);
+  await leaveStartScreen(page);
   // The services diagram's block, by its frame: the gone one is a block too until its read fails
   const block = page.getByTestId("drawio-block-reply").filter({ has: page.getByTitle(SERVICES_DIAGRAM_PATH, { exact: true }) });
   await expect(block).toBeVisible();

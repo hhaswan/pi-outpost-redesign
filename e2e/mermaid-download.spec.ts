@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { leaveStartScreen } from "./startScreen";
 
 test("MermaidActionsMatchOtherDiagrams: visible actions and a portable SVG of the turned diagram", async ({ page }) => {
   await page.goto(process.env.PI_E2E_DIAGRAMS_URL!);
+  await leaveStartScreen(page);
   const enlarge = page.getByRole("button", { name: "Show diagram at full size", exact: true });
   await expect(enlarge).toBeVisible();
   const diagram = enlarge.locator("../..");

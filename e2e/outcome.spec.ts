@@ -7,12 +7,14 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 const WORKSPACE = () => process.env.PI_E2E_OUTCOME_WORKSPACE!;
 
 async function openOutcome(page: import("@playwright/test").Page, { navigate = true } = {}) {
   if (navigate) {
     await page.goto(process.env.PI_E2E_OUTCOME_URL!);
+    await leaveStartScreen(page);
     await expect(page.getByTitle("connected")).toBeVisible();
   }
   await page.getByRole("button", { name: /^Outcome/ }).click();

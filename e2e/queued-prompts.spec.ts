@@ -8,6 +8,7 @@
  */
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 const gate = (n: number) => `${process.env.PI_E2E_QUEUED_GATES!}-${n}`;
 
@@ -21,6 +22,7 @@ async function holdTurn(page: Page, more = 0): Promise<number> {
   const first = (await sent()).length + 1;
   for (let n = first; n <= first + more; n++) await writeFile(gate(n), "");
   await page.goto(process.env.PI_E2E_QUEUED_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByRole("combobox").selectOption({ label: "queue-test/queue-test" });
   const composer = page.getByRole("textbox", { name: /message pi|steer the agent/i });
@@ -119,6 +121,7 @@ test("monkey: an edit the agent overtakes, a double ✕, an abort, a reload — 
   // Another client, mid-turn, sees B.
   const other = await browser.newPage();
   await other.goto(process.env.PI_E2E_QUEUED_URL!);
+  await leaveStartScreen(other);
   await expect(queued(other)).toHaveCount(1);
   await expect(queued(other)).toContainText("B");
 
@@ -165,6 +168,7 @@ test("monkey: edit spam, two clients on one prompt, a new session under a queue"
   // Two clients on the same prompt: one removes it while the other has it open and saves.
   const other = await browser.newPage();
   await other.goto(process.env.PI_E2E_QUEUED_URL!);
+  await leaveStartScreen(other);
   await expect(queued(other)).toHaveCount(2);
   await editQueued(other, 0, "edited by the other client", false);
   await queued(page).nth(0).hover();
@@ -239,6 +243,7 @@ test("send now: asks while a turn runs, cancel changes nothing, confirmed it sto
 // openlore: scenario=SendingNowStopsTheStepInProgress spec=queued-prompts
 test("send now while a command runs: the stopped turn ends, and the queued prompt is answered in a new one", async ({ page }) => {
   await page.goto(process.env.PI_E2E_QUEUED_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByRole("combobox").selectOption({ label: "queue-test/queue-test" });
   const before = (await sent()).length;
@@ -262,6 +267,7 @@ test("send now while a command runs: the stopped turn ends, and the queued promp
 
 test("monkey: repeated send-now interrupts deliver each queued batch once and in order", async ({ page }, testInfo) => {
   await page.goto(process.env.PI_E2E_QUEUED_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByRole("combobox").selectOption({ label: "queue-test/queue-test" });
 
@@ -316,6 +322,7 @@ test("monkey: repeated send-now interrupts deliver each queued batch once and in
 
 test("a queued prompt in a long conversation scrolls with it, and never makes the page itself scroll", async ({ page }) => {
   await page.goto(process.env.PI_E2E_QUEUED_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByRole("combobox").selectOption({ label: "queue-test/queue-test" });
   // Long enough that the transcript scrolls: the queued bubble lands far below the window.

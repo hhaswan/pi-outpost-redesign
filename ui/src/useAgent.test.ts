@@ -134,6 +134,12 @@ const outcome = (workspaceRoot = "/a", sessionId = "sess_1") => ({
   ],
 });
 
+/** A refreshed tab: its saved selection names the workspace, so no start screen. */
+function refreshedTab(root: string, id?: string) {
+  readWorkspaceSelection("");
+  sessionStorage.setItem(workspaceSelectionKey(""), JSON.stringify({ root, ...(id ? { id } : {}) }));
+}
+
 describe("acknowledged workspace restoration", () => {
   const main = { root: "/project", name: "project", activity: "idle" };
   const side = { ...main, id: "side-1", name: "side" };
@@ -163,6 +169,7 @@ describe("acknowledged workspace restoration", () => {
 
   it("defers side-session terminal replay until the matching full workspace snapshot, including workspace_starting", () => {
     vi.useFakeTimers();
+    refreshedTab(side.root, side.id);
     try {
       const { result, unmount } = renderHook(() => useAgent());
       act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
@@ -198,6 +205,7 @@ describe("acknowledged workspace restoration", () => {
 
   it.each(["missing", "refused", "cancelled", "timeout", "starting-timeout"])("does not replay old terminals into fallback when restoration is %s", (failure) => {
     vi.useFakeTimers();
+    refreshedTab(side.root, side.id);
     try {
       const { result, unmount } = renderHook(() => useAgent());
       act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
@@ -236,6 +244,7 @@ describe("acknowledged workspace restoration", () => {
   });
 
   it("persists acknowledgements only, not requested selections", () => {
+    refreshedTab(main.root);
     const { result, unmount } = renderHook(() => useAgent());
     act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
     act(() => result.current.switchWorkspace(side.root, side.id));
@@ -247,6 +256,7 @@ describe("acknowledged workspace restoration", () => {
 
   it("uses this tab's memory on reconnect despite changes to the old browser-wide preference; rejects old socket callbacks", () => {
     vi.useFakeTimers();
+    refreshedTab(side.root, side.id);
     try {
       const { result, unmount } = renderHook(() => useAgent());
       act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
@@ -268,6 +278,7 @@ describe("acknowledged workspace restoration", () => {
 
   it("marks a tab disconnected immediately on browser offline, then restores its own workspace", () => {
     vi.useFakeTimers();
+    refreshedTab(side.root, side.id);
     try {
       const { result, unmount } = renderHook(() => useAgent());
       act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
@@ -285,6 +296,7 @@ describe("acknowledged workspace restoration", () => {
 
   it("detects a half-open socket when the server misses a connection probe", () => {
     vi.useFakeTimers();
+    refreshedTab(side.root, side.id);
     try {
       const { result, unmount } = renderHook(() => useAgent());
       act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
@@ -302,6 +314,7 @@ describe("acknowledged workspace restoration", () => {
 
   it("never replays an unacknowledged prompt after a connection drop", () => {
     vi.useFakeTimers();
+    refreshedTab(side.root, side.id);
     try {
       const { result, unmount } = renderHook(() => useAgent());
       act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", side)); });
@@ -641,6 +654,100 @@ describe("connect lifecycle", () => {
 // ---------------------------------------------------------------------------
 // Hello message (session snapshot)
 // ---------------------------------------------------------------------------
+// openlore: spec=multi-project-workspaces
+describe("new tab start screen", () => {
+  const main = { root: "/project", id: "/project", name: "project", activity: "idle" };
+  const beta = { root: "/beta", id: "/beta", name: "beta", activity: "stopped" };
+  const side = { root: "/project", id: "side-1", sideOf: "/project", name: "project · side", activity: "working" };
+  const snapshot = (type = "hello", workspace: object = main, extra: object = {}) => ({
+    type, workspace, workspaces: [main, beta, side], sessionId: `s-${type}`, branding: {}, model: "", thinkingLevel: "off",
+    models: [], commands: [], isStreaming: false, items: [userItem("Old default conversation")], ...extra,
+  });
+  const recent = (path: string, root = main.root, live: object = {}) => ({ path, id: path, firstMessage: path, modified: "2026-01-01T00:00:00Z", root, projectName: root.slice(1), ...live });
+  const stored = () => JSON.parse(sessionStorage.getItem(workspaceSelectionKey("")) ?? "null");
+  const frames = () => mockWs!.sent.map((frame) => JSON.parse(frame));
+  const fresh = () => {
+    const hook = renderHook(() => useAgent());
+    act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+    return hook;
+  };
+
+  it("New tab shows the start screen instead of the default project's conversation", () => {
+    const { result } = fresh();
+    expect(result.current.state.startScreen).toBe(true);
+    expect(frames()).toEqual([{ type: "recent_sessions" }]);
+    // Nothing remembered: a refresh on the start screen comes back to it.
+    expect(stored()).toBeNull();
+    act(() => mockWs!.receive({ type: "recent_sessions", sessions: [recent("a.jsonl")] }));
+    expect(result.current.state.recentSessions?.map((s) => s.path)).toEqual(["a.jsonl"]);
+  });
+
+  it("Start a new chat in another project", () => {
+    const { result } = fresh();
+    act(() => result.current.startChat(beta.root));
+    act(() => result.current.startChat(beta.root));
+    act(() => result.current.startChat(main.root));
+    expect(frames().slice(1)).toEqual([{ type: "switch_workspace", root: beta.root }]);
+    act(() => mockWs!.receive(snapshot("workspace_switched", beta)));
+    // The project's old conversation is never shown: still on the start screen until the new chat lands.
+    expect(result.current.state.startScreen).toBe(true);
+    expect(frames().at(-1)).toEqual({ type: "new_session" });
+    act(() => mockWs!.receive(snapshot("session_replaced", beta, { items: [] })));
+    expect(result.current.state.startScreen).toBe(false);
+    expect(stored()).toEqual({ root: beta.root, id: beta.id });
+  });
+
+  it("Open a recent conversation of the connected project", () => {
+    const { result } = fresh();
+    act(() => result.current.openRecent(recent("/sessions/a.jsonl")));
+    expect(frames().at(-1)).toEqual({ type: "switch_session", path: "/sessions/a.jsonl" });
+    act(() => mockWs!.receive(snapshot("session_replaced", main, { items: [userItem("Chosen")] })));
+    expect(result.current.state.startScreen).toBe(false);
+    expect(result.current.state.items).toEqual([userItem("Chosen")]);
+    expect(stored()).toEqual({ root: main.root, id: main.id });
+  });
+
+  it("Open a recent conversation live in a side session", () => {
+    const { result } = fresh();
+    act(() => result.current.openRecent(recent("/sessions/live.jsonl", main.root, { workspaceId: side.id, activity: "working" })));
+    expect(frames().at(-1)).toEqual({ type: "switch_workspace", root: side.root, id: side.id });
+    act(() => mockWs!.receive(snapshot("workspace_switched", side)));
+    expect(result.current.state.startScreen).toBe(false);
+    expect(frames().some((frame) => frame.type === "switch_session")).toBe(false);
+    expect(stored()).toEqual({ root: side.root, id: side.id });
+  });
+
+  it("A refused choice stays on the start screen", () => {
+    const { result } = fresh();
+    act(() => result.current.openRecent(recent("/sessions/a.jsonl")));
+    act(() => mockWs!.receive({ type: "error", message: "This conversation is open in side" }));
+    expect(result.current.state.startScreen).toBe(true);
+    expect(stored()).toBeNull();
+    act(() => result.current.startChat(beta.root));
+    expect(frames().at(-1)).toEqual({ type: "switch_workspace", root: beta.root });
+  });
+
+  it("A pinned server shows no start screen", () => {
+    const { result } = renderHook(() => useAgent());
+    act(() => { mockWs!.open(); mockWs!.receive(snapshot("hello", main, { workspaceLocked: true })); });
+    expect(result.current.state.startScreen).toBe(false);
+    expect(frames()).toEqual([]);
+  });
+
+  it("A refreshed tab restores directly", () => {
+    refreshedTab(side.root, side.id);
+    const { result } = renderHook(() => useAgent());
+    expect(result.current.state.startScreen).toBe(false);
+    act(() => { mockWs!.open(); mockWs!.receive(snapshot()); });
+    expect(frames()).toEqual([{ type: "switch_workspace", root: side.root, id: side.id }]);
+  });
+
+  it("An embedded widget shows no start screen", () => {
+    const { result } = renderHook(() => useAgent("", undefined, true));
+    expect(result.current.state.startScreen).toBe(false);
+  });
+});
+
 describe("switching projects", () => {
   /** The snapshot a switch answers with, as the server sends it. */
   function switched(root: string) {
@@ -783,6 +890,7 @@ describe("switching projects", () => {
 
   // openlore: scenario=TheLastSwitchWins spec=multi-project-workspaces
   it("asks to come back to the bound project while a switch away is still in flight", async () => {
+    refreshedTab("/srv/beta");
     const { result } = renderHook(() => useAgent());
     act(() => mockWs!.open());
     act(() => mockWs!.receive(switched("/srv/beta")));

@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test as base, type Page } from "@playwright/test";
 import { makeWorkspace, startServer } from "../server/test/harness.mjs";
+import { leaveStartScreen } from "./startScreen";
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "server", "test", "fixtures");
 
@@ -38,6 +39,7 @@ const test = base.extend<{ workspace: Workspace }>({
 
 async function openSearch(page: Page, workspace: Workspace) {
   await page.goto(workspace.url);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByRole("button", { name: "Search in files" }).click();

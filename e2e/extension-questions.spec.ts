@@ -2,6 +2,7 @@ import path from "node:path";
 import { rm } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 import { connect, makeWorkspace, startServer } from "../server/test/harness.mjs";
+import { leaveStartScreen } from "./startScreen";
 
 const extension = `export default pi => {
   const context = Array.from({length: 40}, (_, i) => "Evidence " + (i + 1) + ": compare the original figures before choosing.").join("\\n\\n");
@@ -40,6 +41,7 @@ test.beforeEach(async ({ page }) => {
   client = connect(server.wsUrl());
   await client.waitFor("hello", 30_000);
   await page.goto(server.base);
+  await leaveStartScreen(page);
   await expect(page.getByRole("textbox", { name: /message pi/i })).toBeEnabled();
 });
 

@@ -10,11 +10,13 @@ import { pathToFileURL } from "node:url";
 import { expect, test, type FrameLocator, type Page } from "@playwright/test";
 import { readAllZipEntries } from "@pi-outpost/office/zip.ts";
 import { pageOf, readPage } from "@pi-outpost/posters/format";
+import { leaveStartScreen } from "./startScreen";
 
 const POSTER = path.join("posters", "Class rules.poster.html");
 
 async function openPoster(page: Page, name = "Class rules.poster.html"): Promise<FrameLocator> {
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByText("posters", { exact: true }).click();

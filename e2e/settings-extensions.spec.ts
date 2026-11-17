@@ -11,6 +11,7 @@
  */
 import { expect, test, type WebSocketRoute } from "@playwright/test";
 import type { AgentResourceInventory, AgentResourceRepository } from "@pi-outpost/shared";
+import { leaveStartScreen } from "./startScreen";
 
 const EXTENSIONS_DIR = process.env.PI_E2E_EXTENSIONS_DIR!;
 
@@ -83,6 +84,7 @@ function syntheticInventory(): AgentResourceInventory {
 
 test("an extension directory added through the resource manager is loaded, then can be taken back", async ({ page }) => {
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
 
   await page.getByRole("button", { name: settingsButton }).click();
@@ -128,6 +130,7 @@ test("an extension directory added through the resource manager is loaded, then 
 
 test("a deployment that locks extension paths offers no way to change them", async ({ page }) => {
   await page.goto(process.env.PI_E2E_EXTENSIONS_LOCKED_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
 
   await page.getByRole("button", { name: settingsButton }).click();
@@ -201,6 +204,7 @@ test("repository states stay correlated through rapid actions and changing inven
   });
 
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByRole("button", { name: settingsButton }).click();
   await page.getByRole("button", { name: "Manage agent resources" }).click();

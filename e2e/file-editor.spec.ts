@@ -6,6 +6,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 const SOURCE = "const answer = 42;\n// a comment\nfunction ask() {\n  return answer;\n}\n";
 
@@ -15,6 +16,7 @@ async function openEditor(page: Page, name: string, content = SOURCE) {
   const file = path.join(directory, name);
   await writeFile(file, content);
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByText("editor", { exact: true }).click();
@@ -129,6 +131,7 @@ test("TheSourceIsReadInTheEditor: the source shows as the editor does, and typin
   await mkdir(directory, { recursive: true });
   await writeFile(path.join(directory, "read.ts"), SOURCE);
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByText("editor", { exact: true }).click();
@@ -149,6 +152,7 @@ test("SwitchingViewKeepsTheCurrentMatch: every match marked in the source, the r
   await mkdir(directory, { recursive: true });
   await writeFile(path.join(directory, "find.md"), "# Fox\n\nThe fox, a fox, the last fox.\n");
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByText("editor", { exact: true }).click();
@@ -181,6 +185,7 @@ test("editing from the rendering moves beside it, and done brings the rendering 
   await writeFile(path.join(directory, "rendered.html"), "<h1 id='t'>Rendered page</h1>\n");
   await writeFile(path.join(directory, "rendered.json"), graph);
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByText("editor", { exact: true }).click();

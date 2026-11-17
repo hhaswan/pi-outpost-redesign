@@ -4,9 +4,11 @@
  * the viewer, its sandbox and its Content-Security-Policy only meet there.
  */
 import { expect, test, type Frame, type Page } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 async function openDiagram(page: Page, name: string): Promise<Frame> {
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByText("diagrams", { exact: true }).click();

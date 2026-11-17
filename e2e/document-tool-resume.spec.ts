@@ -7,6 +7,7 @@ import {
   makeWorkspace,
   startServer,
 } from "../server/test/harness.mjs";
+import { leaveStartScreen } from "./startScreen";
 const provider = fileURLToPath(
   new URL(
     "../server/test/fixtures/scripted-tools-provider.mjs",
@@ -59,6 +60,7 @@ test("Reuse the tool after four exchanges and a session reload extracts the pres
       }),
     );
     await page.goto(server.base);
+    await leaveStartScreen(page);
     await expect(page.getByTitle("connected", { exact: true })).toBeVisible();
     const composer = page.getByRole("textbox", { name: /message pi/i });
     async function send(text: string) {

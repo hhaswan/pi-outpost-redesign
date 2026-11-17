@@ -55,6 +55,8 @@ import {
   type WorkspaceActivity,
   type WorkspaceInfo,
   type SessionSummary,
+  type RecentSession,
+  RECENT_SESSION_LIMIT,
   THINKING_LEVELS,
   clampThinkingLevel,
   type ThinkingLevel,
@@ -5508,6 +5510,20 @@ async function refreshSideLabels(root: string): Promise<void> {
   if (changed) announceWorkspaceActivity();
 }
 
+/**
+ * The newest saved conversations across every open project, for a new tab's start
+ * screen. Read from each project's session stores only: a stopped project is not
+ * started to be listed. Side sessions share their project's store, so main sessions suffice.
+ */
+async function recentSessions(): Promise<RecentSession[]> {
+  const perProject = await Promise.all([...workspaces.projects()].map(async (project) =>
+    (await sessionList(project)).map((summary): RecentSession => {
+      const holder = workspaces.sessionsOf(project.root).find((open) => open.started && sameSessionFile(open.agent.snapshot().sessionFile, summary.path));
+      return { ...summary, root: project.root, projectName: path.basename(project.root), ...(holder ? { workspaceId: holder.id, activity: workspaceActivity(holder) } : {}) };
+    })));
+  return perProject.flat().sort((a, b) => b.modified.localeCompare(a.modified)).slice(0, RECENT_SESSION_LIMIT);
+}
+
 async function listSessions(workspace: Workspace, socket: WebSocket): Promise<void> {
   const sessions = await sessionList(workspace);
   if (clients.get(socket) === workspace) send(socket, { type: "sessions", sessions });
@@ -7142,6 +7158,7 @@ const SERVED_WHILE_STARTING = new Set<ClientMessage["type"]>([
   "browse_server_directory",
   "switch_workspace",
   "open_project",
+  "recent_sessions",
 ]);
 
 /** Per project starting its agent: what its clients sent that needs the agent, in order. */
@@ -7455,6 +7472,9 @@ function handleClientMessage(socket: WebSocket, raw: string): void {
       break;
     case "list_sessions":
       listSessions(workspace, socket).catch(reportError);
+      break;
+    case "recent_sessions":
+      recentSessions().then((sessions) => send(socket, { type: "recent_sessions", sessions })).catch(reportError);
       break;
     case "rename_session":
       if (typeof message.path !== "string" || typeof message.name !== "string") return;

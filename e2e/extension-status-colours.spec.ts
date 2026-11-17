@@ -2,6 +2,7 @@ import path from "node:path";
 import { rm } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { makeWorkspace, startServer } from "../server/test/harness.mjs";
+import { leaveStartScreen } from "./startScreen";
 
 test("extension status ANSI styles survive folding, resizing and a fresh update after reload", async ({ page }, testInfo) => {
   const root = await makeWorkspace({
@@ -17,6 +18,7 @@ test("extension status ANSI styles survive folding, resizing and a fresh update 
   try {
     await page.setViewportSize({ width: 1600, height: 900 });
     await page.goto(server.base);
+    await leaveStartScreen(page);
     const composer = page.getByRole("textbox", { name: /message pi/i });
     await expect(composer).toBeEnabled();
     await composer.fill("/status-colours");

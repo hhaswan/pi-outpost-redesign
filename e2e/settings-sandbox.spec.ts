@@ -5,11 +5,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 // openlore: scenario=NewSandboxGovernsTheReplacementSession spec=persistent-runtime-settings
 // openlore: scenario=ReadConfiguredResourceOutsideRoot spec=file
 test("Settings keeps the agent's sandbox and external resource access in sync", async ({ page }) => {
   await page.goto(process.env.PI_E2E_SETTINGS_SANDBOX_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
 
   const root = process.env.PI_E2E_SETTINGS_SANDBOX_ROOT!;

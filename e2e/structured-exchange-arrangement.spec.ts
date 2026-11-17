@@ -7,6 +7,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Frame, type Locator, type Page } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 const DOCUMENT = `${JSON.stringify(
   {
@@ -36,6 +37,7 @@ async function openGraph(page: Page, name: string): Promise<{ file: string; arra
   const file = path.join(directory, name);
   await writeFile(file, DOCUMENT);
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByText("arranged", { exact: true }).click();

@@ -51,6 +51,7 @@ import { GitFileHistory } from "./components/GitFileHistory";
 import { Header } from "./components/Header";
 import { useWorkspaceNotifications } from "./useWorkspaceNotifications";
 import { ServerPathPicker } from "./components/ServerPathPicker";
+import { StartScreen } from "./components/StartScreen";
 import { ModelBar } from "./components/ModelBar";
 import { Onboarding } from "./components/Onboarding";
 import { Sidebar } from "./components/Sidebar";
@@ -202,6 +203,8 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
     closeServerBrowser,
     switchWorkspace,
     openProject,
+    openRecent,
+    startChat,
     closeProject,
     openSideSession,
     checkPiPackages,
@@ -1370,6 +1373,16 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             className={`relative flex-1 overflow-y-auto transition-opacity duration-150 ${state.switching ? "opacity-40" : "opacity-100"} ${analysisOpen ? "md:pr-[26rem]" : state.workPlan && workPlanDisplayedOpen ? "md:pr-[23rem]" : ""}`}
           >
             <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6 md:[@media(max-height:900px)]:pt-3">
+              {/* A new tab: nothing of the project it connected to until the user picks. */}
+              {state.startScreen ? (state.workspace && (
+                <StartScreen
+                  workspaces={state.workspaces.length > 0 ? state.workspaces : [state.workspace]}
+                  recent={state.recentSessions}
+                  onOpenRecent={openRecent}
+                  onStartChat={startChat}
+                  onOpenProject={() => { setProjectPicker(true); browseServerDirectory(""); }}
+                />
+              )) : <>
               {state.items.length === 0 && (
                 <div className="mt-24 text-center text-zinc-500 dark:text-zinc-600">
                   <div className="mb-2 text-4xl">{state.branding.title ?? "π"}</div>
@@ -1528,6 +1541,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
                   onSend={sendQueueNow}
                 />
               )}
+              </>}
 
               {attachmentErrors.map((error, i) => (
                 <div
@@ -1626,7 +1640,7 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
             />
           )}
 
-          <footer className="shrink-0 border-t border-zinc-200 px-4 py-3 dark:border-zinc-800 md:[@media(max-height:900px)]:py-1.5">
+          <footer hidden={state.startScreen} className="shrink-0 border-t border-zinc-200 px-4 py-3 dark:border-zinc-800 md:[@media(max-height:900px)]:py-1.5">
             {(question || grant) && (
               <div className="mx-auto max-w-3xl">
                 {question && <ExtensionDialog key={question.id} request={question} onRespond={respondToDialog} />}

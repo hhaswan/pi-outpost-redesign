@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 test("the thinking slider offers only the levels the model accepts, in order, with no gap stop", async ({ page }) => {
   await page.goto(process.env.PI_E2E_THINKING_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
 
   // The scripted model accepts low, medium and xhigh — no `high`.
@@ -24,6 +26,7 @@ test("the thinking slider offers only the levels the model accepts, in order, wi
 
 test("a model that accepts every level still shows all six stops", async ({ page }) => {
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   const button = page.getByTitle("thinking level");
   if ((await button.count()) === 0) {

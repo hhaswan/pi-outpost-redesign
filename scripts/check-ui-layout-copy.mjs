@@ -48,7 +48,7 @@ try{for(const width of [1280,390]){
   assert.equal(await page.getByRole('button',{name:'Copy code'}).count(),1,'copy button returns to idle after double click');
   assert.deepEqual(errors,[]);console.log(`PASS width ${width}: nothing floats on the phone, Plan in the nav opens a sheet, copy works on insecure HTTP`);await ctx.close();continue;
  }
- await page.getByRole('button',{name:'sessions',exact:true}).click();await page.getByText('Copy fixture',{exact:true}).click();
+ await page.getByRole('button',{name:'sessions',exact:true}).click();await page.getByText('Copy fixture',{exact:true}).first().click();
  const term=page.getByRole('button',{name:'Terminal sessions'});await term.waitFor();
  const apart=(a,c)=>a.x>=c.x+c.width||c.x>=a.x+a.width||a.y>=c.y+c.height||c.y>=a.y+a.height;
  const drawer=page.getByRole('complementary',{name:'Work Plan'});

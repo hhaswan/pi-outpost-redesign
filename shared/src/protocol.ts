@@ -171,6 +171,21 @@ export interface SessionSummary {
 }
 
 /**
+ * One of the newest saved conversations across every open project, for a new
+ * tab's start screen. `workspaceId` and `activity` are present only while the
+ * conversation is live in one of that project's sessions.
+ */
+export interface RecentSession extends SessionSummary {
+  root: string;
+  projectName: string;
+  workspaceId?: string;
+  activity?: WorkspaceActivity;
+}
+
+/** Most rows a `recent_sessions` answer carries. */
+export const RECENT_SESSION_LIMIT = 5;
+
+/**
  * Shortest session-search query worth sending: matching scans every saved
  * transcript server-side, and one letter matches everything anyway. The server
  * enforces it too — this is here so the client doesn't bother asking.
@@ -1219,6 +1234,8 @@ export type ServerMessage =
    */
   | { type: "session_synced"; sessionId: string; items: ChatItem[]; olderItems?: number; sessionName?: string; contextUsage?: ContextUsage }
   | { type: "sessions"; sessions: SessionSummary[] }
+  /** Answer to recent_sessions — sent only to the client that asked. */
+  | { type: "recent_sessions"; sessions: RecentSession[] }
   /** Answer to search_sessions — sent only to the client that asked. */
   | { type: "session_search_results"; requestId: string; query: string; sessions: SessionSummary[] }
   /**
@@ -1687,6 +1704,8 @@ export type ClientMessage =
   | { type: "switch_session"; path: string }
   | { type: "delete_session"; path: string }
   | { type: "list_sessions" }
+  /** The newest saved conversations across every open project, read without starting any. */
+  | { type: "recent_sessions" }
   | { type: "cli_bridge"; requestId: string; operation: import("./cliBridge.ts").CliBridgeOperation }
   | { type: "mcp_management"; requestId: string; operation: import("./mcpManagement.ts").McpManagementOperation }
   /** Set a session's display name (any saved session, live or not). Empty name clears it. */

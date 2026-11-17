@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { randomId } from "./util/randomId";
-import type { CliBridgeOperation, CliBridgeReply, McpManagementOperation, McpManagementReply } from "@pi-outpost/shared";
+import type { CliBridgeOperation, CliBridgeReply, McpManagementOperation, McpManagementReply, RecentSession } from "@pi-outpost/shared";
 import type { LoginEvent, LoginPrompt, OutpostChanges, OutpostUpdateNotice, PiPackageInfo, SandboxGrantDecision, SandboxGrantState, SessionSnapshot } from "@pi-outpost/shared";
 type PiPackageScope = PiPackageInfo["scope"];
 import type { ProjectAppearance, StructuredConformance } from "@pi-outpost/shared/structured-exchange/profile";
@@ -351,6 +351,13 @@ export interface AgentState {
   /** A switch is in flight: the conversation fades rather than emptying. */
   switching: boolean;
   /**
+   * A new tab with no saved selection: show the start screen, not the conversation
+   * of the project this tab happened to connect to, until the user picks one.
+   */
+  startScreen: boolean;
+  /** The start screen's newest conversations across open projects; null until answered. */
+  recentSessions: RecentSession[] | null;
+  /**
    * Bound to a project whose agent is still starting (`workspace_starting`): its files
    * are live, its conversation is not there yet. Cleared by the `workspace_switched` that
    * follows.
@@ -560,6 +567,8 @@ const initialState: AgentState = {
   workspaceLocked: false,
   embedWorkspaceControls: "settings",
   switching: false,
+  startScreen: false,
+  recentSessions: null,
   agentStarting: false,
   authRequired: false,
   brandingReady: false,
@@ -641,6 +650,7 @@ const initialState: AgentState = {
 type Action =
   | { type: "connected" }
   | { type: "workspace_switching" }
+  | { type: "start_screen"; shown: boolean }
   | { type: "pi_package_update_started"; requestId: string; source: string }
   | { type: "pi_package_lookup_started"; requestId: string; name: string; version?: string; scope: PiPackageScope }
   | { type: "pi_package_lookup_closed" }
@@ -799,6 +809,8 @@ function applySnapshot(state: AgentState, message: ServerMessage & { sessionId: 
     // selector on every unconfigured server — the bench caught it, the unit
     // suites could not, since none of them had two projects on a real wire.
     workspaceLocked: message.workspaceLocked === true,
+    // A server pinned to one project offers nothing to choose.
+    ...(message.workspaceLocked === true ? { startScreen: false } : {}),
     // Absent means "settings" for the same reason: the policy narrows what an
     // embed offers, and saying nothing has to mean the interface it always had.
     embedWorkspaceControls: message.embedWorkspaceControls ?? "settings",
@@ -928,6 +940,7 @@ function reduce(state: AgentState, action: Action): AgentState {
   if (action.type === "mcp_management_started") return { ...state, mcpManagement: { ...state.mcpManagement, requestId: action.requestId, loading: true, error: undefined, message: undefined } };
   if (action.type === "connected") return { ...state, connected: true, authRequired: false };
   if (action.type === "workspace_switching") return { ...state, switching: true };
+  if (action.type === "start_screen") return { ...state, startScreen: action.shown };
   if (action.type === "pi_package_update_started") {
     return { ...state, piPackageUpdate: { requestId: action.requestId, source: action.source, status: "pending" } };
   }
@@ -1396,6 +1409,8 @@ function reduce(state: AgentState, action: Action): AgentState {
       return { ...state, mcpManagement: { ...state.mcpManagement, ...message, loading: false, reloadRequired: message.reloadRequired ?? state.mcpManagement.reloadRequired } };
     case "sessions":
       return { ...state, sessions: message.sessions };
+    case "recent_sessions":
+      return { ...state, recentSessions: message.sessions };
     case "session_search_results":
       // Ignore stale answers: the user has typed on since this search was issued
       if (state.sessionSearch?.requestId !== message.requestId) return state;
@@ -2049,7 +2064,17 @@ const WS_CLOSE_UNAUTHORIZED = 4401;
 const REVEAL_REPEAT_MS = 1000;
 
 export function useAgent(serverUrl = "", explicitToken?: string, embedded = false, workspaceRoot?: string) {
-  const [state, dispatch] = useReducer(reduce, initialState);
+  const [state, dispatch] = useReducer(reduce, null, () =>
+    // A refreshed tab has its selection and restores it; only a new one starts here.
+    !embedded && workspaceRoot === undefined && readWorkspaceSelection(serverUrl) === null ? { ...initialState, startScreen: true } : initialState);
+  // While true, nothing this tab is shown is remembered: a refresh on the start screen stays on it.
+  const startPendingRef = useRef(state.startScreen);
+  /**
+   * A start-screen choice in flight: the workspace it switches to (`*`: whichever
+   * answers) and what to send once there. The start screen stays until it lands, so
+   * nothing of the project the tab connected to is shown in between.
+   */
+  const pickRef = useRef<{ key: string; then?: ClientMessage; sent?: boolean } | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const selectionsRef = useRef(new Map<string, WorkspaceSelection | null>());
   // Bumped when the user submits a token on the TokenGate — re-runs the connect effect
@@ -2410,7 +2435,7 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
       let sawHello = false;
       let fallbackWorkspace: WorkspaceSelection | undefined;
       const remember = (workspace: WorkspaceSelection | undefined) => {
-        if (!restoreSelection) return;
+        if (!restoreSelection || startPendingRef.current) return;
         const selection = workspace ? { root: workspace.root, ...(workspace.id !== undefined ? { id: workspace.id } : {}) } : null;
         selectionsRef.current.set(serverUrl, selection);
         writeWorkspaceSelection(serverUrl, selection);
@@ -2491,6 +2516,30 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
           restoringWorkspace = restoreTarget;
           awaitingRestore = true;
         }
+        let picked = false;
+        const pick = pickRef.current;
+        if (message.type === "hello") {
+          // A reconnect binds the server's default again: a choice in flight is lost, offer it anew.
+          if (pick) { pickRef.current = null; startPendingRef.current = true; }
+          if (startPendingRef.current) {
+            if (message.workspaceLocked) startPendingRef.current = false;
+            else socket.send(JSON.stringify({ type: "recent_sessions" }));
+          }
+        } else if (pick) {
+          if (message.type === "workspace_switched" && !pick.sent && (pick.key === "*" || (message.workspace && workspaceKey(message.workspace) === pick.key))) {
+            if (pick.then) {
+              socket.send(JSON.stringify(pick.then));
+              pick.sent = true;
+            } else picked = true;
+          } else if (pick.sent && (message.type === "session_replaced" || message.type === "workspace_switched")) {
+            picked = true;
+          } else if (message.type === "error" || message.type === "workspace_error") {
+            // Refused (a conversation open elsewhere, a project gone): stay on the start screen.
+            pickRef.current = null;
+            startPendingRef.current = true;
+          }
+        }
+        if (picked) pickRef.current = null;
         const snapshot = message.type === "hello" || message.type === "workspace_switched" || message.type === "workspace_starting" || message.type === "session_replaced" || message.type === "update_config_ack" ? message : null;
         let replayTerminals = message.type === "hello" && !awaitingRestore && !restoreNotice;
         if (snapshot) {
@@ -2768,6 +2817,7 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
         }
         // A hello that is about to be switched away from (a side session) shows nothing of its own conversation.
         dispatch({ type: "server", message: restoreTarget && message.type === "hello" ? { ...message, items: [] } : message });
+        if (picked) dispatch({ type: "start_screen", shown: false });
         if (restoreNotice) dispatch({ type: "server", message: { type: "error", message: restoreNotice } });
         if (snapshot && awaitingRestore) dispatch({ type: "workspace_switching" });
         if (restoreTarget) {
@@ -2947,8 +2997,37 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
     };
   }, [sendMessage]);
 
+  /** Leave the start screen for a workspace, then send `then` there (a new chat, a saved conversation). */
+  const choose = (root: string, id: string | undefined, then?: ClientMessage) => {
+    // A second click on the same or another choice is ignored until the first lands.
+    if (pickRef.current || socketRef.current?.readyState !== WebSocket.OPEN) return;
+    startPendingRef.current = false;
+    const key = id ?? root;
+    if (key === boundKey && !state.switching) {
+      if (then) {
+        pickRef.current = { key, then, sent: true };
+        sendMessage(then);
+        return;
+      }
+      const selection = { root, ...(id !== undefined ? { id } : {}) };
+      selectionsRef.current.set(serverUrl, selection);
+      writeWorkspaceSelection(serverUrl, selection);
+      dispatch({ type: "start_screen", shown: false });
+      return;
+    }
+    pickRef.current = { key, ...(then ? { then } : {}) };
+    dispatch({ type: "workspace_switching" });
+    sendMessage({ type: "switch_workspace", root, ...(id !== undefined && id !== root ? { id } : {}) });
+  };
+  const current = state.workspace;
+
   return {
     state,
+    /** Start screen: open a recent conversation where it lives — the session holding it, when live. */
+    openRecent: (session: RecentSession) =>
+      session.workspaceId ? choose(session.root, session.workspaceId) : choose(session.root, undefined, { type: "switch_session", path: session.path }),
+    /** Start screen: a new conversation in an open project. */
+    startChat: (root: string) => choose(root, undefined, { type: "new_session" }),
     /** Read, write and watch one file for a caller that is not the file viewer (a diagram in a reply). */
     fileIo,
     /** Keep the server-derived Outcome fresh only while its drawer is visible. */
@@ -2965,6 +3044,7 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
      * because losing typed text destroys work rather than resetting a view.
      */
     switchWorkspace: (root: string, id?: string) => {
+      if (state.startScreen) return choose(root, id);
       // The project already shown needs no switch — unless one to another project is
       // still in flight: coming back must then be asked for, or the slow one, answering
       // later, takes the view to the project the user just left (the server binds the
@@ -2975,6 +3055,11 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
     },
     /** Open a directory as a project, from the server-side directory picker. */
     openProject: (root: string) => {
+      if (state.startScreen) {
+        if (pickRef.current) return;
+        startPendingRef.current = false;
+        pickRef.current = { key: "*" };
+      }
       dispatch({ type: "workspace_switching" });
       sendMessage({ type: "open_project", root });
     },
@@ -3068,8 +3153,13 @@ export function useAgent(serverUrl = "", explicitToken?: string, embedded = fals
     },
     setModel: (provider: string, id: string) => sendMessage({ type: "set_model", provider, id }),
     setThinking: (level: ThinkingLevel) => sendMessage({ type: "set_thinking", level }),
-    newSession: () => sendMessage({ type: "new_session" }),
+    newSession: () => (state.startScreen && current ? choose(current.root, current.id, { type: "new_session" }) : sendMessage({ type: "new_session" })),
     switchSession: (path: string) => {
+      if (state.startScreen && current) {
+        // The conversation already shown here: switching to it answers nothing, so just reveal it.
+        const already = [...(state.sessions ?? []), ...(state.recentSessions ?? [])].some((session) => session.path === path && session.id === state.sessionId);
+        return choose(current.root, current.id, already ? undefined : { type: "switch_session", path });
+      }
       if (socketRef.current?.readyState !== WebSocket.OPEN) return;
       dispatch({ type: "workspace_switching" });
       sendMessage({ type: "switch_session", path });

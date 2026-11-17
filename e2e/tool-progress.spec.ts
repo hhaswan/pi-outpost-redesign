@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 async function prompt(page: import("@playwright/test").Page, text: string) {
   const composer = page.getByRole("textbox", { name: /message pi/i });
@@ -9,6 +10,7 @@ async function prompt(page: import("@playwright/test").Page, text: string) {
 
 test("a running tool shows a determinate progress bar that advances and then clears", async ({ page }) => {
   await page.goto(process.env.PI_E2E_PROGRESS_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
 
   // The scripted RPC child runs a tool that reports a rising 0..1 fraction —

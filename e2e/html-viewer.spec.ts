@@ -4,9 +4,11 @@
  * that cannot reach the application, checked from inside the page itself.
  */
 import { expect, test, type Page } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 async function openPage(page: Page) {
   await page.goto(process.env.PI_E2E_SERVER_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByTitle("Show files").click();
   await page.getByText("site", { exact: true }).click();

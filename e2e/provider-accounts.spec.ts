@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 test("onboarding account sign-in works without crypto.randomUUID on an HTTP LAN origin", async ({ page }) => {
   await page.addInitScript(() => {
@@ -53,6 +54,7 @@ test("onboarding account buttons toggle the current flow and switch to another p
 
 test("Accounts runs a provider sign-in in the browser, rejects a wrong code, then signs out", async ({ page }) => {
   await page.goto(process.env.PI_E2E_ACCOUNTS_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByText(/^Accounts/).click();
@@ -79,6 +81,7 @@ test("Accounts runs a provider sign-in in the browser, rejects a wrong code, the
 
 test("Accounts can cancel an in-progress sign-in and the row stays signed out", async ({ page }) => {
   await page.goto(process.env.PI_E2E_ACCOUNTS_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByText(/^Accounts/).click();
@@ -93,6 +96,7 @@ test("Accounts can cancel an in-progress sign-in and the row stays signed out", 
 
 test("double-clicking a sign-in action closes only its provider without leaving a cancellation message", async ({ page }) => {
   await page.goto(process.env.PI_E2E_ACCOUNTS_URL!);
+  await leaveStartScreen(page);
   await expect(page.getByTitle("connected")).toBeVisible();
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByText(/^Accounts/).click();

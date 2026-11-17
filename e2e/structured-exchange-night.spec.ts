@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { leaveStartScreen } from "./startScreen";
 
 /** What the browser paints each coloured shape with, beside the colour the figure carries. */
 async function paints(page: Page, selector: string) {
@@ -26,6 +27,7 @@ function luminance(painted: string): number {
 async function openIn(page: Page, theme: "light" | "dark") {
   await page.addInitScript((chosen) => localStorage.setItem("pi-outpost:theme", chosen), theme);
   await page.goto(process.env.PI_E2E_DIAGRAMS_URL!);
+  await leaveStartScreen(page);
 }
 
 const GRAPH = 'svg[aria-label^="Graph of"]';

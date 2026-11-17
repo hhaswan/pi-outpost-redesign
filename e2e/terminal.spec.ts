@@ -2,10 +2,12 @@
  * Playwright E2E test for the integrated interactive web terminal.
  */
 import { expect, test } from "@playwright/test";
+import { leaveStartScreen } from "./startScreen";
 
 test.describe("Integrated Terminal (when disabled by default)", () => {
   test("hides terminal button and disarms shortcut on default server", async ({ page }) => {
     await page.goto(process.env.PI_E2E_SERVER_URL!);
+    await leaveStartScreen(page);
     await expect(page.getByTitle("connected")).toBeVisible();
 
     // The header button should not exist
@@ -20,6 +22,7 @@ test.describe("Integrated Terminal (when disabled by default)", () => {
 test.describe("Integrated Terminal (when enabled via config/flag)", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(process.env.PI_E2E_TERMINAL_URL!);
+    await leaveStartScreen(page);
     await expect(page.getByTitle("connected")).toBeVisible();
   });
 
