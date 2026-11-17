@@ -34,7 +34,7 @@ let server,browser,observer;const errors=[];
 const selection=p=>p.evaluate(()=>{const k=Object.keys(sessionStorage).find(k=>k.startsWith('pi-outpost:workspace:v2:'));return k?JSON.parse(sessionStorage.getItem(k)):null});
 const shows=async(p,text)=>{await p.getByText(text,{exact:true}).first().waitFor({timeout:15000});};
 const lacks=async(p,text)=>assert.equal(await p.getByText(text,{exact:true}).count(),0,`unexpected "${text}"`);
-const openSession=async(p,name)=>{await p.getByRole('button',{name:'sessions',exact:true}).click();await p.getByText(name,{exact:true}).first().click();};
+const openSession=async(p,name)=>{await p.getByRole('button',{name:'sessions',exact:true}).click();await p.getByRole('list',{name:'Saved sessions'}).getByText(name,{exact:true}).first().click();};
 const toProject=async(p,name)=>{await p.getByTitle(/^Project:/).click();await p.getByRole('menuitem').filter({hasText:name}).first().click();await p.getByTitle(new RegExp(`^Project: ${name}`)).waitFor();};
 async function reloadWatched(p,forbid,expect){
  await p.evaluate(f=>sessionStorage.setItem('probe:forbid',JSON.stringify(f)),forbid);
