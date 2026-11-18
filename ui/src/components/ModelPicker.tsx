@@ -17,6 +17,8 @@ export function ModelPicker({ model, models, disabled, onSetModel }: ModelPicker
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  // A press that began inside: the blur it causes on iOS Safari must not close the list.
+  const pressingInside = useRef(false);
   const list = useRef<HTMLUListElement>(null);
   const id = useId();
   const search = query.trim().toLowerCase();
@@ -38,6 +40,7 @@ export function ModelPicker({ model, models, disabled, onSetModel }: ModelPicker
   }
 
   function select(choice: ModelChoice) {
+    pressingInside.current = false;
     if (disabled) return;
     onSetModel(choice.provider, choice.id);
     close(true);
@@ -49,7 +52,8 @@ export function ModelPicker({ model, models, disabled, onSetModel }: ModelPicker
 
   useEffect(() => {
     if (!visible) return;
-    input.current?.focus();
+    // A touch screen would raise its keyboard over the list; type-to-search stays a tap away.
+    if (!window.matchMedia?.("(pointer: coarse)").matches) input.current?.focus();
     function outside(event: PointerEvent) {
       if (root.current && !eventHitsNode(event, root.current)) setOpen(false);
     }
@@ -65,7 +69,14 @@ export function ModelPicker({ model, models, disabled, onSetModel }: ModelPicker
     <div
       ref={root}
       className="relative w-full min-w-0 max-w-full sm:w-auto sm:max-w-64 max-md:w-auto max-md:flex-1"
+      // iOS Safari blurs the search (relatedTarget null) before a tap's click reaches the
+      // option, even with pointerdown prevented: a press that began inside keeps it open.
+      onPointerDownCapture={() => {
+        pressingInside.current = true;
+        window.setTimeout(() => { pressingInside.current = false; }, 800);
+      }}
       onBlur={(event) => {
+        if (pressingInside.current) return;
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) close();
       }}
       onKeyDown={(event) => {

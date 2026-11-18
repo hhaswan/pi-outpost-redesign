@@ -56,6 +56,36 @@ describe("ModelPicker", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("SelectModelWithTouchOnIosSafari: the search blurs before the tap's click arrives", () => {
+    const { open, props } = setup();
+    open();
+    const option = screen.getByRole("option", { name: "openai/org/gpt-5" });
+    // iOS Safari: pointerdown's preventDefault does not keep focus; the input blurs with no
+    // relatedTarget, then the click follows. The pick must survive that blur.
+    fireEvent.pointerDown(option, { pointerType: "touch" });
+    fireEvent.blur(screen.getByRole("combobox", { name: "Search models" }), { relatedTarget: null });
+    fireEvent.click(option);
+    expect(props.onSetModel).toHaveBeenCalledExactlyOnceWith("openai", "org/gpt-5");
+  });
+
+  it("TouchScreenDoesNotRaiseKeyboard: the search is not focused on a coarse pointer", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)", media: query, addEventListener() {}, removeEventListener() {} }));
+    try {
+      const { open } = setup();
+      open();
+      expect(screen.getByRole("combobox", { name: "Search models" })).not.toHaveFocus();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("BlurOutsideStillCloses", () => {
+    const { open, trigger } = setup();
+    open();
+    fireEvent.blur(screen.getByRole("combobox", { name: "Search models" }), { relatedTarget: null });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("DismissModelSearch", () => {
     const { open, trigger, props } = setup();
     open();
