@@ -5,7 +5,9 @@
 # Install as a pre-push hook: ln -sf ../../scripts/check-no-secrets.sh .git/hooks/pre-push
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+# As a pre-push hook git passes <remote> <url>, and the refs on stdin: not a range.
 range="${1:-}"
+[[ "$(basename "$0")" == pre-push || "${2:-}" == *://* || "${2:-}" == *@*:* ]] && range=""
 if [[ -z "$range" ]]; then
   if [[ ! -t 0 ]] && read -r _ local_sha _ remote_sha; then
     # pre-push stdin: <local ref> <local sha> <remote ref> <remote sha>
