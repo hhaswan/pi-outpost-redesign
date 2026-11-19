@@ -355,6 +355,20 @@ capability, and changes in flight live under `openspec/changes/`. A feature is n
 until every applicable `#### Scenario:` is covered by a test that would fail if the
 behaviour broke.
 
+## Publishing without credentials
+
+This fork is public. `scripts/check-no-secrets.sh` scans what a push adds and refuses it when it
+contains a live secret of this host (the server token in the configuration and its backups, the
+TLS private keys, provider keys, Git credentials), a credential-shaped string, or a credential
+file. Test fixtures under `server/test/fixtures/` are allowed. It runs as the pre-push hook:
+
+```bash
+ln -sf ../../scripts/check-no-secrets.sh .git/hooks/pre-push   # once per clone
+bash scripts/check-no-secrets.sh origin/main..HEAD              # by hand
+```
+
+Use `<HOST_IP>` for the LAN address in documentation and RFC 5737 addresses (`192.0.2.x`) in tests.
+
 ## Releasing
 
 A release is a version tag. Pushing `vX.Y.Z` runs
