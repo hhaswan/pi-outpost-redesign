@@ -148,7 +148,8 @@ export class ExtensionUiBridge {
         bridge.emit({ type: "extension_ui_request", id: randomUUID(), method: "setTitle", title });
       },
       async custom() {
-        // Custom TUI components can't run in the browser
+        // Custom TUI components can't run in the browser: say so instead of doing nothing.
+        bridge.emit({ type: "extension_ui_request", id: randomUUID(), method: "notify", message: "This extension view only works in the Pi terminal (CLI).", notifyType: "warning" });
         return undefined;
       },
       pasteToEditor(text: string) {

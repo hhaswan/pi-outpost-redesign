@@ -269,9 +269,11 @@ describe("ExtensionUiBridge", () => {
       assert.equal(sent.length, 0);
     });
 
-    test("custom resolves to undefined (no TUI to render into)", async () => {
-      const { emit } = recorder();
+    test("custom resolves to undefined (no TUI to render into) and tells the user why", async () => {
+      const { emit, sent } = recorder();
       assert.equal(await new ExtensionUiBridge(emit).createContext().custom(), undefined);
+      assert.equal(sent.length, 1);
+      assert.match(JSON.stringify(sent[0]), /only works in the Pi terminal/);
     });
 
     test("semantic theme colours reach setStatus, as used by pi-blackhole", () => {

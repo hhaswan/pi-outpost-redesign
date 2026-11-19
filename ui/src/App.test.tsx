@@ -100,6 +100,7 @@ function agentApi(state: ReturnType<typeof agentState>) {
     rotateToken: vi.fn(),
     createPairingCode: vi.fn(),
     prompt: vi.fn(),
+    manageSubagents: vi.fn(),
     abort: vi.fn(),
     cancelPendingPrompt: vi.fn(),
     setModel: vi.fn(),
@@ -1519,6 +1520,15 @@ describe("App — attachments", () => {
       expect(api.prompt).toHaveBeenCalledWith("continue", undefined);
     },
   );
+
+  it("SlashAgentsOpensTheAgentsPanel: /agents opens the web panel instead of a terminal-only menu", () => {
+    const { api } = mount();
+    const box = within(screen.getByRole("contentinfo")).getByRole("textbox");
+    fireEvent.change(box, { target: { value: "/agents" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(api.prompt).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: /Agents/ })).toBeInTheDocument();
+  });
 
   it("PreserveExplicitAttachmentsWhileBrowsing: selection, refresh and close never replace a manual reference", async () => {
     const state = { fileTree: { "": [{ name: "pinned.md", type: "file" }] } };

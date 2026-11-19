@@ -397,7 +397,7 @@ export function AgentsPanel({ state, models, connected, phone, onRequest, onClos
             <section className={`${CARD} space-y-3`} aria-label="Model and prompt">
               {field("Model", <div className="flex flex-wrap items-center gap-2">
                 <button type="button" className={BUTTON} aria-pressed={value.model === null} onClick={() => set({ model: null })}>Inherit</button>
-                <ModelPicker model={value.model ?? "inherit"} models={models} disabled={locked} onSetModel={(provider, id) => set({ model: `${provider}/${id}` })} />
+                <ModelPicker model={value.model ?? ""} placeholder="Choose a model…" models={models} disabled={locked} onSetModel={(provider, id) => set({ model: `${provider}/${id}` })} />
               </div>)}
               <div className="grid gap-3 sm:grid-cols-2">
                 {field("Thinking", <select aria-label="Thinking" className={INPUT} value={value.thinking ?? ""} onChange={(event) => set({ thinking: event.target.value || null })}>

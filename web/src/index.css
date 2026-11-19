@@ -50,6 +50,20 @@
   color-scheme: dark;
 }
 
+/* Native <select> lists are drawn by the OS (Windows Chrome: a white popup). A transparent
+   select with light text then shows light text on white: give the list real dark colours. */
+:root[data-theme="dark"] select,
+:host([data-theme="dark"]) select {
+  background-color: #18181b;
+}
+:root[data-theme="dark"] select option,
+:root[data-theme="dark"] select optgroup,
+:host([data-theme="dark"]) select option,
+:host([data-theme="dark"]) select optgroup {
+  background-color: #18181b;
+  color: #f4f4f5;
+}
+
 /* Sizing for the widget's shadow host — the standalone app's html/body/#root rule
    below covers the equivalent for a normal page. */
 :host {

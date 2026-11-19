@@ -50,7 +50,23 @@ let server,browser;const errors=[];const results=[];
 try{
  server=await startServer(root,{sandbox:false},{entry:path.resolve('cli/dist/pi-outpost.mjs'),env:{HOME:home,USERPROFILE:home,PI_OFFLINE:'1',ANTHROPIC_API_KEY:'fixture-no-model-calls'}});
  browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH});
- for(const viewport of [{width:1280,height:800},{width:390,height:844,phone:true},{width:1133,height:744,touch:true}]){
+ // /agents in the composer opens the web panel (the package's menu needs a terminal), sending nothing.
+{const context=await browser.newContext({viewport:{width:1280,height:900}});const page=await context.newPage();page.on('pageerror',e=>errors.push(`slash: ${e.message}`));
+ await page.goto(server.base);await leaveStartScreen(page);
+ let prompts=0;page.on('websocket',ws=>ws.on('framesent',f=>{if(String(f.payload).includes('"type":"prompt"'))prompts++;}));
+ const box=page.getByRole('contentinfo').getByRole('textbox');await box.fill('/agents');await box.press('Enter');
+ await page.getByTestId('agents-dialog').getByRole('list',{name:'Agents'}).waitFor();
+ assert.equal(prompts,0,'/agents sent a prompt');await context.close();console.log('PASS /agents opens the web Agents panel');}
+// Dark mode: native <select> lists get real dark colours (Windows draws a white popup behind light text).
+{const context=await browser.newContext({viewport:{width:1280,height:900},colorScheme:'dark'});await context.addInitScript(()=>localStorage.setItem('pi-outpost:theme','dark'));
+ const page=await context.newPage();page.on('pageerror',e=>errors.push(`dark: ${e.message}`));await page.goto(server.base);await leaveStartScreen(page);
+ await (await openMore(page)).getByRole('button',{name:'Agents',exact:true}).click();const panel=page.getByTestId('agents-dialog');
+ await panel.getByRole('button',{name:'+ New agent'}).click();await panel.getByLabel('Agent name').fill('dark-probe');await panel.getByRole('button',{name:'Create',exact:true}).click();
+ await panel.getByRole('heading',{name:'dark-probe',exact:true}).waitFor();
+ for(const label of ['Thinking','Prompt mode']){const c=await panel.getByLabel(label,{exact:true}).evaluate(sel=>{const o=sel.options[1]??sel.options[0];const so=getComputedStyle(sel),oo=getComputedStyle(o);return {sb:so.backgroundColor,ob:oo.backgroundColor,oc:oo.color};});
+  assert.ok(c.sb!=='rgba(0, 0, 0, 0)'&&c.ob!=='rgba(0, 0, 0, 0)'&&c.ob!=='rgb(255, 255, 255)',`dark ${label}: ${JSON.stringify(c)}`);}
+ await panel.getByRole('button',{name:'Delete',exact:true}).click().catch(()=>{});await context.close();console.log('PASS dark mode: Thinking and Prompt mode lists use dark colours');}
+for(const viewport of [{width:1280,height:800},{width:390,height:844,phone:true},{width:1133,height:744,touch:true}]){
   const {width,phone=false,touch=false}=viewport;const coarse=phone||touch;
   const context=await browser.newContext({viewport:{width,height:viewport.height},hasTouch:coarse,isMobile:false});
   const page=await context.newPage();page.on('pageerror',e=>errors.push(`${width}: ${e.message}`));
@@ -78,6 +94,8 @@ try{
   await panel.getByRole('button',{name:'Create',exact:true}).click();
   await panel.getByRole('heading',{name,exact:true}).waitFor();
   await until(()=>read(name),'created file');
+  // An inheriting agent shows a placeholder in its model chip, never a fake model name.
+  assert.equal((await panel.getByRole('button',{name:'Model',exact:true}).innerText()).trim(),'Choose a model…',`${width}: model placeholder`);
 
   const skills=panel.getByRole('list',{name:'Skills'});
   const box=(label)=>skills.getByRole('checkbox',{name:new RegExp(`^${label}`)});

@@ -79,6 +79,13 @@ describe("ModelPicker", () => {
     }
   });
 
+  it("PlaceholderWhenNoModel: an inheriting agent shows a placeholder, not a model name", () => {
+    const { trigger, open } = setup({ model: "", placeholder: "Choose a model…" });
+    expect(trigger).toHaveTextContent("Choose a model…");
+    open();
+    expect(screen.queryByText(/not listed/)).toBeNull();
+  });
+
   it("BlurOutsideStillCloses", () => {
     const { open, trigger } = setup();
     open();

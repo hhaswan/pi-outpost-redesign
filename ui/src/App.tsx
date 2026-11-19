@@ -618,6 +618,12 @@ const App = forwardRef<AppHandle, AppProps>(function App({ serverUrl = "", rootE
   );
 
   function sendPrompt(text: string, images?: WireImage[]) {
+    // pi-subagents' /agents menu lists agents in a terminal-only view (ui.custom) the browser
+    // cannot draw: open the web Agents panel instead.
+    if (!embedded && !images?.length && /^\/agents\s*$/.test(text.trim())) {
+      setAgentsOpen(true);
+      return;
+    }
     prompt(text, images);
     setAttachments([]);
     setAttachmentErrors([]);
