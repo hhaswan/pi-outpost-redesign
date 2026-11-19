@@ -4,6 +4,7 @@
 # Test fixtures under server/test/fixtures/ are allowed (publicly committed, test-only).
 # Install as a pre-push hook: ln -sf ../../scripts/check-no-secrets.sh .git/hooks/pre-push
 set -euo pipefail
+HOME="${HOME:-$(getent passwd "$(id -un)" | cut -d: -f6)}"
 cd "$(git rev-parse --show-toplevel)"
 # As a pre-push hook git passes <remote> <url>, and the refs on stdin: not a range.
 range="${1:-}"
@@ -32,12 +33,15 @@ secrets() {
   [[ -f "$HOME/.git-credentials" ]] && sed -n 's#^https://[^:]*:\([^@]*\)@.*#\1#p' "$HOME/.git-credentials"
   return 0
 }
+# Collected first: a failure inside a process substitution would otherwise pass silently.
+if ! values="$(secrets)"; then echo "check-no-secrets: could not read this host's secrets; refusing" >&2; exit 1; fi
+if [[ -z "$values" ]]; then echo "check-no-secrets: no live secret found to compare against; refusing" >&2; exit 1; fi
 n=0
 while IFS= read -r value; do
   n=$((n + 1))
   [[ ${#value} -lt 16 ]] && continue
   if grep -qF -- "$value" "$diff"; then echo "check-no-secrets: live secret #$n of this host is in $range" >&2; fail=1; fi
-done < <(secrets)
+done <<< "$values"
 
 # 2. Credential-shaped strings outside test fixtures (added lines only).
 if grep -nE '^\+' "$diff" | grep -vE 'not-a-real|fixture-no-model|test-offline|probe-token|https-login-probe' \
